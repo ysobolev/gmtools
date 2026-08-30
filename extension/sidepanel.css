@@ -29,6 +29,8 @@ body {
 }
 
 button,
+input,
+select,
 textarea {
   font: inherit;
 }
@@ -38,6 +40,8 @@ button {
 }
 
 button:focus-visible,
+input:focus-visible,
+select:focus-visible,
 textarea:focus-visible,
 summary:focus-visible {
   outline: 2px solid #efaa87;
@@ -202,11 +206,46 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 78px;
+  min-height: 105px;
   padding: 15px 17px;
   border-bottom: 1px solid #242a35;
   background: rgb(13 16 23 / 88%);
   backdrop-filter: blur(12px);
+}
+
+.chat-brand {
+  min-width: 0;
+}
+
+.chat-brand h1 {
+  font-size: 24px;
+}
+
+.profile-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.profile-control select {
+  width: min(175px, 48vw);
+  min-width: 0;
+  padding: 5px 25px 5px 8px;
+  border: 1px solid #303744;
+  border-radius: 7px;
+  background: #181d27;
+  color: #e9e6df;
+  font-size: 11px;
+}
+
+.profile-control button {
+  border: 0;
+  background: none;
+  color: #d99780;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .connection-menu {
@@ -649,6 +688,10 @@ h1 {
 
   .connection-menu summary {
     font-size: 0;
+  }
+
+  .profile-control select {
+    width: 145px;
   }
 
   .message-list {

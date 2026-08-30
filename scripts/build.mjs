@@ -20,6 +20,7 @@ await Promise.all([
   }),
   build({
     entryPoints: [
+      "src/extension/options.tsx",
       "src/extension/service-worker.ts",
       "src/extension/sidepanel.tsx",
     ],
@@ -45,6 +46,8 @@ await Promise.all([
     banner: generatedBanner,
   }),
   copyFile("src/extension/static/manifest.json", "extension/manifest.json"),
+  copyFile("src/extension/static/options.html", "extension/options.html"),
+  copyFile("src/extension/static/options.css", "extension/options.css"),
   copyFile("src/extension/static/sidepanel.html", "extension/sidepanel.html"),
   copyFile("src/extension/static/sidepanel.css", "extension/sidepanel.css"),
 ]);

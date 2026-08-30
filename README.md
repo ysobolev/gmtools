@@ -35,7 +35,13 @@ client ID or client secret. The issued API key is stored in
 `chrome.storage.session`, is not sent to the side panel or Roll20 content script,
 and is cleared when Chrome exits or the extension is reloaded.
 
-The current model is configured in `src/extension/openrouter-config.ts`.
+Use **Profiles** in the chat header to open the full-page profile editor. Each
+profile selects a game, Roll20 character sheet, and model, with optional custom
+prompt instructions. The first pass includes D&D 5e, Vampire: The Masquerade
+V5, and a custom game option, plus GPT-5.2 and Claude Sonnet 4.6. Profile
+configuration is stored in `chrome.storage.local` and synchronizes with the
+side panel while both are open. Changing or editing the active profile starts a
+new chat.
 
 ## Development
 
@@ -50,11 +56,14 @@ pnpm check
 Authored code lives under `src`:
 
 - `src/extension/sidepanel.tsx` contains the React side-panel interface.
+- `src/extension/options.tsx` contains the full-page profile editor.
 - `src/extension/service-worker.ts` owns OAuth, credentials, and model requests.
 - `src/extension/extension-chat-transport.ts` bridges AI SDK UI streams over a
   Chrome runtime port.
 - `src/extension/openrouter-auth.ts` contains the testable PKCE and response
   parsing helpers.
+- `src/extension/profile-config.ts` defines supported games, sheets, models, and
+  the layered prompt assembled for each profile.
 - `src/protocol.ts` and `src/extension/content-script.ts` implement the encoded
   Roll20 Mod bridge.
 - `src/roll20-mod` contains the Mod implementation and Roll20 global types.

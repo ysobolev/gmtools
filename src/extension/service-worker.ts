@@ -21,9 +21,9 @@ import {
   type OpenRouterKeyInfo,
 } from "./openrouter-auth";
 import {
-  GM_ASSISTANT_INSTRUCTIONS,
-  OPENROUTER_MODEL_ID,
-} from "./openrouter-config";
+  buildProfileInstructions,
+  type AssistantProfile,
+} from "./profile-config";
 import {
   AUTH_CONNECT_REQUEST,
   AUTH_DISCONNECT_REQUEST,
@@ -441,6 +441,7 @@ async function streamChat(
   port: chrome.runtime.Port,
   requestId: string,
   untrustedMessages: unknown,
+  profile: AssistantProfile,
   abortController: AbortController,
 ): Promise<void> {
   const validation = await safeValidateUIMessages<UIMessage>({
@@ -479,8 +480,8 @@ async function streamChat(
     }),
   };
   const result = streamText({
-    model: openrouter(OPENROUTER_MODEL_ID),
-    system: GM_ASSISTANT_INSTRUCTIONS,
+    model: openrouter(profile.modelId),
+    system: buildProfileInstructions(profile),
     messages: await convertToModelMessages(validation.data),
     tools,
     stopWhen: isStepCount(8),
@@ -527,7 +528,13 @@ chrome.runtime.onConnect.addListener((port) => {
     abortController = new AbortController();
     activeChatControllers.add(abortController);
 
-    void streamChat(port, message.requestId, message.messages, abortController)
+    void streamChat(
+      port,
+      message.requestId,
+      message.messages,
+      message.profile,
+      abortController,
+    )
       .catch((error: unknown) => {
         if (abortController?.signal.aborted) {
           postToPort(port, { type: CHAT_COMPLETE, requestId: message.requestId });

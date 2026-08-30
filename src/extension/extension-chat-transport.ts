@@ -1,4 +1,5 @@
 import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
+import type { AssistantProfile } from "./profile-config";
 import {
   CHAT_ABORT,
   CHAT_COMPLETE,
@@ -9,6 +10,8 @@ import {
 } from "./openrouter-protocol";
 
 export class ExtensionChatTransport implements ChatTransport<UIMessage> {
+  constructor(private readonly profile: AssistantProfile) {}
+
   async sendMessages({
     messages,
     abortSignal,
@@ -17,6 +20,7 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
   > {
     const requestId = crypto.randomUUID();
     const port = chrome.runtime.connect({ name: CHAT_PORT_NAME });
+    const profile = this.profile;
 
     return new ReadableStream<UIMessageChunk>({
       start(controller) {
@@ -70,7 +74,12 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
           return;
         }
         abortSignal?.addEventListener("abort", onAbort, { once: true });
-        port.postMessage({ type: CHAT_START, requestId, messages });
+        port.postMessage({
+          type: CHAT_START,
+          requestId,
+          messages,
+          profile,
+        });
       },
     });
   }

@@ -1,4 +1,8 @@
 import type { UIMessage, UIMessageChunk } from "ai";
+import {
+  isAssistantProfile,
+  type AssistantProfile,
+} from "./profile-config";
 
 export const AUTH_STATUS_REQUEST = "GMTOOLS_AUTH_STATUS" as const;
 export const AUTH_CONNECT_REQUEST = "GMTOOLS_AUTH_CONNECT" as const;
@@ -38,6 +42,7 @@ export type ChatPortRequest =
       readonly type: typeof CHAT_START;
       readonly requestId: string;
       readonly messages: UIMessage[];
+      readonly profile: AssistantProfile;
     }
   | {
       readonly type: typeof CHAT_ABORT;
@@ -93,7 +98,11 @@ export function isAuthStateChangedMessage(
 export function isChatPortRequest(value: unknown): value is ChatPortRequest {
   if (!isRecord(value) || typeof value.requestId !== "string") return false;
   if (value.type === CHAT_ABORT) return true;
-  return value.type === CHAT_START && Array.isArray(value.messages);
+  return (
+    value.type === CHAT_START &&
+    Array.isArray(value.messages) &&
+    isAssistantProfile(value.profile)
+  );
 }
 
 export function isChatPortResponse(value: unknown): value is ChatPortResponse {
