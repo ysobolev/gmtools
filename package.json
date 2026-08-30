@@ -1,6 +1,6 @@
 {
   "name": "gmtools",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@9.15.0",
@@ -12,7 +12,16 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.2.7",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@ai-sdk/react": "^4.0.87",
+    "@openrouter/ai-sdk-provider": "^3.0.0",
+    "ai": "^7.0.84",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   }
 }

@@ -7,24 +7,7 @@
     <link rel="stylesheet" href="sidepanel.css" />
   </head>
   <body>
-    <main>
-      <header>
-        <p class="eyebrow">ROLL20 ASSISTANT</p>
-        <h1>GM Tools</h1>
-        <p class="intro">Test the private bridge to your campaign's Mod sandbox.</p>
-      </header>
-
-      <section class="card" aria-labelledby="random-heading">
-        <h2 id="random-heading">Random number</h2>
-        <p class="hint">Ask the Mod script for a value from 1 to 100.</p>
-        <button id="request-button" type="button">Generate</button>
-      </section>
-
-      <section class="result" aria-live="polite" aria-atomic="true">
-        <p id="status" class="status">Ready</p>
-        <output id="number" aria-label="Random number"></output>
-      </section>
-    </main>
-    <script src="sidepanel.js"></script>
+    <div id="root"></div>
+    <script defer src="sidepanel.js"></script>
   </body>
 </html>

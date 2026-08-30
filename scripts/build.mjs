@@ -10,16 +10,29 @@ await mkdir("roll20-mod", { recursive: true });
 
 await Promise.all([
   build({
+    entryPoints: ["src/extension/content-script.ts"],
+    outdir: "extension",
+    bundle: true,
+    format: "iife",
+    platform: "browser",
+    target: "chrome114",
+    banner: generatedBanner,
+  }),
+  build({
     entryPoints: [
-      "src/extension/content-script.ts",
       "src/extension/service-worker.ts",
-      "src/extension/sidepanel.ts",
+      "src/extension/sidepanel.tsx",
     ],
     outdir: "extension",
     bundle: true,
     format: "iife",
     platform: "browser",
     target: "chrome114",
+    jsx: "automatic",
+    define: {
+      "process.env.NODE_ENV": '"production"',
+    },
+    minify: true,
     banner: generatedBanner,
   }),
   build({

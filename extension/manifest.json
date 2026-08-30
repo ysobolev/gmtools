@@ -1,11 +1,14 @@
 {
   "manifest_version": 3,
   "name": "GM Tools for Roll20",
-  "description": "Proof-of-concept GM side panel that talks to a Roll20 Mod script.",
-  "version": "0.1.0",
+  "description": "An AI side-panel assistant for Roll20 game masters.",
+  "version": "0.2.0",
   "minimum_chrome_version": "114",
-  "permissions": ["sidePanel"],
-  "host_permissions": ["https://app.roll20.net/*"],
+  "permissions": ["sidePanel", "identity", "storage"],
+  "host_permissions": [
+    "https://app.roll20.net/*",
+    "https://openrouter.ai/*"
+  ],
   "background": {
     "service_worker": "service-worker.js"
   },

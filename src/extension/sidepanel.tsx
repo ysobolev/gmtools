@@ -1,0 +1,367 @@
+import { useChat } from "@ai-sdk/react";
+import { safeValidateUIMessages, type UIMessage } from "ai";
+import {
+  FormEvent,
+  KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createRoot } from "react-dom/client";
+import { ExtensionChatTransport } from "./extension-chat-transport";
+import { OPENROUTER_MODEL_LABEL } from "./openrouter-config";
+import {
+  AUTH_CONNECT_REQUEST,
+  AUTH_DISCONNECT_REQUEST,
+  AUTH_STATE_CHANGED,
+  AUTH_STATUS_REQUEST,
+  isAuthResponse,
+  isAuthStateChangedMessage,
+  type AuthRequest,
+  type AuthStatus,
+} from "./openrouter-protocol";
+
+const CHAT_HISTORY_STORAGE_KEY = "openRouterChatHistory";
+
+async function sendAuthRequest(message: AuthRequest): Promise<AuthStatus> {
+  const response: unknown = await chrome.runtime.sendMessage(message);
+  if (!isAuthResponse(response)) throw new Error("The extension returned an invalid response.");
+  if (!response.ok) throw new Error(response.error);
+  return response.status;
+}
+
+function textFromMessage(message: UIMessage): string {
+  return message.parts
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("");
+}
+
+function LoginScreen({
+  connecting,
+  error,
+  onConnect,
+}: {
+  readonly connecting: boolean;
+  readonly error: string | null;
+  readonly onConnect: () => void;
+}): React.JSX.Element {
+  return (
+    <main className="login-shell">
+      <section className="brand-block">
+        <p className="eyebrow">ROLL20 ASSISTANT</p>
+        <h1>GM Tools</h1>
+        <p className="intro">
+          A quiet co-pilot for preparation, improvisation, and everything that
+          happens behind the screen.
+        </p>
+      </section>
+
+      <section className="login-card" aria-labelledby="connect-heading">
+        <div className="provider-mark" aria-hidden="true">OR</div>
+        <div>
+          <h2 id="connect-heading">Connect OpenRouter</h2>
+          <p>
+            Sign in with your OpenRouter account to choose and fund the models
+            used by GM Tools.
+          </p>
+        </div>
+        {error ? <p className="error-banner" role="alert">{error}</p> : null}
+        <button
+          className="primary-button"
+          disabled={connecting}
+          onClick={onConnect}
+          type="button"
+        >
+          {connecting ? "Connecting…" : "Connect OpenRouter"}
+        </button>
+        <p className="privacy-note">
+          Your API key stays in browser memory and is cleared when Chrome closes.
+        </p>
+      </section>
+    </main>
+  );
+}
+
+function LoadingScreen(): React.JSX.Element {
+  return (
+    <main className="loading-shell" aria-live="polite">
+      <div className="loading-mark" aria-hidden="true" />
+      <p>Preparing your workspace…</p>
+    </main>
+  );
+}
+
+function ChatScreen({
+  authStatus,
+  onDisconnect,
+}: {
+  readonly authStatus: AuthStatus;
+  readonly onDisconnect: () => Promise<void>;
+}): React.JSX.Element {
+  const transport = useMemo(() => new ExtensionChatTransport(), []);
+  const {
+    messages,
+    sendMessage,
+    regenerate,
+    stop,
+    status,
+    error,
+    clearError,
+    setMessages,
+  } = useChat({ transport, throttle: 40 });
+  const [input, setInput] = useState("");
+  const [historyReady, setHistoryReady] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const busy = status === "submitted" || status === "streaming";
+
+  useEffect(() => {
+    let cancelled = false;
+    void chrome.storage.session
+      .get(CHAT_HISTORY_STORAGE_KEY)
+      .then(async (stored) => {
+        const validation = await safeValidateUIMessages<UIMessage>({
+          messages: stored[CHAT_HISTORY_STORAGE_KEY] ?? [],
+        });
+        if (!cancelled && validation.success) setMessages(validation.data);
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [setMessages]);
+
+  useEffect(() => {
+    if (!historyReady) return;
+    const timeoutId = window.setTimeout(() => {
+      void chrome.storage.session.set({
+        [CHAT_HISTORY_STORAGE_KEY]: messages,
+      });
+    }, 200);
+    return () => window.clearTimeout(timeoutId);
+  }, [historyReady, messages]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: busy ? "auto" : "smooth" });
+  }, [busy, messages]);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
+  }, [input]);
+
+  const submit = useCallback(() => {
+    const text = input.trim();
+    if (!text || busy) return;
+    clearError();
+    setInput("");
+    void sendMessage({ text });
+  }, [busy, clearError, input, sendMessage]);
+
+  const handleSubmit = (event: FormEvent): void => {
+    event.preventDefault();
+    submit();
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      submit();
+    }
+  };
+
+  const clearConversation = (): void => {
+    stop();
+    clearError();
+    setMessages([]);
+    void chrome.storage.session.remove(CHAT_HISTORY_STORAGE_KEY);
+    textareaRef.current?.focus();
+  };
+
+  return (
+    <main className="chat-shell">
+      <header className="chat-header">
+        <div>
+          <p className="eyebrow">ROLL20 ASSISTANT</p>
+          <h1>GM Tools</h1>
+        </div>
+        <details className="connection-menu">
+          <summary aria-label="Open connection menu">
+            <span className="connection-dot" />
+            Connected
+          </summary>
+          <div className="menu-popover">
+            <p className="menu-label">OpenRouter</p>
+            <p className="menu-detail">
+              {authStatus.keyLabel ?? "Session key active"}
+            </p>
+            {typeof authStatus.limitRemaining === "number" ? (
+              <p className="menu-detail">
+                ${authStatus.limitRemaining.toFixed(2)} key limit remaining
+              </p>
+            ) : null}
+            <button type="button" onClick={() => void onDisconnect()}>
+              Disconnect
+            </button>
+          </div>
+        </details>
+      </header>
+
+      <section className="conversation" aria-live="polite">
+        {messages.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-glyph" aria-hidden="true">✦</div>
+            <h2>What does tonight need?</h2>
+            <p>
+              Sketch a scene, improvise an NPC, untangle a plot, or ask for a
+              second opinion.
+            </p>
+          </div>
+        ) : (
+          <div className="message-list">
+            {messages.map((message) => {
+              const text = textFromMessage(message);
+              if (!text) return null;
+              return (
+                <article
+                  className={`message ${message.role}`}
+                  key={message.id}
+                >
+                  <p className="message-author">
+                    {message.role === "user" ? "You" : "GM Tools"}
+                  </p>
+                  <div className="message-text">{text}</div>
+                </article>
+              );
+            })}
+            {status === "submitted" ? (
+              <div className="thinking" aria-label="GM Tools is thinking">
+                <span /><span /><span />
+              </div>
+            ) : null}
+          </div>
+        )}
+        <div ref={endRef} />
+      </section>
+
+      <footer className="composer-area">
+        {error ? (
+          <div className="chat-error" role="alert">
+            <span>{error.message}</span>
+            <button type="button" onClick={() => void regenerate()}>
+              Retry
+            </button>
+          </div>
+        ) : null}
+        <form className="composer" onSubmit={handleSubmit}>
+          <textarea
+            aria-label="Message GM Tools"
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask your GM assistant…"
+            ref={textareaRef}
+            rows={1}
+            value={input}
+          />
+          {busy ? (
+            <button
+              aria-label="Stop generating"
+              className="send-button stop-button"
+              onClick={stop}
+              type="button"
+            >
+              ■
+            </button>
+          ) : (
+            <button
+              aria-label="Send message"
+              className="send-button"
+              disabled={!input.trim()}
+              type="submit"
+            >
+              ↑
+            </button>
+          )}
+        </form>
+        <div className="composer-meta">
+          <span>{OPENROUTER_MODEL_LABEL} via OpenRouter</span>
+          <button type="button" onClick={clearConversation}>
+            Clear chat
+          </button>
+        </div>
+      </footer>
+    </main>
+  );
+}
+
+function App(): React.JSX.Element {
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void sendAuthRequest({ type: AUTH_STATUS_REQUEST })
+      .then((status) => {
+        if (!cancelled) setAuthStatus(status);
+      })
+      .catch((requestError: unknown) => {
+        if (!cancelled) {
+          setAuthStatus({ connected: false });
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Could not read the login state.",
+          );
+        }
+      });
+
+    const handleMessage = (message: unknown): void => {
+      if (isAuthStateChangedMessage(message)) setAuthStatus(message.status);
+    };
+    chrome.runtime.onMessage.addListener(handleMessage);
+    return () => {
+      cancelled = true;
+      chrome.runtime.onMessage.removeListener(handleMessage);
+    };
+  }, []);
+
+  const connect = (): void => {
+    setConnecting(true);
+    setError(null);
+    void sendAuthRequest({ type: AUTH_CONNECT_REQUEST })
+      .then(setAuthStatus)
+      .catch((requestError: unknown) =>
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Could not connect to OpenRouter.",
+        ),
+      )
+      .finally(() => setConnecting(false));
+  };
+
+  const disconnect = async (): Promise<void> => {
+    setError(null);
+    setAuthStatus(await sendAuthRequest({ type: AUTH_DISCONNECT_REQUEST }));
+  };
+
+  if (!authStatus) return <LoadingScreen />;
+  if (!authStatus.connected) {
+    return (
+      <LoginScreen connecting={connecting} error={error} onConnect={connect} />
+    );
+  }
+  return <ChatScreen authStatus={authStatus} onDisconnect={disconnect} />;
+}
+
+const rootElement = document.querySelector<HTMLDivElement>("#root");
+if (!rootElement) throw new Error("Missing side-panel root element.");
+createRoot(rootElement).render(<App />);

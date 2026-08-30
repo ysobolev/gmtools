@@ -1,91 +1,76 @@
-# GM Tools for Roll20 (proof of concept)
+# GM Tools for Roll20
 
-This repository contains a Chrome side-panel extension and a Roll20 Mod script.
-The extension sends a hidden Mod command through Roll20 chat, the Mod sandbox
-generates a random number, and the result appears in the side panel.
+GM Tools is a Chrome side-panel assistant for Roll20 game masters. It connects
+directly to OpenRouter, streams ordinary chat responses in the panel, and keeps
+the user-controlled API key in browser memory for the current Chrome session.
 
-The implementation is written in TypeScript. The checked-in `extension` and
-`roll20-mod` directories contain generated JavaScript that can be installed
-directly.
+The repository also retains the proof-of-concept Roll20 Mod bridge. Its UI is
+temporarily hidden while the assistant chat is developed, but the content
+script, shared protocol, Mod script, and tests remain in place for upcoming tool
+calling.
 
 ## Requirements
 
 - Chrome 114 or newer
-- A Roll20 game whose creator has a Pro subscription (required for Mod scripts)
-- GM access to that game
-
-## Install the Roll20 Mod script
-
-1. Open the Roll20 game's landing page.
-2. Choose **Settings > Mod (API) Scripts**.
-3. Create a new script named `GMToolsPoc`.
-4. Copy the contents of [`roll20-mod/GMToolsPoc.js`](roll20-mod/GMToolsPoc.js)
-   into the editor and save it.
-5. Confirm that the sandbox console prints `GM Tools POC ready`.
+- An OpenRouter account with available credit
+- A Roll20 game whose creator has a Pro subscription when testing the Mod bridge
 
 ## Load the Chrome extension
 
-1. Open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Click **Load unpacked** and select the `extension` directory in this repo.
-4. Open the Roll20 game and reload its virtual tabletop tab.
-5. Click the extension's toolbar icon to open **GM Tools** in the side panel.
-6. Open Roll20's Chat tab, then click **Generate** in the side panel.
+1. Install the development dependencies and build the extension:
 
-The panel should display a value from 1 to 100.
+   ```sh
+   pnpm install
+   pnpm build
+   ```
+
+2. Open `chrome://extensions`.
+3. Enable **Developer mode**.
+4. Click **Load unpacked** and select the `extension` directory.
+5. Click the extension toolbar icon to open **GM Tools** in the side panel.
+6. Click **Connect OpenRouter**, authorize the app, and send a message.
+
+The extension uses OpenRouter's OAuth PKCE flow. It does not require an OAuth
+client ID or client secret. The issued API key is stored in
+`chrome.storage.session`, is not sent to the side panel or Roll20 content script,
+and is cleared when Chrome exits or the extension is reloaded.
+
+The current model is configured in `src/extension/openrouter-config.ts`.
 
 ## Development
-
-Install the development dependencies and build both artifacts:
-
-```sh
-pnpm install
-pnpm build
-```
 
 Useful commands:
 
 ```sh
 pnpm typecheck
 pnpm test
+pnpm check
 ```
 
 Authored code lives under `src`:
 
-- `src/protocol.ts` defines and validates the shared wire protocol.
-- `src/extension` contains the Chrome extension entry points and static assets.
-- `src/roll20-mod` contains the Mod implementation and Roll20 global type
-  declarations.
+- `src/extension/sidepanel.tsx` contains the React side-panel interface.
+- `src/extension/service-worker.ts` owns OAuth, credentials, and model requests.
+- `src/extension/extension-chat-transport.ts` bridges AI SDK UI streams over a
+  Chrome runtime port.
+- `src/extension/openrouter-auth.ts` contains the testable PKCE and response
+  parsing helpers.
+- `src/protocol.ts` and `src/extension/content-script.ts` retain the Roll20 Mod
+  bridge.
+- `src/roll20-mod` contains the Mod implementation and Roll20 global types.
 
-The build bundles each browser entry point for Chrome 114 and produces a single
-ES2018-compatible `roll20-mod/GMToolsPoc.js` file for pasting into Roll20. Do not
-edit generated JavaScript in `extension` or `roll20-mod` directly.
+The checked-in `extension` and `roll20-mod` directories are generated artifacts.
+Do not edit them directly.
 
-## Protocol
+## Retained Roll20 Mod bridge
 
-The content script submits this Roll20 API command through the normal chat UI:
+To load the proof-of-concept Mod script for development:
 
-```text
-!gmtools-poc <request-id>
-```
+1. Open the Roll20 game's landing page.
+2. Choose **Settings > Mod (API) Scripts**.
+3. Create a script named `GMToolsPoc`.
+4. Copy `roll20-mod/GMToolsPoc.js` into the editor and save it.
 
-Roll20 delivers `!` commands to `on('chat:message')` as `type: 'api'` without
-showing them in chat. The Mod script validates that the sender is a GM and sends
-a correlated response as a GM whisper:
-
-```text
-GMTOOLS_RESPONSE:<request-id>:<number>
-```
-
-The response uses Roll20's `noarchive` option. A `MutationObserver` in the
-extension recognizes the marker, removes its message node before the next paint,
-and forwards the parsed result to the side panel.
-
-## POC limitations
-
-- The Roll20 Chat tab must have been opened so its input exists in the page.
-- DOM selectors are necessarily coupled to Roll20's current chat UI and may need
-  adjustment if Roll20 changes its markup.
-- Mutation-observer removal prevents normal display, but the response briefly
-  exists in the DOM before the observer callback runs.
-- Chrome is the only supported browser in this pass.
+The content script still recognizes the private random-number protocol and
+removes marked response whispers with a `MutationObserver`. The chat side panel
+does not currently invoke that protocol.
