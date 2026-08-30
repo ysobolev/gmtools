@@ -471,13 +471,22 @@ h1 {
   font-style: italic;
 }
 
-.thinking {
+.activity-indicator {
   display: flex;
+  align-items: center;
   gap: 4px;
   padding: 4px 0;
+  color: #929ba8;
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
-.thinking span {
+.activity-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.activity-dots span {
   width: 5px;
   height: 5px;
   border-radius: 50%;
@@ -485,11 +494,11 @@ h1 {
   animation: pulse 1.1s infinite ease-in-out;
 }
 
-.thinking span:nth-child(2) {
+.activity-dots span:nth-child(2) {
   animation-delay: 0.14s;
 }
 
-.thinking span:nth-child(3) {
+.activity-dots span:nth-child(3) {
   animation-delay: 0.28s;
 }
 

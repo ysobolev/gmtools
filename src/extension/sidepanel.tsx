@@ -12,6 +12,7 @@ import {
 import { createRoot } from "react-dom/client";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { getChatActivity } from "./chat-activity";
 import {
   applyDisplayTheme,
   DEFAULT_DISPLAY_THEME,
@@ -197,6 +198,7 @@ function ChatScreen({
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const busy = status === "submitted" || status === "streaming";
+  const activity = getChatActivity(status, messages);
 
   useEffect(() => {
     let cancelled = false;
@@ -330,9 +332,15 @@ function ChatScreen({
                 </article>
               );
             })}
-            {status === "submitted" ? (
-              <div className="thinking" aria-label="GM Tools is thinking">
-                <span /><span /><span />
+            {activity ? (
+              <div
+                className={`activity-indicator ${activity.toLowerCase()}`}
+                role="status"
+              >
+                <span>{activity}</span>
+                <span className="activity-dots" aria-hidden="true">
+                  <span /><span /><span />
+                </span>
               </div>
             ) : null}
           </div>
