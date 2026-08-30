@@ -4,10 +4,10 @@ GM Tools is a Chrome side-panel assistant for Roll20 game masters. It connects
 directly to OpenRouter, streams ordinary chat responses in the panel, and keeps
 the user-controlled API key in browser memory for the current Chrome session.
 
-The repository also retains the proof-of-concept Roll20 Mod bridge. Its UI is
-temporarily hidden while the assistant chat is developed, but the content
-script, shared protocol, Mod script, and tests remain in place for upcoming tool
-calling.
+The assistant has one model-visible Roll20 tool, `execute_roll20`, which relays
+JavaScript through a hidden API chat command and executes it in the campaign's
+Mod sandbox. Results and errors return to the model through a private,
+non-archived whisper that the extension removes before display.
 
 ## Requirements
 
@@ -55,22 +55,30 @@ Authored code lives under `src`:
   Chrome runtime port.
 - `src/extension/openrouter-auth.ts` contains the testable PKCE and response
   parsing helpers.
-- `src/protocol.ts` and `src/extension/content-script.ts` retain the Roll20 Mod
-  bridge.
+- `src/protocol.ts` and `src/extension/content-script.ts` implement the encoded
+  Roll20 Mod bridge.
 - `src/roll20-mod` contains the Mod implementation and Roll20 global types.
 
 The checked-in `extension` and `roll20-mod` directories are generated artifacts.
 Do not edit them directly.
 
-## Retained Roll20 Mod bridge
+## Roll20 execution bridge
 
-To load the proof-of-concept Mod script for development:
+To load the Mod script for development:
 
 1. Open the Roll20 game's landing page.
 2. Choose **Settings > Mod (API) Scripts**.
 3. Create a script named `GMToolsPoc`.
 4. Copy `roll20-mod/GMToolsPoc.js` into the editor and save it.
 
-The content script still recognizes the private random-number protocol and
-removes marked response whispers with a `MutationObserver`. The chat side panel
-does not currently invoke that protocol.
+Reload the unpacked extension after each build. Keep the desired Roll20 campaign
+tab focused and its Chat tab available when asking the assistant to inspect or
+modify the game. The worker injects the content-script bridge on demand if an
+already-open Roll20 tab predates the extension reload. For example: “Use Roll20
+to roll a d20 and tell me the result.”
+
+The code supplied to `execute_roll20` is evaluated as a function body with
+access to Roll20 Mod globals. Explicit return values must be JSON-serializable;
+returned promises are awaited. The bridge accepts commands only from a Roll20
+GM. API commands are hidden by Roll20, and marked result whispers use
+`noarchive` and are removed from the live chat DOM by a `MutationObserver`.

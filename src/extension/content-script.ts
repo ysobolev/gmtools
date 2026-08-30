@@ -1,8 +1,8 @@
 import {
   type SendAcknowledgement,
-  formatRandomCommand,
-  isRandomRequestMessage,
-  parseRandomResponseText,
+  formatRoll20ExecuteCommand,
+  isRoll20ExecuteRequestMessage,
+  parseRoll20ExecuteResponseText,
 } from "../protocol";
 
 function findChatControls(): {
@@ -35,7 +35,7 @@ function setNativeValue(input: HTMLTextAreaElement, value: string): void {
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-function sendApiCommand(requestId: string): SendAcknowledgement {
+function sendApiCommand(requestId: string, code: string): SendAcknowledgement {
   const { input, button } = findChatControls();
   if (!input || !button) {
     return { ok: false, error: "Open Roll20's Chat tab and try again." };
@@ -43,7 +43,7 @@ function sendApiCommand(requestId: string): SendAcknowledgement {
 
   const previousValue = input.value;
   try {
-    setNativeValue(input, formatRandomCommand(requestId));
+    setNativeValue(input, formatRoll20ExecuteCommand(requestId, code));
     button.click();
 
     // Roll20 reads the value synchronously from its send-button handler. Restore
@@ -76,7 +76,7 @@ function inspectAddedNode(node: Node): void {
   if (candidates.size === 0) candidates.add(element);
 
   for (const candidate of candidates) {
-    const response = parseRandomResponseText(candidate.textContent ?? "");
+    const response = parseRoll20ExecuteResponseText(candidate.textContent ?? "");
     if (!response) continue;
 
     // MutationObserver callbacks run at the microtask checkpoint, before the
@@ -92,14 +92,21 @@ const chatObserver = new MutationObserver((mutations) => {
   }
 });
 
-chatObserver.observe(document.documentElement, {
-  childList: true,
-  subtree: true,
-});
+const contentScriptScope = globalThis as typeof globalThis & {
+  __gmToolsContentScriptLoaded?: boolean;
+};
 
-chrome.runtime.onMessage.addListener(
-  (message: unknown, _sender, sendResponse): undefined => {
-    if (!isRandomRequestMessage(message)) return;
-    sendResponse(sendApiCommand(message.requestId));
-  },
-);
+if (!contentScriptScope.__gmToolsContentScriptLoaded) {
+  contentScriptScope.__gmToolsContentScriptLoaded = true;
+  chatObserver.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
+
+  chrome.runtime.onMessage.addListener(
+    (message: unknown, _sender, sendResponse): undefined => {
+      if (!isRoll20ExecuteRequestMessage(message)) return;
+      sendResponse(sendApiCommand(message.requestId, message.code));
+    },
+  );
+}

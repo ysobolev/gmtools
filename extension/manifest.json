@@ -4,7 +4,7 @@
   "description": "An AI side-panel assistant for Roll20 game masters.",
   "version": "0.2.0",
   "minimum_chrome_version": "114",
-  "permissions": ["sidePanel", "identity", "storage"],
+  "permissions": ["sidePanel", "identity", "storage", "scripting"],
   "host_permissions": [
     "https://app.roll20.net/*",
     "https://openrouter.ai/*"

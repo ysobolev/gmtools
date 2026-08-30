@@ -9,35 +9,57 @@ const { outputFiles } = await build({
   platform: "node",
   write: false,
 });
-const protocolSource = outputFiles[0].text;
 const protocol = await import(
-  `data:text/javascript;base64,${Buffer.from(protocolSource).toString("base64")}`
+  `data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`
 );
 
-test("formats and parses the random-number protocol", () => {
+test("round-trips JavaScript through the Roll20 command protocol", () => {
   const requestId = "12345678-abcd-4abc-8def-123456789abc";
-  assert.equal(
-    protocol.formatRandomCommand(requestId),
-    `!gmtools-poc ${requestId}`,
-  );
-  assert.equal(
-    protocol.parseRandomCommand(`!gmtools-poc ${requestId}`),
-    requestId,
-  );
+  const code = 'return { message: "Café 🐉", roll: randomInteger(20) };';
+  const command = protocol.formatRoll20ExecuteCommand(requestId, code);
 
-  const wireResponse = protocol.formatRandomResponse(requestId, 42);
-  assert.deepEqual(protocol.parseRandomResponseText(wireResponse), {
-    type: "GMTOOLS_RANDOM_RESPONSE",
+  assert.match(command, /^!gmtools-exec [a-f0-9-]+ [A-Za-z0-9_-]+$/i);
+  assert.deepEqual(protocol.parseRoll20ExecuteCommand(command), {
     requestId,
-    value: 42,
+    code,
   });
 });
 
-test("rejects malformed and out-of-range protocol values", () => {
-  assert.equal(protocol.parseRandomCommand("!gmtools-poc nope"), null);
+test("round-trips successful results and execution errors", () => {
+  const requestId = "12345678-abcd-4abc-8def-123456789abc";
+  const success = { ok: true, result: { name: "Mörk", hp: 7 } };
+  const failure = {
+    ok: false,
+    error: { name: "TypeError", message: "No token selected" },
+  };
+
+  assert.deepEqual(
+    protocol.parseRoll20ExecuteResponseText(
+      protocol.formatRoll20ExecuteResponse(requestId, success),
+    ),
+    {
+      type: "GMTOOLS_ROLL20_EXECUTE_RESPONSE",
+      requestId,
+      outcome: success,
+    },
+  );
+  assert.deepEqual(
+    protocol.parseRoll20ExecuteResponseText(
+      `whisper ${protocol.formatRoll20ExecuteResponse(requestId, failure)}`,
+    )?.outcome,
+    failure,
+  );
+});
+
+test("rejects malformed execution protocol messages", () => {
+  assert.equal(protocol.parseRoll20ExecuteCommand("!gmtools-exec nope bad"), null);
   assert.equal(
-    protocol.parseRandomResponseText("GMTOOLS_RESPONSE:12345678-abcd:101"),
+    protocol.parseRoll20ExecuteResponseText(
+      "GMTOOLS_EXECUTION_RESPONSE:12345678-abcd:not-valid-json",
+    ),
     null,
   );
-  assert.throws(() => protocol.formatRandomResponse("12345678-abcd", 0));
+  assert.throws(() =>
+    protocol.formatRoll20ExecuteCommand("bad", "return 1;"),
+  );
 });

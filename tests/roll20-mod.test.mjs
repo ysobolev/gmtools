@@ -2,11 +2,24 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
+import { build } from "esbuild";
+
+const { outputFiles } = await build({
+  entryPoints: ["src/protocol.ts"],
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  write: false,
+});
+const protocol = await import(
+  `data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`
+);
 
 async function loadMod() {
   const handlers = new Map();
   const sentMessages = [];
   const sandbox = {
+    Function: undefined,
     log() {},
     on(event, callback) {
       handlers.set(event, callback);
@@ -15,8 +28,8 @@ async function loadMod() {
       return playerId === "gm";
     },
     randomInteger(maximum) {
-      assert.equal(maximum, 100);
-      return 42;
+      assert.equal(maximum, 20);
+      return 17;
     },
     sendChat(...args) {
       sentMessages.push(args);
@@ -29,28 +42,76 @@ async function loadMod() {
   return { handlers, sentMessages };
 }
 
-test("the Mod script accepts a GM request and returns a private response", async () => {
-  const { handlers, sentMessages } = await loadMod();
-  handlers.get("chat:message")({
-    type: "api",
-    content: "!gmtools-poc 12345678-abcd",
-    playerid: "gm",
-  });
+function executeMessage(code, playerid = "gm") {
+  const requestId = "12345678-abcd-4abc-8def-123456789abc";
+  return {
+    requestId,
+    message: {
+      type: "api",
+      content: protocol.formatRoll20ExecuteCommand(requestId, code),
+      playerid,
+    },
+  };
+}
 
-  assert.equal(sentMessages.length, 1);
-  const [speakingAs, message, callback, options] = sentMessages[0];
+function readOutcome(sentMessage) {
+  const [speakingAs, message, callback, options] = sentMessage;
   assert.equal(speakingAs, "GM Tools");
-  assert.equal(message, "/w gm GMTOOLS_RESPONSE:12345678-abcd:42");
   assert.equal(callback, null);
   assert.equal(options.noarchive, true);
+  return protocol.parseRoll20ExecuteResponseText(message)?.outcome;
+}
+
+test("the Mod script executes GM code and returns its result privately", async () => {
+  const { handlers, sentMessages } = await loadMod();
+  const { message } = executeMessage(
+    'return { roll: randomInteger(20), text: "Café 🐉" };',
+  );
+  handlers.get("chat:message")(message);
+
+  assert.equal(sentMessages.length, 1);
+  assert.deepEqual(readOutcome(sentMessages[0]), {
+    ok: true,
+    result: { roll: 17, text: "Café 🐉" },
+  });
+});
+
+test("the Mod script awaits promises returned by executed code", async () => {
+  const { handlers, sentMessages } = await loadMod();
+  const { message } = executeMessage('return Promise.resolve({ value: "later" });');
+  handlers.get("chat:message")(message);
+  await Promise.resolve();
+
+  assert.deepEqual(readOutcome(sentMessages[0]), {
+    ok: true,
+    result: { value: "later" },
+  });
+});
+
+test("the Mod script returns execution errors", async () => {
+  const { handlers, sentMessages } = await loadMod();
+  const { message } = executeMessage('throw new TypeError("broken token");');
+  handlers.get("chat:message")(message);
+
+  const outcome = readOutcome(sentMessages[0]);
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.error.name, "TypeError");
+  assert.equal(outcome.error.message, "broken token");
+});
+
+test("the Mod script reports results that cannot survive JSON transport", async () => {
+  const { handlers, sentMessages } = await loadMod();
+  const { message } = executeMessage("return function unavailable() {}; ");
+  handlers.get("chat:message")(message);
+
+  const outcome = readOutcome(sentMessages[0]);
+  assert.equal(outcome.ok, false);
+  assert.match(outcome.error.message, /JSON-serializable/);
 });
 
 test("the Mod script ignores non-GM requests", async () => {
   const { handlers, sentMessages } = await loadMod();
-  handlers.get("chat:message")({
-    type: "api",
-    content: "!gmtools-poc 12345678-abcd",
-    playerid: "player",
-  });
+  const { message } = executeMessage("return 1;", "player");
+  handlers.get("chat:message")(message);
   assert.equal(sentMessages.length, 0);
 });

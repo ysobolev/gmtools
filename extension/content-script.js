@@ -2,40 +2,109 @@
 "use strict";
 (() => {
   // src/protocol.ts
-  var RANDOM_REQUEST_TYPE = "GMTOOLS_RANDOM_REQUEST";
-  var RANDOM_RESPONSE_TYPE = "GMTOOLS_RANDOM_RESPONSE";
-  var RANDOM_COMMAND = "!gmtools-poc";
+  var ROLL20_EXECUTE_REQUEST_TYPE = "GMTOOLS_ROLL20_EXECUTE";
+  var ROLL20_EXECUTE_RESPONSE_TYPE = "GMTOOLS_ROLL20_EXECUTE_RESPONSE";
+  var ROLL20_EXECUTE_COMMAND = "!gmtools-exec";
   var REQUEST_ID_PATTERN = /^[a-f0-9-]{8,64}$/i;
-  var RESPONSE_PATTERN = /GMTOOLS_RESPONSE\s*:\s*([a-f0-9-]{8,64})\s*:\s*(\d{1,3})/i;
+  var RESPONSE_PREFIX = "GMTOOLS_EXECUTION_RESPONSE:";
+  var BASE64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
   function isRecord(value) {
     return typeof value === "object" && value !== null;
   }
   function isValidRequestId(value) {
     return typeof value === "string" && REQUEST_ID_PATTERN.test(value);
   }
-  function isRandomRequestMessage(value) {
-    return isRecord(value) && value.type === RANDOM_REQUEST_TYPE && isValidRequestId(value.requestId);
+  function encodeUtf8(value) {
+    const encoded = encodeURIComponent(value);
+    const bytes = [];
+    for (let index = 0; index < encoded.length; index += 1) {
+      if (encoded[index] === "%") {
+        bytes.push(Number.parseInt(encoded.slice(index + 1, index + 3), 16));
+        index += 2;
+      } else {
+        bytes.push(encoded.charCodeAt(index));
+      }
+    }
+    return bytes;
   }
-  function isRandomResponseMessage(value) {
-    return isRecord(value) && value.type === RANDOM_RESPONSE_TYPE && isValidRequestId(value.requestId) && typeof value.value === "number" && Number.isInteger(value.value) && value.value >= 1 && value.value <= 100;
+  function decodeUtf8(bytes) {
+    const encoded = bytes.map((byte) => `%${byte.toString(16).padStart(2, "0")}`).join("");
+    return decodeURIComponent(encoded);
   }
-  function formatRandomCommand(requestId) {
+  function encodeBase64Url(value) {
+    const bytes = encodeUtf8(value);
+    let encoded = "";
+    for (let index = 0; index < bytes.length; index += 3) {
+      const first = bytes[index] ?? 0;
+      const second = bytes[index + 1] ?? 0;
+      const third = bytes[index + 2] ?? 0;
+      const combined = first << 16 | second << 8 | third;
+      const remaining = bytes.length - index;
+      encoded += BASE64URL_ALPHABET[combined >>> 18 & 63];
+      encoded += BASE64URL_ALPHABET[combined >>> 12 & 63];
+      if (remaining > 1) encoded += BASE64URL_ALPHABET[combined >>> 6 & 63];
+      if (remaining > 2) encoded += BASE64URL_ALPHABET[combined & 63];
+    }
+    return encoded;
+  }
+  function decodeBase64Url(value) {
+    if (!/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) return null;
+    const bytes = [];
+    for (let index = 0; index < value.length; index += 4) {
+      const first = BASE64URL_ALPHABET.indexOf(value[index] ?? "");
+      const second = BASE64URL_ALPHABET.indexOf(value[index + 1] ?? "");
+      const thirdCharacter = value[index + 2];
+      const fourthCharacter = value[index + 3];
+      const third = thirdCharacter ? BASE64URL_ALPHABET.indexOf(thirdCharacter) : 0;
+      const fourth = fourthCharacter ? BASE64URL_ALPHABET.indexOf(fourthCharacter) : 0;
+      if (first < 0 || second < 0 || third < 0 || fourth < 0) return null;
+      const combined = first << 18 | second << 12 | third << 6 | fourth;
+      bytes.push(combined >>> 16 & 255);
+      if (index + 2 < value.length) bytes.push(combined >>> 8 & 255);
+      if (index + 3 < value.length) bytes.push(combined & 255);
+    }
+    try {
+      return decodeUtf8(bytes);
+    } catch {
+      return null;
+    }
+  }
+  function isExecutionError(value) {
+    return isRecord(value) && typeof value.name === "string" && typeof value.message === "string" && (value.stack === void 0 || typeof value.stack === "string");
+  }
+  function isRoll20ExecutionOutcome(value) {
+    return isRecord(value) && (value.ok === true && "result" in value || value.ok === false && isExecutionError(value.error));
+  }
+  function isRoll20ExecuteRequestMessage(value) {
+    return isRecord(value) && value.type === ROLL20_EXECUTE_REQUEST_TYPE && isValidRequestId(value.requestId) && typeof value.code === "string" && value.code.length > 0;
+  }
+  function formatRoll20ExecuteCommand(requestId, code) {
     if (!isValidRequestId(requestId)) {
       throw new Error("Invalid GM Tools request ID.");
     }
-    return `${RANDOM_COMMAND} ${requestId}`;
+    if (!code) throw new Error("Roll20 code cannot be empty.");
+    return `${ROLL20_EXECUTE_COMMAND} ${requestId} ${encodeBase64Url(code)}`;
   }
-  function parseRandomResponseText(content) {
-    const match = content.match(RESPONSE_PATTERN);
+  function parseRoll20ExecuteResponseText(content) {
+    const pattern = new RegExp(
+      `${RESPONSE_PREFIX}([a-f0-9-]{8,64}):([A-Za-z0-9_-]+)`,
+      "i"
+    );
+    const match = content.match(pattern);
     if (!match) return null;
-    const requestId = match[1];
-    const value = Number(match[2]);
-    const response = {
-      type: RANDOM_RESPONSE_TYPE,
-      requestId,
-      value
-    };
-    return isRandomResponseMessage(response) ? response : null;
+    const decoded = decodeBase64Url(match[2]);
+    if (!decoded) return null;
+    try {
+      const outcome = JSON.parse(decoded);
+      if (!isRoll20ExecutionOutcome(outcome)) return null;
+      return {
+        type: ROLL20_EXECUTE_RESPONSE_TYPE,
+        requestId: match[1],
+        outcome
+      };
+    } catch {
+      return null;
+    }
   }
 
   // src/extension/content-script.ts
@@ -58,14 +127,14 @@
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
-  function sendApiCommand(requestId) {
+  function sendApiCommand(requestId, code) {
     const { input, button } = findChatControls();
     if (!input || !button) {
       return { ok: false, error: "Open Roll20's Chat tab and try again." };
     }
     const previousValue = input.value;
     try {
-      setNativeValue(input, formatRandomCommand(requestId));
+      setNativeValue(input, formatRoll20ExecuteCommand(requestId, code));
       button.click();
       setTimeout(() => setNativeValue(input, previousValue), 0);
       return { ok: true };
@@ -86,7 +155,7 @@
     element.querySelectorAll(".message").forEach((message) => candidates.add(message));
     if (candidates.size === 0) candidates.add(element);
     for (const candidate of candidates) {
-      const response = parseRandomResponseText(candidate.textContent ?? "");
+      const response = parseRoll20ExecuteResponseText(candidate.textContent ?? "");
       if (!response) continue;
       (candidate.closest(".message") ?? candidate).remove();
       void chrome.runtime.sendMessage(response).catch(() => void 0);
@@ -97,14 +166,18 @@
       mutation.addedNodes.forEach(inspectAddedNode);
     }
   });
-  chatObserver.observe(document.documentElement, {
-    childList: true,
-    subtree: true
-  });
-  chrome.runtime.onMessage.addListener(
-    (message, _sender, sendResponse) => {
-      if (!isRandomRequestMessage(message)) return;
-      sendResponse(sendApiCommand(message.requestId));
-    }
-  );
+  var contentScriptScope = globalThis;
+  if (!contentScriptScope.__gmToolsContentScriptLoaded) {
+    contentScriptScope.__gmToolsContentScriptLoaded = true;
+    chatObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true
+    });
+    chrome.runtime.onMessage.addListener(
+      (message, _sender, sendResponse) => {
+        if (!isRoll20ExecuteRequestMessage(message)) return;
+        sendResponse(sendApiCommand(message.requestId, message.code));
+      }
+    );
+  }
 })();
