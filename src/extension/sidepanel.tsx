@@ -10,6 +10,8 @@ import {
   useState,
 } from "react";
 import { createRoot } from "react-dom/client";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ExtensionChatTransport } from "./extension-chat-transport";
 import { OPENROUTER_MODEL_LABEL } from "./openrouter-config";
 import {
@@ -24,6 +26,12 @@ import {
 } from "./openrouter-protocol";
 
 const CHAT_HISTORY_STORAGE_KEY = "openRouterChatHistory";
+const markdownComponents: Components = {
+  a: ({ node: _node, ...properties }) => (
+    <a {...properties} rel="noopener noreferrer" target="_blank" />
+  ),
+  img: ({ alt }) => <span className="image-placeholder">[Image: {alt ?? "image"}]</span>,
+};
 
 async function sendAuthRequest(message: AuthRequest): Promise<AuthStatus> {
   const response: unknown = await chrome.runtime.sendMessage(message);
@@ -237,7 +245,18 @@ function ChatScreen({
                   <p className="message-author">
                     {message.role === "user" ? "You" : "GM Tools"}
                   </p>
-                  <div className="message-text">{text}</div>
+                  {message.role === "assistant" ? (
+                    <div className="message-text message-markdown">
+                      <ReactMarkdown
+                        components={markdownComponents}
+                        remarkPlugins={[remarkGfm]}
+                      >
+                        {text}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <div className="message-text">{text}</div>
+                  )}
                 </article>
               );
             })}

@@ -357,7 +357,155 @@ h1 {
   color: #e9e6df;
   font-size: 14px;
   line-height: 1.58;
+}
+
+.message.user .message-text {
   white-space: pre-wrap;
+}
+
+.message-markdown > :first-child {
+  margin-top: 0;
+}
+
+.message-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.message-markdown p,
+.message-markdown ul,
+.message-markdown ol,
+.message-markdown pre,
+.message-markdown blockquote,
+.message-markdown table {
+  margin: 0 0 0.85em;
+}
+
+.message-markdown h1,
+.message-markdown h2,
+.message-markdown h3,
+.message-markdown h4 {
+  margin: 1.15em 0 0.45em;
+  color: #f6eee5;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.message-markdown h1 {
+  font-size: 1.45em;
+}
+
+.message-markdown h2 {
+  font-size: 1.25em;
+}
+
+.message-markdown h3,
+.message-markdown h4 {
+  font-size: 1.08em;
+}
+
+.message-markdown ul,
+.message-markdown ol {
+  padding-left: 1.5em;
+}
+
+.message-markdown li + li {
+  margin-top: 0.3em;
+}
+
+.message-markdown li > p {
+  margin-bottom: 0.35em;
+}
+
+.message-markdown a {
+  color: #efaa87;
+  text-decoration-color: rgb(239 170 135 / 48%);
+  text-underline-offset: 2px;
+}
+
+.message-markdown a:hover {
+  color: #ffc0a5;
+  text-decoration-color: currentcolor;
+}
+
+.message-markdown code {
+  padding: 0.16em 0.35em;
+  border: 1px solid #323946;
+  border-radius: 5px;
+  background: #171b24;
+  color: #f1c47b;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.88em;
+}
+
+.message-markdown pre {
+  overflow-x: auto;
+  padding: 12px;
+  border: 1px solid #303744;
+  border-radius: 9px;
+  background: #11151d;
+  scrollbar-color: #414957 transparent;
+}
+
+.message-markdown pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #e8e4dc;
+  font-size: 12px;
+  white-space: pre;
+}
+
+.message-markdown blockquote {
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid #a65b49;
+  color: #abb3bf;
+}
+
+.message-markdown blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.message-markdown table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border-spacing: 0;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.message-markdown th,
+.message-markdown td {
+  padding: 7px 9px;
+  border: 1px solid #343b48;
+  text-align: left;
+  vertical-align: top;
+}
+
+.message-markdown th {
+  background: #202631;
+  color: #f1ece3;
+}
+
+.message-markdown tr:nth-child(even) td {
+  background: rgb(31 37 48 / 58%);
+}
+
+.message-markdown hr {
+  margin: 1.25em 0;
+  border: 0;
+  border-top: 1px solid #343b48;
+}
+
+.message-markdown input[type="checkbox"] {
+  margin-right: 0.45em;
+  accent-color: #cb5b42;
+}
+
+.image-placeholder {
+  color: #929ba8;
+  font-style: italic;
 }
 
 .thinking {
