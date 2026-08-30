@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "build": "npm run typecheck && node scripts/build.mjs",
+    "build": "pnpm typecheck && node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test tests/*.test.mjs",
-    "check": "npm test"
+    "test": "pnpm build && node --test tests/*.test.mjs",
+    "check": "pnpm test"
   },
   "devDependencies": {
     "@types/chrome": "^0.2.7",

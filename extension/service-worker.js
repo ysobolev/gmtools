@@ -1,4 +1,4 @@
-// Generated from TypeScript by `npm run build`. Do not edit directly.
+// Generated from TypeScript by `pnpm build`. Do not edit directly.
 "use strict";
 (() => {
   // src/extension/service-worker.ts

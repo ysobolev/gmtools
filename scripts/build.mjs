@@ -2,7 +2,7 @@ import { copyFile, mkdir } from "node:fs/promises";
 import { build } from "esbuild";
 
 const generatedBanner = {
-  js: "// Generated from TypeScript by `npm run build`. Do not edit directly.",
+  js: "// Generated from TypeScript by `pnpm build`. Do not edit directly.",
 };
 
 await mkdir("extension", { recursive: true });

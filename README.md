@@ -39,15 +39,15 @@ The panel should display a value from 1 to 100.
 Install the development dependencies and build both artifacts:
 
 ```sh
-npm install
-npm run build
+pnpm install
+pnpm build
 ```
 
 Useful commands:
 
 ```sh
-npm run typecheck
-npm test
+pnpm typecheck
+pnpm test
 ```
 
 Authored code lives under `src`:
