@@ -1,51 +1,38 @@
-// GM Tools proof-of-concept Roll20 Mod script.
-// Install from your game's Settings > Mod (API) Scripts page.
-
-var GMToolsPoc = GMToolsPoc || (function () {
-    'use strict';
-
-    var COMMAND = '!gmtools-poc';
-    var REQUEST_ID_PATTERN = /^[a-f0-9-]{8,64}$/i;
-
-    function handleChatMessage(msg) {
-        if (msg.type !== 'api') {
-            return;
-        }
-
-        var parts = msg.content.trim().split(/\s+/);
-        if (parts[0] !== COMMAND) {
-            return;
-        }
-
-        // Only a GM may use the browser-to-sandbox bridge.
-        if (!playerIsGM(msg.playerid)) {
-            return;
-        }
-
-        var requestId = parts[1];
-        if (parts.length !== 2 || !REQUEST_ID_PATTERN.test(requestId)) {
-            return;
-        }
-
-        var value = randomInteger(100);
-        var response = 'GMTOOLS_RESPONSE:' + requestId + ':' + value;
-
-        // noarchive prevents the response from being stored in the chat archive.
-        // The extension removes this marked GM whisper before the next paint.
-        sendChat('GM Tools', '/w gm ' + response, null, { noarchive: true });
+// Generated from TypeScript by `npm run build`. Do not edit directly.
+"use strict";
+(() => {
+  // src/protocol.ts
+  var RANDOM_COMMAND = "!gmtools-poc";
+  var REQUEST_ID_PATTERN = /^[a-f0-9-]{8,64}$/i;
+  function isValidRequestId(value) {
+    return typeof value === "string" && REQUEST_ID_PATTERN.test(value);
+  }
+  function parseRandomCommand(content) {
+    const parts = content.trim().split(/\s+/);
+    const requestId = parts[1];
+    return parts.length === 2 && parts[0] === RANDOM_COMMAND && isValidRequestId(requestId) ? requestId : null;
+  }
+  function formatRandomResponse(requestId, value) {
+    if (!isValidRequestId(requestId)) {
+      throw new Error("Invalid GM Tools request ID.");
     }
-
-    function registerEventHandlers() {
-        on('chat:message', handleChatMessage);
+    if (!Number.isInteger(value) || value < 1 || value > 100) {
+      throw new Error("Invalid GM Tools random value.");
     }
+    return `GMTOOLS_RESPONSE:${requestId}:${value}`;
+  }
 
-    return {
-        registerEventHandlers: registerEventHandlers
-    };
-}());
-
-on('ready', function () {
-    'use strict';
-    GMToolsPoc.registerEventHandlers();
-    log('GM Tools POC ready');
-});
+  // src/roll20-mod/GMToolsPoc.ts
+  function handleChatMessage(message) {
+    if (message.type !== "api" || !playerIsGM(message.playerid)) return;
+    const requestId = parseRandomCommand(message.content);
+    if (!requestId) return;
+    const value = randomInteger(100);
+    const response = formatRandomResponse(requestId, value);
+    sendChat("GM Tools", `/w gm ${response}`, null, { noarchive: true });
+  }
+  on("ready", () => {
+    on("chat:message", handleChatMessage);
+    log("GM Tools POC ready");
+  });
+})();

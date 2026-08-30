@@ -4,6 +4,10 @@ This repository contains a Chrome side-panel extension and a Roll20 Mod script.
 The extension sends a hidden Mod command through Roll20 chat, the Mod sandbox
 generates a random number, and the result appears in the side panel.
 
+The implementation is written in TypeScript. The checked-in `extension` and
+`roll20-mod` directories contain generated JavaScript that can be installed
+directly.
+
 ## Requirements
 
 - Chrome 114 or newer
@@ -29,6 +33,33 @@ generates a random number, and the result appears in the side panel.
 6. Open Roll20's Chat tab, then click **Generate** in the side panel.
 
 The panel should display a value from 1 to 100.
+
+## Development
+
+Install the development dependencies and build both artifacts:
+
+```sh
+npm install
+npm run build
+```
+
+Useful commands:
+
+```sh
+npm run typecheck
+npm test
+```
+
+Authored code lives under `src`:
+
+- `src/protocol.ts` defines and validates the shared wire protocol.
+- `src/extension` contains the Chrome extension entry points and static assets.
+- `src/roll20-mod` contains the Mod implementation and Roll20 global type
+  declarations.
+
+The build bundles each browser entry point for Chrome 114 and produces a single
+ES2018-compatible `roll20-mod/GMToolsPoc.js` file for pasting into Roll20. Do not
+edit generated JavaScript in `extension` or `roll20-mod` directly.
 
 ## Protocol
 

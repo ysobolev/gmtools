@@ -1,0 +1,17 @@
+{
+  "name": "gmtools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run typecheck && node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "check": "npm test"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.2.7",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}
