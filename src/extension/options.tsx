@@ -1,6 +1,22 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  applyDisplayTheme,
+  DEFAULT_DISPLAY_THEME,
+  DISPLAY_THEME_STORAGE_KEY,
+  isDisplayTheme,
+  type DisplayTheme,
+} from "./display-settings";
+import {
+  AUTH_DISCONNECT_REQUEST,
+  AUTH_PERSISTENCE_REQUEST,
+  AUTH_STATUS_REQUEST,
+  isAuthResponse,
+  isAuthStateChangedMessage,
+  type AuthRequest,
+  type AuthStatus,
+} from "./openrouter-protocol";
+import {
   ACTIVE_PROFILE_STORAGE_KEY,
   createProfile,
   DEFAULT_PROFILE,
@@ -18,9 +34,19 @@ import {
   type SheetAdapterId,
 } from "./profile-config";
 
+type SettingsTab = "profiles" | "display" | "authentication";
 type EditorMode =
   | { readonly kind: "new" }
   | { readonly kind: "edit"; readonly profileId: string };
+
+async function sendAuthRequest(message: AuthRequest): Promise<AuthStatus> {
+  const response: unknown = await chrome.runtime.sendMessage(message);
+  if (!isAuthResponse(response)) {
+    throw new Error("The extension returned an invalid response.");
+  }
+  if (!response.ok) throw new Error(response.error);
+  return response.status;
+}
 
 function profilesEqual(
   left: AssistantProfile,
@@ -36,7 +62,7 @@ function profilesEqual(
   );
 }
 
-function OptionsApp(): React.JSX.Element {
+function ProfilesSettings(): React.JSX.Element {
   const [profiles, setProfiles] = useState<AssistantProfile[] | null>(null);
   const [activeProfileId, setActiveProfileId] = useState("");
   const [mode, setMode] = useState<EditorMode>({
@@ -98,14 +124,17 @@ function OptionsApp(): React.JSX.Element {
     if (!profiles || mode.kind !== "edit") return undefined;
     return profiles.find((profile) => profile.id === mode.profileId);
   }, [mode, profiles]);
-  const dirty = mode.kind === "new" || !savedProfile || !profilesEqual(draft, savedProfile);
+  const dirty =
+    mode.kind === "new" ||
+    !savedProfile ||
+    !profilesEqual(draft, savedProfile);
 
   if (!profiles) {
     return (
-      <main className="loading-shell" aria-live="polite">
+      <div className="section-loading" aria-live="polite">
         <div className="loading-mark" aria-hidden="true" />
         <p>Loading profiles…</p>
-      </main>
+      </div>
     );
   }
 
@@ -152,7 +181,8 @@ function OptionsApp(): React.JSX.Element {
   };
 
   const cancelChanges = (): void => {
-    const profile = savedProfile ??
+    const profile =
+      savedProfile ??
       profiles.find((candidate) => candidate.id === activeProfileId) ??
       profiles[0]!;
     selectProfile(profile);
@@ -181,6 +211,422 @@ function OptionsApp(): React.JSX.Element {
   const isNew = mode.kind === "new";
 
   return (
+    <div className="profile-workspace">
+      <aside className="profile-sidebar">
+        <div className="sidebar-heading">
+          <div>
+            <p className="section-label">Assistant presets</p>
+            <h2>Profiles</h2>
+          </div>
+          <button className="new-button" onClick={beginNewProfile} type="button">
+            <span aria-hidden="true">+</span> New profile
+          </button>
+        </div>
+        <nav className="profile-list" aria-label="Assistant profiles">
+          {profiles.map((profile) => (
+            <button
+              className={
+                mode.kind === "edit" && mode.profileId === profile.id
+                  ? "profile-item selected"
+                  : "profile-item"
+              }
+              key={profile.id}
+              onClick={() => selectProfile(profile)}
+              type="button"
+            >
+              <span className="profile-item-topline">
+                <strong>{profile.name}</strong>
+                {profile.id === activeProfileId ? (
+                  <span className="active-badge">Active</span>
+                ) : null}
+              </span>
+              <span>{getRulesetDefinition(profile.rulesetId).label}</span>
+              <span>{getModelDefinition(profile.modelId).label}</span>
+            </button>
+          ))}
+        </nav>
+        <p className="sidebar-note">
+          Choose the active profile from the GM Tools side panel.
+        </p>
+      </aside>
+
+      <section className="editor-panel">
+        <div className="editor-heading">
+          <div className="editor-status-line">
+            <span className={isNew ? "mode-badge new" : "mode-badge"}>
+              {isNew ? "New profile" : "Editing profile"}
+            </span>
+            {dirty ? <span className="unsaved-badge">Unsaved changes</span> : null}
+          </div>
+          <h2>{isNew ? "Create a profile" : draft.name}</h2>
+          <p>
+            Combine game guidance, character-sheet conventions, and a model
+            into a reusable assistant preset.
+          </p>
+        </div>
+
+        <form className="profile-form" onSubmit={saveProfile}>
+          <div className="form-grid">
+            <label className="field field-wide">
+              <span>Profile name</span>
+              <input
+                autoFocus={isNew}
+                maxLength={80}
+                onChange={(event) => updateDraft({ name: event.target.value })}
+                required
+                value={draft.name}
+              />
+            </label>
+
+            <label className="field">
+              <span>Game</span>
+              <select
+                onChange={(event) =>
+                  changeRuleset(event.target.value as RulesetId)
+                }
+                value={draft.rulesetId}
+              >
+                {RULESETS.map((ruleset) => (
+                  <option key={ruleset.id} value={ruleset.id}>
+                    {ruleset.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field">
+              <span>Character sheet</span>
+              <select
+                onChange={(event) =>
+                  updateDraft({
+                    sheetAdapterId: event.target.value as SheetAdapterId,
+                  })
+                }
+                value={draft.sheetAdapterId}
+              >
+                {sheetsForRuleset(draft.rulesetId).map((sheet) => (
+                  <option key={`${sheet.rulesetId}:${sheet.id}`} value={sheet.id}>
+                    {sheet.label}
+                  </option>
+                ))}
+              </select>
+              <small>
+                {
+                  getSheetAdapterDefinition(
+                    draft.sheetAdapterId,
+                    draft.rulesetId,
+                  ).label
+                } guidance will be included in the system prompt.
+              </small>
+            </label>
+
+            <label className="field field-wide">
+              <span>Model</span>
+              <select
+                onChange={(event) =>
+                  updateDraft({ modelId: event.target.value as ModelId })
+                }
+                value={draft.modelId}
+              >
+                {MODELS.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.label}
+                  </option>
+                ))}
+              </select>
+              <small>{getModelDefinition(draft.modelId).description}</small>
+            </label>
+
+            <label className="field field-wide">
+              <span>
+                {draft.rulesetId === "custom"
+                  ? "Custom prompt"
+                  : "Additional instructions"}
+              </span>
+              <textarea
+                maxLength={8_000}
+                onChange={(event) =>
+                  updateDraft({ additionalInstructions: event.target.value })
+                }
+                placeholder={
+                  draft.rulesetId === "custom"
+                    ? "Describe the game, rules, sheet conventions, and how the assistant should behave."
+                    : "Add campaign conventions or corrections to the built-in guidance."
+                }
+                rows={10}
+                value={draft.additionalInstructions}
+              />
+              <small>
+                {draft.additionalInstructions.length.toLocaleString()} / 8,000 characters
+              </small>
+            </label>
+          </div>
+
+          <div className="form-actions">
+            <div>
+              {!isNew ? (
+                <button
+                  className="danger-button"
+                  disabled={profiles.length <= 1}
+                  onClick={deleteProfile}
+                  type="button"
+                >
+                  Delete profile
+                </button>
+              ) : null}
+            </div>
+            <div className="save-actions">
+              {savedMessage ? (
+                <span className="saved-message" role="status">{savedMessage}</span>
+              ) : null}
+              {dirty ? (
+                <button
+                  className="secondary-button"
+                  onClick={cancelChanges}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              ) : null}
+              <button className="primary-button" disabled={!dirty} type="submit">
+                {isNew ? "Create profile" : "Save changes"}
+              </button>
+            </div>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function DisplaySettings({
+  theme,
+  onChange,
+}: {
+  readonly theme: DisplayTheme;
+  readonly onChange: (theme: DisplayTheme) => void;
+}): React.JSX.Element {
+  const choices: readonly {
+    readonly id: DisplayTheme;
+    readonly label: string;
+    readonly description: string;
+  }[] = [
+    {
+      id: "system",
+      label: "System default",
+      description: "Follow your operating system's light or dark appearance.",
+    },
+    {
+      id: "dark",
+      label: "Force dark mode",
+      description: "Always use the dark GM Tools theme.",
+    },
+    {
+      id: "light",
+      label: "Force light mode",
+      description: "Always use the light GM Tools theme.",
+    },
+  ];
+
+  return (
+    <section className="settings-panel simple-panel">
+      <div className="settings-panel-heading">
+        <p className="section-label">Appearance</p>
+        <h2>Display</h2>
+        <p>Choose how GM Tools appears in the side panel and settings.</p>
+      </div>
+      <fieldset className="choice-group">
+        <legend>Visual style</legend>
+        {choices.map((choice) => (
+          <label className="radio-card" key={choice.id}>
+            <input
+              checked={theme === choice.id}
+              name="display-theme"
+              onChange={() => onChange(choice.id)}
+              type="radio"
+              value={choice.id}
+            />
+            <span>
+              <strong>{choice.label}</strong>
+              <small>{choice.description}</small>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+    </section>
+  );
+}
+
+function AuthenticationSettings({
+  busy,
+  error,
+  onLogout,
+  onPersistenceChange,
+  status,
+}: {
+  readonly busy: boolean;
+  readonly error: string | null;
+  readonly onLogout: () => void;
+  readonly onPersistenceChange: (enabled: boolean) => void;
+  readonly status: AuthStatus | null;
+}): React.JSX.Element {
+  return (
+    <section className="settings-panel simple-panel">
+      <div className="settings-panel-heading">
+        <p className="section-label">OpenRouter</p>
+        <h2>Authentication</h2>
+        <p>Control how your OpenRouter login is retained by this extension.</p>
+      </div>
+
+      <div className="auth-status-card">
+        <div>
+          <span
+            className={status?.connected ? "status-dot connected" : "status-dot"}
+          />
+          <strong>{status?.connected ? "Connected" : "Not connected"}</strong>
+        </div>
+        {status?.keyLabel ? <p>{status.keyLabel}</p> : null}
+        {typeof status?.limitRemaining === "number" ? (
+          <p>${status.limitRemaining.toFixed(2)} key limit remaining</p>
+        ) : null}
+      </div>
+
+      <label className="persistence-card">
+        <input
+          checked={status?.persistent ?? false}
+          disabled={busy || !status}
+          onChange={(event) => onPersistenceChange(event.target.checked)}
+          type="checkbox"
+        />
+        <span>
+          <strong>Keep me signed in on this device</strong>
+          <small>
+            Security risk: stores your OpenRouter credential persistently in
+            your Chrome profile. Anyone or any software with access to that
+            profile may be able to recover it.
+          </small>
+        </span>
+      </label>
+
+      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+
+      <div className="logout-row">
+        <div>
+          <strong>Log out of OpenRouter</strong>
+          <p>
+            Clears the credential from memory and disk and disables persistent
+            login.
+          </p>
+        </div>
+        <button
+          className="danger-button"
+          disabled={busy || !status?.connected}
+          onClick={onLogout}
+          type="button"
+        >
+          {busy ? "Working…" : "Log out"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function OptionsApp(): React.JSX.Element {
+  const [activeTab, setActiveTab] = useState<SettingsTab>("profiles");
+  const [theme, setTheme] = useState<DisplayTheme>(DEFAULT_DISPLAY_THEME);
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void chrome.storage.local.get(DISPLAY_THEME_STORAGE_KEY).then((stored) => {
+      const value = stored[DISPLAY_THEME_STORAGE_KEY];
+      if (isDisplayTheme(value)) setTheme(value);
+    });
+  }, []);
+  useEffect(() => applyDisplayTheme(theme), [theme]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void sendAuthRequest({ type: AUTH_STATUS_REQUEST })
+      .then((status) => {
+        if (!cancelled) setAuthStatus(status);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setAuthError(
+            error instanceof Error
+              ? error.message
+              : "Could not read login state.",
+          );
+        }
+      });
+    const handleMessage = (message: unknown): void => {
+      if (isAuthStateChangedMessage(message)) setAuthStatus(message.status);
+    };
+    chrome.runtime.onMessage.addListener(handleMessage);
+    return () => {
+      cancelled = true;
+      chrome.runtime.onMessage.removeListener(handleMessage);
+    };
+  }, []);
+
+  const changeTheme = (nextTheme: DisplayTheme): void => {
+    setTheme(nextTheme);
+    void chrome.storage.local.set({ [DISPLAY_THEME_STORAGE_KEY]: nextTheme });
+  };
+
+  const changePersistence = (enabled: boolean): void => {
+    setAuthBusy(true);
+    setAuthError(null);
+    void sendAuthRequest({ type: AUTH_PERSISTENCE_REQUEST, enabled })
+      .then(setAuthStatus)
+      .catch((error: unknown) =>
+        setAuthError(
+          error instanceof Error
+            ? error.message
+            : "Could not change credential storage.",
+        ),
+      )
+      .finally(() => setAuthBusy(false));
+  };
+
+  const logout = (): void => {
+    setAuthBusy(true);
+    setAuthError(null);
+    void sendAuthRequest({ type: AUTH_DISCONNECT_REQUEST })
+      .then(setAuthStatus)
+      .catch((error: unknown) =>
+        setAuthError(
+          error instanceof Error ? error.message : "Could not log out.",
+        ),
+      )
+      .finally(() => setAuthBusy(false));
+  };
+
+  const tabs: readonly {
+    readonly id: SettingsTab;
+    readonly label: string;
+    readonly description: string;
+  }[] = [
+    {
+      id: "profiles",
+      label: "Profiles",
+      description: "Games, sheets, and models",
+    },
+    {
+      id: "display",
+      label: "Display",
+      description: "Theme and appearance",
+    },
+    {
+      id: "authentication",
+      label: "Authentication",
+      description: "OpenRouter credentials",
+    },
+  ];
+
+  return (
     <main className="options-shell">
       <header className="options-header">
         <div className="brand-mark" aria-hidden="true">✦</div>
@@ -190,184 +636,43 @@ function OptionsApp(): React.JSX.Element {
         </div>
       </header>
 
-      <div className="options-layout">
-        <aside className="profile-sidebar">
-          <div className="sidebar-heading">
-            <div>
-              <p className="section-label">Assistant presets</p>
-              <h2>Profiles</h2>
-            </div>
-            <button className="new-button" onClick={beginNewProfile} type="button">
-              <span aria-hidden="true">+</span> New profile
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Settings sections">
+          {tabs.map((tab) => (
+            <button
+              aria-current={activeTab === tab.id ? "page" : undefined}
+              className={
+                activeTab === tab.id
+                  ? "settings-tab active"
+                  : "settings-tab"
+              }
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              type="button"
+            >
+              <strong>{tab.label}</strong>
+              <span>{tab.description}</span>
             </button>
+          ))}
+        </nav>
+
+        <div className="settings-content">
+          <div hidden={activeTab !== "profiles"}>
+            <ProfilesSettings />
           </div>
-          <nav className="profile-list" aria-label="Assistant profiles">
-            {profiles.map((profile) => (
-              <button
-                className={
-                  mode.kind === "edit" && mode.profileId === profile.id
-                    ? "profile-item selected"
-                    : "profile-item"
-                }
-                key={profile.id}
-                onClick={() => selectProfile(profile)}
-                type="button"
-              >
-                <span className="profile-item-topline">
-                  <strong>{profile.name}</strong>
-                  {profile.id === activeProfileId ? (
-                    <span className="active-badge">Active</span>
-                  ) : null}
-                </span>
-                <span>{getRulesetDefinition(profile.rulesetId).label}</span>
-                <span>{getModelDefinition(profile.modelId).label}</span>
-              </button>
-            ))}
-          </nav>
-          <p className="sidebar-note">
-            Choose the active profile from the GM Tools side panel.
-          </p>
-        </aside>
-
-        <section className="editor-panel">
-          <div className="editor-heading">
-            <div>
-              <div className="editor-status-line">
-                <span className={isNew ? "mode-badge new" : "mode-badge"}>
-                  {isNew ? "New profile" : "Editing profile"}
-                </span>
-                {dirty ? <span className="unsaved-badge">Unsaved changes</span> : null}
-              </div>
-              <h2>{isNew ? "Create a profile" : draft.name}</h2>
-              <p>
-                Combine game guidance, character-sheet conventions, and a model
-                into a reusable assistant preset.
-              </p>
-            </div>
+          <div hidden={activeTab !== "display"}>
+            <DisplaySettings onChange={changeTheme} theme={theme} />
           </div>
-
-          <form className="profile-form" onSubmit={saveProfile}>
-            <div className="form-grid">
-              <label className="field field-wide">
-                <span>Profile name</span>
-                <input
-                  autoFocus={isNew}
-                  maxLength={80}
-                  onChange={(event) => updateDraft({ name: event.target.value })}
-                  required
-                  value={draft.name}
-                />
-              </label>
-
-              <label className="field">
-                <span>Game</span>
-                <select
-                  onChange={(event) =>
-                    changeRuleset(event.target.value as RulesetId)
-                  }
-                  value={draft.rulesetId}
-                >
-                  {RULESETS.map((ruleset) => (
-                    <option key={ruleset.id} value={ruleset.id}>
-                      {ruleset.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="field">
-                <span>Character sheet</span>
-                <select
-                  onChange={(event) =>
-                    updateDraft({
-                      sheetAdapterId: event.target.value as SheetAdapterId,
-                    })
-                  }
-                  value={draft.sheetAdapterId}
-                >
-                  {sheetsForRuleset(draft.rulesetId).map((sheet) => (
-                    <option key={`${sheet.rulesetId}:${sheet.id}`} value={sheet.id}>
-                      {sheet.label}
-                    </option>
-                  ))}
-                </select>
-                <small>
-                  {
-                    getSheetAdapterDefinition(
-                      draft.sheetAdapterId,
-                      draft.rulesetId,
-                    ).label
-                  } guidance will be included in the system prompt.
-                </small>
-              </label>
-
-              <label className="field field-wide">
-                <span>Model</span>
-                <select
-                  onChange={(event) =>
-                    updateDraft({ modelId: event.target.value as ModelId })
-                  }
-                  value={draft.modelId}
-                >
-                  {MODELS.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.label}
-                    </option>
-                  ))}
-                </select>
-                <small>{getModelDefinition(draft.modelId).description}</small>
-              </label>
-
-              <label className="field field-wide">
-                <span>
-                  {draft.rulesetId === "custom"
-                    ? "Custom prompt"
-                    : "Additional instructions"}
-                </span>
-                <textarea
-                  maxLength={8_000}
-                  onChange={(event) =>
-                    updateDraft({ additionalInstructions: event.target.value })
-                  }
-                  placeholder={
-                    draft.rulesetId === "custom"
-                      ? "Describe the game, rules, sheet conventions, and how the assistant should behave."
-                      : "Add campaign conventions or corrections to the built-in guidance."
-                  }
-                  rows={10}
-                  value={draft.additionalInstructions}
-                />
-                <small>{draft.additionalInstructions.length.toLocaleString()} / 8,000 characters</small>
-              </label>
-            </div>
-
-            <div className="form-actions">
-              <div>
-                {!isNew ? (
-                  <button
-                    className="danger-button"
-                    disabled={profiles.length <= 1}
-                    onClick={deleteProfile}
-                    type="button"
-                  >
-                    Delete profile
-                  </button>
-                ) : null}
-              </div>
-              <div className="save-actions">
-                {savedMessage ? <span className="saved-message" role="status">{savedMessage}</span> : null}
-                {dirty ? (
-                  <button className="secondary-button" onClick={cancelChanges} type="button">
-                    Cancel
-                  </button>
-                ) : null}
-                <button className="primary-button" disabled={!dirty} type="submit">
-                  {isNew ? "Create profile" : "Save changes"}
-                </button>
-              </div>
-            </div>
-          </form>
-        </section>
+          <div hidden={activeTab !== "authentication"}>
+            <AuthenticationSettings
+              busy={authBusy}
+              error={authError}
+              onLogout={logout}
+              onPersistenceChange={changePersistence}
+              status={authStatus}
+            />
+          </div>
+        </div>
       </div>
     </main>
   );

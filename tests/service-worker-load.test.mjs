@@ -5,12 +5,32 @@ import vm from "node:vm";
 
 test("the generated service worker starts without browser-global errors", async () => {
   const listeners = new Map();
+  const localData = {
+    openRouterPersistAuth: true,
+    openRouterApiKey: "sk-or-v1-persisted-test-key",
+    openRouterUserId: "user-1",
+  };
+  const sessionData = {};
+  const getStored = (data, keys) => {
+    const requested = typeof keys === "string" ? [keys] : keys;
+    return Object.fromEntries(
+      requested
+        .filter((key) => key in data)
+        .map((key) => [key, data[key]]),
+    );
+  };
+  const removeStored = (data, keys) => {
+    for (const key of typeof keys === "string" ? [keys] : keys) {
+      delete data[key];
+    }
+  };
   const event = (name) => ({
     addListener(listener) {
-      listeners.set(name, listener);
+      listeners.set(name, [...(listeners.get(name) ?? []), listener]);
     },
   });
-  let storageRestricted = false;
+  let sessionStorageRestricted = false;
+  let localStorageRestricted = false;
   const sandbox = {
     AbortController,
     Blob,
@@ -32,6 +52,7 @@ test("the generated service worker starts without browser-global errors", async 
     chrome: {
       identity: {},
       runtime: {
+        id: "extension-id",
         getURL: (path) => `chrome-extension://extension-id/${path}`,
         onConnect: event("connect"),
         onInstalled: event("installed"),
@@ -43,10 +64,22 @@ test("the generated service worker starts without browser-global errors", async 
         setPanelBehavior: async () => undefined,
       },
       storage: {
-        session: {
+        local: {
+          get: async (keys) => getStored(localData, keys),
+          remove: async (keys) => removeStored(localData, keys),
+          set: async (values) => Object.assign(localData, values),
           setAccessLevel: async ({ accessLevel }) => {
             assert.equal(accessLevel, "TRUSTED_CONTEXTS");
-            storageRestricted = true;
+            localStorageRestricted = true;
+          },
+        },
+        session: {
+          get: async (keys) => getStored(sessionData, keys),
+          remove: async (keys) => removeStored(sessionData, keys),
+          set: async (values) => Object.assign(sessionData, values),
+          setAccessLevel: async ({ accessLevel }) => {
+            assert.equal(accessLevel, "TRUSTED_CONTEXTS");
+            sessionStorageRestricted = true;
           },
         },
       },
@@ -60,9 +93,52 @@ test("the generated service worker starts without browser-global errors", async 
 
   const source = await readFile("extension/service-worker.js", "utf8");
   vm.runInNewContext(source, sandbox);
-  await Promise.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(storageRestricted, true);
-  assert.equal(typeof listeners.get("message"), "function");
-  assert.equal(typeof listeners.get("connect"), "function");
+  assert.equal(sessionStorageRestricted, true);
+  assert.equal(localStorageRestricted, true);
+  assert.equal(sessionData.openRouterApiKey, localData.openRouterApiKey);
+  assert.ok(listeners.get("message")?.length > 0);
+  assert.ok(listeners.get("connect")?.length > 0);
+
+  const optionsSender = {
+    id: "extension-id",
+    origin: "chrome-extension://extension-id",
+    tab: { id: 42 },
+  };
+  const statusResponse = await new Promise((resolve) => {
+    for (const listener of listeners.get("message")) {
+      listener({ type: "GMTOOLS_AUTH_STATUS" }, optionsSender, resolve);
+    }
+  });
+  assert.equal(statusResponse.ok, true);
+  assert.equal(statusResponse.status.connected, true);
+  assert.equal(statusResponse.status.persistent, true);
+
+  const logoutResponse = await new Promise((resolve) => {
+    const message = { type: "GMTOOLS_AUTH_DISCONNECT" };
+    for (const listener of listeners.get("message")) {
+      listener(message, optionsSender, resolve);
+    }
+  });
+  assert.equal(logoutResponse.ok, true);
+  assert.equal(logoutResponse.status.connected, false);
+  assert.equal(logoutResponse.status.persistent, false);
+  assert.equal("openRouterApiKey" in sessionData, false);
+  assert.equal("openRouterApiKey" in localData, false);
+  assert.equal("openRouterPersistAuth" in localData, false);
+
+  const contentScriptHandled = listeners.get("message").some((listener) =>
+    listener(
+      { type: "GMTOOLS_AUTH_STATUS" },
+      {
+        id: "extension-id",
+        origin: "https://app.roll20.net",
+        tab: { id: 7 },
+        url: "https://app.roll20.net/editor/123",
+      },
+      () => undefined,
+    ) === true,
+  );
+  assert.equal(contentScriptHandled, false);
 });

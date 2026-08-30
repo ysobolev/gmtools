@@ -248,78 +248,11 @@ h1 {
   font-weight: 700;
 }
 
-.connection-menu {
-  position: relative;
-}
-
-.connection-menu summary {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 9px;
-  border: 1px solid #303744;
-  border-radius: 999px;
-  color: #abb3bf;
-  cursor: pointer;
-  font-size: 11px;
-  list-style: none;
-}
-
-.connection-menu summary::-webkit-details-marker {
-  display: none;
-}
-
-.connection-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #67b985;
-  box-shadow: 0 0 0 3px rgb(103 185 133 / 12%);
-}
-
-.menu-popover {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 216px;
-  padding: 14px;
-  border: 1px solid #303744;
-  border-radius: 11px;
-  background: #181d27;
-  box-shadow: 0 18px 44px rgb(0 0 0 / 40%);
-}
-
-.menu-label {
-  margin-bottom: 4px;
-  font-size: 12px;
-  font-weight: 750;
-}
-
-.menu-detail {
-  margin-bottom: 5px;
-  overflow: hidden;
-  color: #939ca9;
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.menu-popover button,
 .composer-meta button,
 .chat-error button {
   border: 0;
   background: none;
   cursor: pointer;
-}
-
-.menu-popover button {
-  width: 100%;
-  margin-top: 10px;
-  padding: 8px;
-  border-radius: 7px;
-  background: #292f3b;
-  color: #f1c1b5;
-  font-size: 12px;
 }
 
 .conversation {
@@ -681,13 +614,109 @@ h1 {
   color: #f2b39f;
 }
 
+:root[data-theme="light"] {
+  color-scheme: light;
+  background: #f5f2ec;
+  color: #25242a;
+}
+
+:root[data-theme="light"] body {
+  background:
+    radial-gradient(circle at 90% 0%, rgb(194 93 68 / 11%), transparent 34%),
+    #f5f2ec;
+}
+
+:root[data-theme="light"] .loading-shell,
+:root[data-theme="light"] .intro,
+:root[data-theme="light"] .login-card p,
+:root[data-theme="light"] .empty-state p,
+:root[data-theme="light"] .composer-meta {
+  color: #747178;
+}
+
+:root[data-theme="light"] .login-card {
+  border-color: #d9d3ca;
+  background: rgb(255 253 249 / 94%);
+  box-shadow: 0 20px 48px rgb(75 57 44 / 12%);
+}
+
+:root[data-theme="light"] .provider-mark {
+  border-color: #d8cfc5;
+  background: #f7f2eb;
+  color: #a84836;
+}
+
+:root[data-theme="light"] .chat-header,
+:root[data-theme="light"] .composer-area {
+  border-color: #ddd7ce;
+  background: rgb(250 248 244 / 92%);
+}
+
+:root[data-theme="light"] .profile-control select,
+:root[data-theme="light"] .composer {
+  border-color: #d4cec5;
+  background: #fffdfa;
+  color: #343137;
+}
+
+:root[data-theme="light"] .message.user {
+  border-color: #d4cec5;
+  background: #e9e4dd;
+}
+
+:root[data-theme="light"] .message-text,
+:root[data-theme="light"] .message-markdown h1,
+:root[data-theme="light"] .message-markdown h2,
+:root[data-theme="light"] .message-markdown h3,
+:root[data-theme="light"] .message-markdown h4 {
+  color: #302e33;
+}
+
+:root[data-theme="light"] .message-markdown code {
+  border-color: #d8d1c8;
+  background: #eee9e2;
+  color: #8b541e;
+}
+
+:root[data-theme="light"] .message-markdown pre {
+  border-color: #d4cec5;
+  background: #f2eee8;
+}
+
+:root[data-theme="light"] .message-markdown pre code {
+  color: #37343a;
+}
+
+:root[data-theme="light"] .message-markdown blockquote {
+  color: #656168;
+}
+
+:root[data-theme="light"] .message-markdown th,
+:root[data-theme="light"] .message-markdown td {
+  border-color: #d4cec5;
+}
+
+:root[data-theme="light"] .message-markdown th,
+:root[data-theme="light"] .message-markdown tr:nth-child(even) td {
+  background: #ede8e1;
+  color: #343137;
+}
+
+:root[data-theme="light"] .composer textarea {
+  color: #302e33;
+}
+
+:root[data-theme="light"] .composer textarea::placeholder {
+  color: #908c92;
+}
+
+:root[data-theme="light"] .composer-meta button {
+  color: #6f6b72;
+}
+
 @media (max-width: 330px) {
   .chat-header {
     padding-inline: 13px;
-  }
-
-  .connection-menu summary {
-    font-size: 0;
   }
 
   .profile-control select {

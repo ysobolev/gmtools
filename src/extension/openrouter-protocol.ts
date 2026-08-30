@@ -7,6 +7,7 @@ import {
 export const AUTH_STATUS_REQUEST = "GMTOOLS_AUTH_STATUS" as const;
 export const AUTH_CONNECT_REQUEST = "GMTOOLS_AUTH_CONNECT" as const;
 export const AUTH_DISCONNECT_REQUEST = "GMTOOLS_AUTH_DISCONNECT" as const;
+export const AUTH_PERSISTENCE_REQUEST = "GMTOOLS_AUTH_PERSISTENCE" as const;
 export const AUTH_STATE_CHANGED = "GMTOOLS_AUTH_STATE_CHANGED" as const;
 
 export const CHAT_PORT_NAME = "GMTOOLS_OPENROUTER_CHAT" as const;
@@ -18,6 +19,7 @@ export const CHAT_ERROR = "GMTOOLS_CHAT_ERROR" as const;
 
 export interface AuthStatus {
   readonly connected: boolean;
+  readonly persistent: boolean;
   readonly userId?: string;
   readonly keyLabel?: string;
   readonly limitRemaining?: number | null;
@@ -26,7 +28,11 @@ export interface AuthStatus {
 export type AuthRequest =
   | { readonly type: typeof AUTH_STATUS_REQUEST }
   | { readonly type: typeof AUTH_CONNECT_REQUEST }
-  | { readonly type: typeof AUTH_DISCONNECT_REQUEST };
+  | { readonly type: typeof AUTH_DISCONNECT_REQUEST }
+  | {
+      readonly type: typeof AUTH_PERSISTENCE_REQUEST;
+      readonly enabled: boolean;
+    };
 
 export type AuthResponse =
   | { readonly ok: true; readonly status: AuthStatus }
@@ -74,14 +80,20 @@ export function isAuthRequest(value: unknown): value is AuthRequest {
   return (
     value.type === AUTH_STATUS_REQUEST ||
     value.type === AUTH_CONNECT_REQUEST ||
-    value.type === AUTH_DISCONNECT_REQUEST
+    value.type === AUTH_DISCONNECT_REQUEST ||
+    (value.type === AUTH_PERSISTENCE_REQUEST &&
+      typeof value.enabled === "boolean")
   );
 }
 
 export function isAuthResponse(value: unknown): value is AuthResponse {
   if (!isRecord(value) || typeof value.ok !== "boolean") return false;
   if (!value.ok) return typeof value.error === "string";
-  return isRecord(value.status) && typeof value.status.connected === "boolean";
+  return (
+    isRecord(value.status) &&
+    typeof value.status.connected === "boolean" &&
+    typeof value.status.persistent === "boolean"
+  );
 }
 
 export function isAuthStateChangedMessage(
@@ -91,7 +103,8 @@ export function isAuthStateChangedMessage(
     isRecord(value) &&
     value.type === AUTH_STATE_CHANGED &&
     isRecord(value.status) &&
-    typeof value.status.connected === "boolean"
+    typeof value.status.connected === "boolean" &&
+    typeof value.status.persistent === "boolean"
   );
 }
 

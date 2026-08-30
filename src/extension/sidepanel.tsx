@@ -12,6 +12,13 @@ import {
 import { createRoot } from "react-dom/client";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import {
+  applyDisplayTheme,
+  DEFAULT_DISPLAY_THEME,
+  DISPLAY_THEME_STORAGE_KEY,
+  isDisplayTheme,
+  type DisplayTheme,
+} from "./display-settings";
 import { ExtensionChatTransport } from "./extension-chat-transport";
 import {
   ACTIVE_PROFILE_STORAGE_KEY,
@@ -23,7 +30,6 @@ import {
 } from "./profile-config";
 import {
   AUTH_CONNECT_REQUEST,
-  AUTH_DISCONNECT_REQUEST,
   AUTH_STATE_CHANGED,
   AUTH_STATUS_REQUEST,
   isAuthResponse,
@@ -77,6 +83,34 @@ function textFromMessage(message: UIMessage): string {
     .join("");
 }
 
+function useDisplayTheme(): void {
+  const [theme, setTheme] = useState<DisplayTheme>(DEFAULT_DISPLAY_THEME);
+
+  useEffect(() => {
+    void chrome.storage.local.get(DISPLAY_THEME_STORAGE_KEY).then((stored) => {
+      const value = stored[DISPLAY_THEME_STORAGE_KEY];
+      if (isDisplayTheme(value)) setTheme(value);
+    });
+    const handleStorageChange = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string,
+    ): void => {
+      if (
+        areaName !== "local" ||
+        !(DISPLAY_THEME_STORAGE_KEY in changes)
+      ) {
+        return;
+      }
+      const value = changes[DISPLAY_THEME_STORAGE_KEY]?.newValue;
+      setTheme(isDisplayTheme(value) ? value : DEFAULT_DISPLAY_THEME);
+    };
+    chrome.storage.onChanged.addListener(handleStorageChange);
+    return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+  }, []);
+
+  useEffect(() => applyDisplayTheme(theme), [theme]);
+}
+
 function LoginScreen({
   connecting,
   error,
@@ -116,7 +150,8 @@ function LoginScreen({
           {connecting ? "Connecting…" : "Connect OpenRouter"}
         </button>
         <p className="privacy-note">
-          Your API key stays in browser memory and is cleared when Chrome closes.
+          Credentials stay in browser memory unless you enable persistent login
+          in Settings.
         </p>
       </section>
     </main>
@@ -134,17 +169,13 @@ function LoadingScreen(): React.JSX.Element {
 
 function ChatScreen({
   activeProfile,
-  authStatus,
   onManageProfiles,
   onSelectProfile,
-  onDisconnect,
   profiles,
 }: {
   readonly activeProfile: AssistantProfile;
-  readonly authStatus: AuthStatus;
   readonly onManageProfiles: () => void;
   readonly onSelectProfile: (profileId: string) => void;
-  readonly onDisconnect: () => Promise<void>;
   readonly profiles: readonly AssistantProfile[];
 }): React.JSX.Element {
   const transport = useMemo(
@@ -259,30 +290,10 @@ function ChatScreen({
               ))}
             </select>
             <button type="button" onClick={onManageProfiles}>
-              Profiles
+              Settings
             </button>
           </div>
         </div>
-        <details className="connection-menu">
-          <summary aria-label="Open connection menu">
-            <span className="connection-dot" />
-            Connected
-          </summary>
-          <div className="menu-popover">
-            <p className="menu-label">OpenRouter</p>
-            <p className="menu-detail">
-              {authStatus.keyLabel ?? "Session key active"}
-            </p>
-            {typeof authStatus.limitRemaining === "number" ? (
-              <p className="menu-detail">
-                ${authStatus.limitRemaining.toFixed(2)} key limit remaining
-              </p>
-            ) : null}
-            <button type="button" onClick={() => void onDisconnect()}>
-              Disconnect
-            </button>
-          </div>
-        </details>
       </header>
 
       <section className="conversation" aria-live="polite">
@@ -385,13 +396,7 @@ function ChatScreen({
   );
 }
 
-function ChatWorkspace({
-  authStatus,
-  onDisconnect,
-}: {
-  readonly authStatus: AuthStatus;
-  readonly onDisconnect: () => Promise<void>;
-}): React.JSX.Element {
+function ChatWorkspace(): React.JSX.Element {
   const [profiles, setProfiles] = useState<AssistantProfile[] | null>(null);
   const [activeProfileId, setActiveProfileId] = useState("");
   const [chatRevision, setChatRevision] = useState(0);
@@ -487,9 +492,7 @@ function ChatWorkspace({
   return (
     <ChatScreen
       activeProfile={activeProfile}
-      authStatus={authStatus}
       key={`${activeProfile.id}:${chatRevision}`}
-      onDisconnect={onDisconnect}
       onManageProfiles={() => void chrome.runtime.openOptionsPage()}
       onSelectProfile={selectProfile}
       profiles={profiles}
@@ -498,6 +501,7 @@ function ChatWorkspace({
 }
 
 function App(): React.JSX.Element {
+  useDisplayTheme();
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -510,7 +514,7 @@ function App(): React.JSX.Element {
       })
       .catch((requestError: unknown) => {
         if (!cancelled) {
-          setAuthStatus({ connected: false });
+          setAuthStatus({ connected: false, persistent: false });
           setError(
             requestError instanceof Error
               ? requestError.message
@@ -544,18 +548,13 @@ function App(): React.JSX.Element {
       .finally(() => setConnecting(false));
   };
 
-  const disconnect = async (): Promise<void> => {
-    setError(null);
-    setAuthStatus(await sendAuthRequest({ type: AUTH_DISCONNECT_REQUEST }));
-  };
-
   if (!authStatus) return <LoadingScreen />;
   if (!authStatus.connected) {
     return (
       <LoginScreen connecting={connecting} error={error} onConnect={connect} />
     );
   }
-  return <ChatWorkspace authStatus={authStatus} onDisconnect={disconnect} />;
+  return <ChatWorkspace />;
 }
 
 const rootElement = document.querySelector<HTMLDivElement>("#root");

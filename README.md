@@ -2,7 +2,7 @@
 
 GM Tools is a Chrome side-panel assistant for Roll20 game masters. It connects
 directly to OpenRouter, streams ordinary chat responses in the panel, and keeps
-the user-controlled API key in browser memory for the current Chrome session.
+the user-controlled API key in browser memory by default.
 
 The assistant has one model-visible Roll20 tool, `execute_roll20`, which relays
 JavaScript through a hidden API chat command and executes it in the campaign's
@@ -33,7 +33,15 @@ non-archived whisper that the extension removes before display.
 The extension uses OpenRouter's OAuth PKCE flow. It does not require an OAuth
 client ID or client secret. The issued API key is stored in
 `chrome.storage.session`, is not sent to the side panel or Roll20 content script,
-and is cleared when Chrome exits or the extension is reloaded.
+and is cleared when Chrome exits or the extension is reloaded. Users may opt
+into persistent login from **Settings > Authentication**; this stores the key
+in `chrome.storage.local`, which is not a credential vault, and is explicitly
+labeled as a security risk. Logging out clears both session and persistent
+credential storage.
+
+**Settings > Display** can follow the operating-system theme or force light or
+dark mode. The default is the system theme, and changes apply to both the full
+settings page and side panel.
 
 Use **Profiles** in the chat header to open the full-page profile editor. Each
 profile selects a game, Roll20 character sheet, and model, with optional custom

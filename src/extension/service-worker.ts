@@ -27,6 +27,7 @@ import {
 import {
   AUTH_CONNECT_REQUEST,
   AUTH_DISCONNECT_REQUEST,
+  AUTH_PERSISTENCE_REQUEST,
   AUTH_STATE_CHANGED,
   CHAT_ABORT,
   CHAT_CHUNK,
@@ -51,6 +52,12 @@ import {
 const API_KEY_STORAGE_KEY = "openRouterApiKey";
 const USER_ID_STORAGE_KEY = "openRouterUserId";
 const KEY_INFO_STORAGE_KEY = "openRouterKeyInfo";
+const PERSIST_AUTH_STORAGE_KEY = "openRouterPersistAuth";
+const AUTH_STORAGE_KEYS = [
+  API_KEY_STORAGE_KEY,
+  USER_ID_STORAGE_KEY,
+  KEY_INFO_STORAGE_KEY,
+] as const;
 const ROLL20_EDITOR_URL_PREFIX = "https://app.roll20.net/editor/";
 const ROLL20_EXECUTION_TIMEOUT_MS = 45_000;
 const MAX_ROLL20_CODE_LENGTH = 20_000;
@@ -78,39 +85,79 @@ function enableActionClick(): void {
   void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 }
 
-function restrictSessionStorage(): void {
+function restrictExtensionStorage(): void {
   void chrome.storage.session.setAccessLevel({
+    accessLevel: "TRUSTED_CONTEXTS",
+  });
+  void chrome.storage.local.setAccessLevel({
     accessLevel: "TRUSTED_CONTEXTS",
   });
 }
 
 chrome.runtime.onInstalled.addListener(() => {
   enableActionClick();
-  restrictSessionStorage();
+  restrictExtensionStorage();
 });
 chrome.runtime.onStartup.addListener(() => {
   enableActionClick();
-  restrictSessionStorage();
+  restrictExtensionStorage();
 });
-restrictSessionStorage();
+restrictExtensionStorage();
 
 function isTrustedExtensionSender(
-  sender: Pick<chrome.runtime.MessageSender, "id" | "tab" | "url"> | undefined,
+  sender:
+    | Pick<chrome.runtime.MessageSender, "id" | "origin" | "tab" | "url">
+    | undefined,
 ): boolean {
-  if (!sender || sender.id !== chrome.runtime.id || sender.tab) return false;
-  return !sender.url || sender.url.startsWith(chrome.runtime.getURL(""));
+  if (!sender || sender.id !== chrome.runtime.id) return false;
+  const extensionOrigin = chrome.runtime.getURL("");
+  const extensionOriginWithoutSlash = extensionOrigin.slice(0, -1);
+  const hasExtensionOrigin =
+    sender.origin === extensionOriginWithoutSlash ||
+    sender.url?.startsWith(extensionOrigin) === true;
+  if (sender.tab) {
+    return hasExtensionOrigin;
+  }
+  return (!sender.url && !sender.origin) || hasExtensionOrigin;
 }
+
+async function restorePersistentAuth(): Promise<void> {
+  const local = await chrome.storage.local.get([
+    PERSIST_AUTH_STORAGE_KEY,
+    ...AUTH_STORAGE_KEYS,
+  ]);
+  if (
+    local[PERSIST_AUTH_STORAGE_KEY] !== true ||
+    typeof local[API_KEY_STORAGE_KEY] !== "string"
+  ) {
+    return;
+  }
+  await chrome.storage.session.set({
+    [API_KEY_STORAGE_KEY]: local[API_KEY_STORAGE_KEY],
+    ...(typeof local[USER_ID_STORAGE_KEY] === "string"
+      ? { [USER_ID_STORAGE_KEY]: local[USER_ID_STORAGE_KEY] }
+      : {}),
+    ...(typeof local[KEY_INFO_STORAGE_KEY] === "object" &&
+    local[KEY_INFO_STORAGE_KEY] !== null
+      ? { [KEY_INFO_STORAGE_KEY]: local[KEY_INFO_STORAGE_KEY] }
+      : {}),
+  });
+}
+
+const authRestoration = restorePersistentAuth().catch(() => undefined);
 
 async function readStoredAuth(): Promise<StoredAuth> {
-  return chrome.storage.session.get([
-    API_KEY_STORAGE_KEY,
-    USER_ID_STORAGE_KEY,
-    KEY_INFO_STORAGE_KEY,
-  ]);
+  await authRestoration;
+  return chrome.storage.session.get([...AUTH_STORAGE_KEYS]);
 }
 
-function authStatusFromStored(stored: StoredAuth): AuthStatus {
-  if (typeof stored.openRouterApiKey !== "string") return { connected: false };
+function authStatusFromStored(
+  stored: StoredAuth,
+  persistent: boolean,
+): AuthStatus {
+  if (typeof stored.openRouterApiKey !== "string") {
+    return { connected: false, persistent };
+  }
 
   const info =
     typeof stored.openRouterKeyInfo === "object" &&
@@ -120,6 +167,7 @@ function authStatusFromStored(stored: StoredAuth): AuthStatus {
 
   return {
     connected: true,
+    persistent,
     ...(typeof stored.openRouterUserId === "string"
       ? { userId: stored.openRouterUserId }
       : {}),
@@ -131,7 +179,14 @@ function authStatusFromStored(stored: StoredAuth): AuthStatus {
 }
 
 async function getAuthStatus(): Promise<AuthStatus> {
-  return authStatusFromStored(await readStoredAuth());
+  const [stored, local] = await Promise.all([
+    readStoredAuth(),
+    chrome.storage.local.get(PERSIST_AUTH_STORAGE_KEY),
+  ]);
+  return authStatusFromStored(
+    stored,
+    local[PERSIST_AUTH_STORAGE_KEY] === true,
+  );
 }
 
 async function notifyAuthState(status: AuthStatus): Promise<void> {
@@ -142,12 +197,40 @@ async function notifyAuthState(status: AuthStatus): Promise<void> {
 
 async function clearAuth(): Promise<void> {
   for (const controller of activeChatControllers) controller.abort();
-  await chrome.storage.session.remove([
-    API_KEY_STORAGE_KEY,
-    USER_ID_STORAGE_KEY,
-    KEY_INFO_STORAGE_KEY,
+  await authRestoration;
+  await Promise.all([
+    chrome.storage.session.remove([...AUTH_STORAGE_KEYS]),
+    chrome.storage.local.remove([
+      ...AUTH_STORAGE_KEYS,
+      PERSIST_AUTH_STORAGE_KEY,
+    ]),
   ]);
-  await notifyAuthState({ connected: false });
+  await notifyAuthState({ connected: false, persistent: false });
+}
+
+async function setAuthPersistence(enabled: boolean): Promise<AuthStatus> {
+  if (!enabled) {
+    await chrome.storage.local.remove([...AUTH_STORAGE_KEYS]);
+    await chrome.storage.local.set({ [PERSIST_AUTH_STORAGE_KEY]: false });
+  } else {
+    const stored = await readStoredAuth();
+    await chrome.storage.local.set({
+      [PERSIST_AUTH_STORAGE_KEY]: true,
+      ...(typeof stored.openRouterApiKey === "string"
+        ? { [API_KEY_STORAGE_KEY]: stored.openRouterApiKey }
+        : {}),
+      ...(typeof stored.openRouterUserId === "string"
+        ? { [USER_ID_STORAGE_KEY]: stored.openRouterUserId }
+        : {}),
+      ...(typeof stored.openRouterKeyInfo === "object" &&
+      stored.openRouterKeyInfo !== null
+        ? { [KEY_INFO_STORAGE_KEY]: stored.openRouterKeyInfo }
+        : {}),
+    });
+  }
+  const status = await getAuthStatus();
+  await notifyAuthState(status);
+  return status;
 }
 
 async function exchangeAuthorizationCode(
@@ -206,6 +289,16 @@ async function connectOpenRouter(): Promise<AuthStatus> {
       ...(token.userId ? { [USER_ID_STORAGE_KEY]: token.userId } : {}),
       [KEY_INFO_STORAGE_KEY]: keyInfo,
     });
+    const persistence = await chrome.storage.local.get(
+      PERSIST_AUTH_STORAGE_KEY,
+    );
+    if (persistence[PERSIST_AUTH_STORAGE_KEY] === true) {
+      await chrome.storage.local.set({
+        [API_KEY_STORAGE_KEY]: token.key,
+        ...(token.userId ? { [USER_ID_STORAGE_KEY]: token.userId } : {}),
+        [KEY_INFO_STORAGE_KEY]: keyInfo,
+      });
+    }
 
     const status = await getAuthStatus();
     await notifyAuthState(status);
@@ -226,7 +319,16 @@ async function handleAuthRequest(message: AuthRequest): Promise<AuthResponse> {
     }
     if (message.type === AUTH_DISCONNECT_REQUEST) {
       await clearAuth();
-      return { ok: true, status: { connected: false } };
+      return {
+        ok: true,
+        status: { connected: false, persistent: false },
+      };
+    }
+    if (message.type === AUTH_PERSISTENCE_REQUEST) {
+      return {
+        ok: true,
+        status: await setAuthPersistence(message.enabled),
+      };
     }
     return { ok: true, status: await getAuthStatus() };
   } catch (error) {
