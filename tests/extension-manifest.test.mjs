@@ -5,6 +5,7 @@ import test from "node:test";
 test("registers and builds the full-page profile editor", async () => {
   const manifest = JSON.parse(await readFile("extension/manifest.json", "utf8"));
 
+  assert.equal(manifest.name, "GM Tools for VTT");
   assert.deepEqual(manifest.options_ui, {
     page: "options.html",
     open_in_tab: true,

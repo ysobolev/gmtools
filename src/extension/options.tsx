@@ -246,7 +246,7 @@ function ProfilesSettings(): React.JSX.Element {
           ))}
         </nav>
         <p className="sidebar-note">
-          Choose the active profile from the GM Tools side panel.
+          Choose the active profile from the GM Tools for VTT side panel.
         </p>
       </aside>
 
@@ -631,8 +631,8 @@ function OptionsApp(): React.JSX.Element {
       <header className="options-header">
         <div className="brand-mark" aria-hidden="true">✦</div>
         <div>
-          <p className="eyebrow">ROLL20 ASSISTANT</p>
-          <h1>GM Tools settings</h1>
+          <p className="eyebrow">VIRTUAL TABLETOP ASSISTANT</p>
+          <h1>GM Tools for VTT settings</h1>
         </div>
       </header>
 

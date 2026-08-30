@@ -123,8 +123,8 @@ function LoginScreen({
   return (
     <main className="login-shell">
       <section className="brand-block">
-        <p className="eyebrow">ROLL20 ASSISTANT</p>
-        <h1>GM Tools</h1>
+        <p className="eyebrow">VIRTUAL TABLETOP ASSISTANT</p>
+        <h1>GM Tools for VTT</h1>
         <p className="intro">
           A quiet co-pilot for preparation, improvisation, and everything that
           happens behind the screen.
@@ -274,25 +274,21 @@ function ChatScreen({
   return (
     <main className="chat-shell">
       <header className="chat-header">
-        <div className="chat-brand">
-          <p className="eyebrow">ROLL20 ASSISTANT</p>
-          <h1>GM Tools</h1>
-          <div className="profile-control">
-            <select
-              aria-label="Active assistant profile"
-              onChange={(event) => onSelectProfile(event.target.value)}
-              value={activeProfile.id}
-            >
-              {profiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.name}
-                </option>
-              ))}
-            </select>
-            <button type="button" onClick={onManageProfiles}>
-              Settings
-            </button>
-          </div>
+        <div className="profile-control">
+          <select
+            aria-label="Active assistant profile"
+            onChange={(event) => onSelectProfile(event.target.value)}
+            value={activeProfile.id}
+          >
+            {profiles.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profile.name}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={onManageProfiles}>
+            Settings
+          </button>
         </div>
       </header>
 

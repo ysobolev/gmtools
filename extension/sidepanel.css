@@ -205,31 +205,22 @@ h1 {
   z-index: 3;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  min-height: 105px;
-  padding: 15px 17px;
+  min-height: 55px;
+  padding: 11px 17px;
   border-bottom: 1px solid #242a35;
   background: rgb(13 16 23 / 88%);
   backdrop-filter: blur(12px);
-}
-
-.chat-brand {
-  min-width: 0;
-}
-
-.chat-brand h1 {
-  font-size: 24px;
 }
 
 .profile-control {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 8px;
+  min-width: 0;
 }
 
 .profile-control select {
-  width: min(175px, 48vw);
+  width: min(220px, 65vw);
   min-width: 0;
   padding: 5px 25px 5px 8px;
   border: 1px solid #303744;

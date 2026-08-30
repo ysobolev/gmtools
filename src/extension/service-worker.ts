@@ -559,7 +559,7 @@ async function streamChat(
   const openrouter = createOpenRouter({
     apiKey: stored.openRouterApiKey,
     compatibility: "strict",
-    appName: "GM Tools for Roll20",
+    appName: "GM Tools for VTT",
     appUrl: `https://chromewebstore.google.com/detail/${chrome.runtime.id}`,
   });
   const tools = {

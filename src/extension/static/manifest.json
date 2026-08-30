@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "GM Tools for Roll20",
-  "description": "An AI side-panel assistant for Roll20 game masters.",
+  "name": "GM Tools for VTT",
+  "description": "An AI side-panel assistant for virtual tabletop game masters, with Roll20 integration.",
   "version": "0.2.0",
   "minimum_chrome_version": "114",
   "permissions": ["sidePanel", "identity", "storage", "scripting"],
@@ -13,7 +13,7 @@
     "service_worker": "service-worker.js"
   },
   "action": {
-    "default_title": "Open GM Tools"
+    "default_title": "Open GM Tools for VTT"
   },
   "side_panel": {
     "default_path": "sidepanel.html"

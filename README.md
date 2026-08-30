@@ -1,7 +1,8 @@
-# GM Tools for Roll20
+# GM Tools for VTT
 
-GM Tools is a Chrome side-panel assistant for Roll20 game masters. It connects
-directly to OpenRouter, streams ordinary chat responses in the panel, and keeps
+GM Tools for VTT is a Chrome side-panel assistant for virtual tabletop game
+masters, initially integrating with Roll20. It connects directly to OpenRouter,
+streams ordinary chat responses in the panel, and keeps
 the user-controlled API key in browser memory by default.
 
 The assistant has one model-visible Roll20 tool, `execute_roll20`, which relays
@@ -27,7 +28,7 @@ non-archived whisper that the extension removes before display.
 2. Open `chrome://extensions`.
 3. Enable **Developer mode**.
 4. Click **Load unpacked** and select the `extension` directory.
-5. Click the extension toolbar icon to open **GM Tools** in the side panel.
+5. Click the extension toolbar icon to open **GM Tools for VTT** in the side panel.
 6. Click **Connect OpenRouter**, authorize the app, and send a message.
 
 The extension uses OpenRouter's OAuth PKCE flow. It does not require an OAuth
