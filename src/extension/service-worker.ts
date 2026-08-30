@@ -60,6 +60,7 @@ const AUTH_STORAGE_KEYS = [
 ] as const;
 const ROLL20_EDITOR_URL_PREFIX = "https://app.roll20.net/editor/";
 const ROLL20_EXECUTION_TIMEOUT_MS = 45_000;
+const SERVICE_WORKER_KEEPALIVE_INTERVAL_MS = 20_000;
 const MAX_ROLL20_CODE_LENGTH = 20_000;
 const activeChatControllers = new Set<AbortController>();
 let roll20ExecutionQueue: Promise<void> = Promise.resolve();
@@ -608,6 +609,18 @@ async function streamChat(
   postToPort(port, { type: CHAT_COMPLETE, requestId });
 }
 
+async function keepServiceWorkerAlive<T>(operation: Promise<T>): Promise<T> {
+  const intervalId = setInterval(() => {
+    void chrome.runtime.getPlatformInfo().catch(() => undefined);
+  }, SERVICE_WORKER_KEEPALIVE_INTERVAL_MS);
+
+  try {
+    return await operation;
+  } finally {
+    clearInterval(intervalId);
+  }
+}
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== CHAT_PORT_NAME || !isTrustedExtensionSender(port.sender)) {
     port.disconnect();
@@ -630,12 +643,14 @@ chrome.runtime.onConnect.addListener((port) => {
     abortController = new AbortController();
     activeChatControllers.add(abortController);
 
-    void streamChat(
-      port,
-      message.requestId,
-      message.messages,
-      message.profile,
-      abortController,
+    void keepServiceWorkerAlive(
+      streamChat(
+        port,
+        message.requestId,
+        message.messages,
+        message.profile,
+        abortController,
+      ),
     )
       .catch((error: unknown) => {
         if (abortController?.signal.aborted) {
