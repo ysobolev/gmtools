@@ -149,6 +149,7 @@ const SHEET_INSTRUCTIONS: Record<SheetAdapterId, string> = {
     "The campaign uses the Beacon-based D&D 5e 2024 sheet by Roll20.",
     "Prefer the Beacon-compatible getSheetItem and setSheetItem functions for sheet data rather than assuming legacy OGL attribute behavior.",
     "For example, getSheetItem(characterId, \"hp\") reads HP and setSheetItem(characterId, \"hp\", 20, \"max\") sets maximum HP.",
+    "When creating an NPC, set its appState sheet item to \"npc\" with setSheetItem(characterId, \"appState\", \"npc\"); otherwise the new character sheet remains stuck in the character-creation wizard.",
     "Attributes created only through the Mod API and not defined by the sheet require a user. prefix. Inspect before changing unfamiliar fields.",
     "Migration guidance is at https://help.roll20.net/hc/en-us/articles/30377793782423-How-to-Update-Mod-Scripts-API-for-D-D-2024-Beacon.",
   ].join(" "),

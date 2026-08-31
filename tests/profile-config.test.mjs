@@ -53,6 +53,8 @@ test("composes base, ruleset, sheet, and user guidance", () => {
   assert.match(prompt, /object\.get\(property, resolve\)/);
   assert.match(prompt, /Dungeons & Dragons Fifth Edition/);
   assert.match(prompt, /getSheetItem and setSheetItem/);
+  assert.match(prompt, /setSheetItem\(characterId, "appState", "npc"\)/);
+  assert.match(prompt, /character-creation wizard/);
   assert.match(prompt, /Call the players heroes\./);
 });
 
