@@ -49,6 +49,8 @@ test("composes base, ruleset, sheet, and user guidance", () => {
 
   assert.match(prompt, /execute_roll20/);
   assert.match(prompt, /Introduction-to-Mod-Scripts-API/);
+  assert.match(prompt, /bio, notes, defaulttoken, and gmnotes are callback-only/);
+  assert.match(prompt, /object\.get\(property, resolve\)/);
   assert.match(prompt, /Dungeons & Dragons Fifth Edition/);
   assert.match(prompt, /getSheetItem and setSheetItem/);
   assert.match(prompt, /Call the players heroes\./);

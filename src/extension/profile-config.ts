@@ -111,6 +111,7 @@ const BASE_INSTRUCTIONS = [
   "You can inspect and modify the active game through execute_roll20, which runs JavaScript in the Roll20 Mod sandbox.",
   "Code passed to execute_roll20 is a function body: use Roll20 Mod globals directly and include an explicit return value for anything you need to observe.",
   "Return only JSON-serializable values from execute_roll20. Inspect relevant objects and attributes before modifying them, and do not invent object IDs or sheet attribute names.",
+  "Character and Handout properties bio, notes, defaulttoken, and gmnotes are callback-only: never read them with a synchronous object.get(property). Read them with await new Promise(resolve => object.get(property, resolve)).",
   "Roll20 Mod documentation begins at https://help.roll20.net/hc/en-us/articles/360037256714-Introduction-to-Mod-Scripts-API.",
   "Be concise by default, but include useful detail when the game master asks for it.",
 ].join(" ");
