@@ -1,9 +1,25 @@
 import {
+  ROLL20_PROTOCOL_VERSION,
   type SendAcknowledgement,
+  type Roll20ExecuteRequestMessage,
   formatRoll20ExecuteCommand,
   isRoll20ExecuteRequestMessage,
   parseRoll20ExecuteResponseText,
 } from "../protocol";
+import { EXTENSION_BUILD_ID, EXTENSION_VERSION } from "../build-info";
+
+function acknowledgement(
+  ok: boolean,
+  error?: string,
+): SendAcknowledgement {
+  return {
+    ok,
+    ...(error ? { error } : {}),
+    extensionVersion: EXTENSION_VERSION,
+    buildId: EXTENSION_BUILD_ID,
+    protocolVersion: ROLL20_PROTOCOL_VERSION,
+  };
+}
 
 function findChatControls(): {
   input: HTMLTextAreaElement | null;
@@ -35,26 +51,41 @@ function setNativeValue(input: HTMLTextAreaElement, value: string): void {
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-function sendApiCommand(requestId: string, code: string): SendAcknowledgement {
+function sendApiCommand(
+  request: Roll20ExecuteRequestMessage,
+): SendAcknowledgement {
+  if (
+    request.extensionVersion !== EXTENSION_VERSION ||
+    request.buildId !== EXTENSION_BUILD_ID ||
+    request.protocolVersion !== ROLL20_PROTOCOL_VERSION
+  ) {
+    return acknowledgement(
+      false,
+      "The Roll20 page is running a different GM Tools build. Reload the page.",
+    );
+  }
   const { input, button } = findChatControls();
   if (!input || !button) {
-    return { ok: false, error: "Open Roll20's Chat tab and try again." };
+    return acknowledgement(false, "Open Roll20's Chat tab and try again.");
   }
 
   const previousValue = input.value;
   try {
-    setNativeValue(input, formatRoll20ExecuteCommand(requestId, code));
+    setNativeValue(
+      input,
+      formatRoll20ExecuteCommand(request.requestId, request.code),
+    );
     button.click();
 
     // Roll20 reads the value synchronously from its send-button handler. Restore
     // anything the GM was drafting after that handler has returned.
     setTimeout(() => setNativeValue(input, previousValue), 0);
-    return { ok: true };
+    return acknowledgement(true);
   } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "Could not use Roll20 chat.",
-    };
+    return acknowledgement(
+      false,
+      error instanceof Error ? error.message : "Could not use Roll20 chat.",
+    );
   }
 }
 
@@ -79,10 +110,20 @@ function inspectAddedNode(node: Node): void {
     const response = parseRoll20ExecuteResponseText(candidate.textContent ?? "");
     if (!response) continue;
 
-    // MutationObserver callbacks run at the microtask checkpoint, before the
-    // next paint, so the marked whisper is removed before normal display.
-    (candidate.closest(".message") ?? candidate).remove();
-    void chrome.runtime.sendMessage(response).catch(() => undefined);
+    try {
+      // An extension reload invalidates content scripts already installed in
+      // the page. Do not let a stale observer consume a response that a newly
+      // injected observer can still deliver.
+      if (!chrome.runtime.id) continue;
+      const delivery = chrome.runtime.sendMessage(response);
+
+      // MutationObserver callbacks run at the microtask checkpoint, before the
+      // next paint, so the marked whisper is removed before normal display.
+      (candidate.closest(".message") ?? candidate).remove();
+      void delivery.catch(() => undefined);
+    } catch {
+      // Leave the message in place when this content-script context is stale.
+    }
   }
 }
 
@@ -93,11 +134,11 @@ const chatObserver = new MutationObserver((mutations) => {
 });
 
 const contentScriptScope = globalThis as typeof globalThis & {
-  __gmToolsContentScriptLoaded?: boolean;
+  __gmToolsContentScriptBuildId?: string;
 };
 
-if (!contentScriptScope.__gmToolsContentScriptLoaded) {
-  contentScriptScope.__gmToolsContentScriptLoaded = true;
+if (contentScriptScope.__gmToolsContentScriptBuildId !== EXTENSION_BUILD_ID) {
+  contentScriptScope.__gmToolsContentScriptBuildId = EXTENSION_BUILD_ID;
   chatObserver.observe(document.documentElement, {
     childList: true,
     subtree: true,
@@ -106,7 +147,7 @@ if (!contentScriptScope.__gmToolsContentScriptLoaded) {
   chrome.runtime.onMessage.addListener(
     (message: unknown, _sender, sendResponse): undefined => {
       if (!isRoll20ExecuteRequestMessage(message)) return;
-      sendResponse(sendApiCommand(message.requestId, message.code));
+      sendResponse(sendApiCommand(message));
     },
   );
 }

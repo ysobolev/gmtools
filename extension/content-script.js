@@ -5,6 +5,7 @@
   var ROLL20_EXECUTE_REQUEST_TYPE = "GMTOOLS_ROLL20_EXECUTE";
   var ROLL20_EXECUTE_RESPONSE_TYPE = "GMTOOLS_ROLL20_EXECUTE_RESPONSE";
   var ROLL20_EXECUTE_COMMAND = "!gmtools-exec";
+  var ROLL20_PROTOCOL_VERSION = 1;
   var REQUEST_ID_PATTERN = /^[a-f0-9-]{8,64}$/i;
   var RESPONSE_PREFIX = "GMTOOLS_EXECUTION_RESPONSE:";
   var BASE64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -76,14 +77,14 @@
     return isRecord(value) && (value.ok === true && "result" in value || value.ok === false && isExecutionError(value.error));
   }
   function isRoll20ExecuteRequestMessage(value) {
-    return isRecord(value) && value.type === ROLL20_EXECUTE_REQUEST_TYPE && isValidRequestId(value.requestId) && typeof value.code === "string" && value.code.length > 0;
+    return isRecord(value) && value.type === ROLL20_EXECUTE_REQUEST_TYPE && isValidRequestId(value.requestId) && typeof value.extensionVersion === "string" && typeof value.buildId === "string" && typeof value.protocolVersion === "number" && typeof value.code === "string" && value.code.length > 0;
   }
   function formatRoll20ExecuteCommand(requestId, code) {
     if (!isValidRequestId(requestId)) {
       throw new Error("Invalid GM Tools request ID.");
     }
     if (!code) throw new Error("Roll20 code cannot be empty.");
-    return `${ROLL20_EXECUTE_COMMAND} ${requestId} ${encodeBase64Url(code)}`;
+    return `${ROLL20_EXECUTE_COMMAND} ${ROLL20_PROTOCOL_VERSION} ${requestId} ${encodeBase64Url(code)}`;
   }
   function parseRoll20ExecuteResponseText(content) {
     const pattern = new RegExp(
@@ -95,19 +96,36 @@
     const decoded = decodeBase64Url(match[2]);
     if (!decoded) return null;
     try {
-      const outcome = JSON.parse(decoded);
-      if (!isRoll20ExecutionOutcome(outcome)) return null;
+      const envelope = JSON.parse(decoded);
+      if (!isRecord(envelope) || typeof envelope.protocolVersion !== "number" || typeof envelope.modVersion !== "string" || !isRoll20ExecutionOutcome(envelope.outcome)) {
+        return null;
+      }
       return {
         type: ROLL20_EXECUTE_RESPONSE_TYPE,
         requestId: match[1],
-        outcome
+        protocolVersion: envelope.protocolVersion,
+        modVersion: envelope.modVersion,
+        outcome: envelope.outcome
       };
     } catch {
       return null;
     }
   }
 
+  // src/build-info.ts
+  var EXTENSION_BUILD_ID = "ef8123c99adb";
+  var EXTENSION_VERSION = "0.2.0";
+
   // src/extension/content-script.ts
+  function acknowledgement(ok, error) {
+    return {
+      ok,
+      ...error ? { error } : {},
+      extensionVersion: EXTENSION_VERSION,
+      buildId: EXTENSION_BUILD_ID,
+      protocolVersion: ROLL20_PROTOCOL_VERSION
+    };
+  }
   function findChatControls() {
     const container = document.querySelector("#textchat-input");
     return {
@@ -127,22 +145,31 @@
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
-  function sendApiCommand(requestId, code) {
+  function sendApiCommand(request) {
+    if (request.extensionVersion !== EXTENSION_VERSION || request.buildId !== EXTENSION_BUILD_ID || request.protocolVersion !== ROLL20_PROTOCOL_VERSION) {
+      return acknowledgement(
+        false,
+        "The Roll20 page is running a different GM Tools build. Reload the page."
+      );
+    }
     const { input, button } = findChatControls();
     if (!input || !button) {
-      return { ok: false, error: "Open Roll20's Chat tab and try again." };
+      return acknowledgement(false, "Open Roll20's Chat tab and try again.");
     }
     const previousValue = input.value;
     try {
-      setNativeValue(input, formatRoll20ExecuteCommand(requestId, code));
+      setNativeValue(
+        input,
+        formatRoll20ExecuteCommand(request.requestId, request.code)
+      );
       button.click();
       setTimeout(() => setNativeValue(input, previousValue), 0);
-      return { ok: true };
+      return acknowledgement(true);
     } catch (error) {
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : "Could not use Roll20 chat."
-      };
+      return acknowledgement(
+        false,
+        error instanceof Error ? error.message : "Could not use Roll20 chat."
+      );
     }
   }
   function inspectAddedNode(node) {
@@ -157,8 +184,13 @@
     for (const candidate of candidates) {
       const response = parseRoll20ExecuteResponseText(candidate.textContent ?? "");
       if (!response) continue;
-      (candidate.closest(".message") ?? candidate).remove();
-      void chrome.runtime.sendMessage(response).catch(() => void 0);
+      try {
+        if (!chrome.runtime.id) continue;
+        const delivery = chrome.runtime.sendMessage(response);
+        (candidate.closest(".message") ?? candidate).remove();
+        void delivery.catch(() => void 0);
+      } catch {
+      }
     }
   }
   var chatObserver = new MutationObserver((mutations) => {
@@ -167,8 +199,8 @@
     }
   });
   var contentScriptScope = globalThis;
-  if (!contentScriptScope.__gmToolsContentScriptLoaded) {
-    contentScriptScope.__gmToolsContentScriptLoaded = true;
+  if (contentScriptScope.__gmToolsContentScriptBuildId !== EXTENSION_BUILD_ID) {
+    contentScriptScope.__gmToolsContentScriptBuildId = EXTENSION_BUILD_ID;
     chatObserver.observe(document.documentElement, {
       childList: true,
       subtree: true
@@ -176,7 +208,7 @@
     chrome.runtime.onMessage.addListener(
       (message, _sender, sendResponse) => {
         if (!isRoll20ExecuteRequestMessage(message)) return;
-        sendResponse(sendApiCommand(message.requestId, message.code));
+        sendResponse(sendApiCommand(message));
       }
     );
   }

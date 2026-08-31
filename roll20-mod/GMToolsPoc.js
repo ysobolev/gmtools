@@ -3,6 +3,8 @@
 (() => {
   // src/protocol.ts
   var ROLL20_EXECUTE_COMMAND = "!gmtools-exec";
+  var ROLL20_PROTOCOL_VERSION = 1;
+  var ROLL20_MOD_VERSION = "0.1.0";
   var REQUEST_ID_PATTERN = /^[a-f0-9-]{8,64}$/i;
   var RESPONSE_PREFIX = "GMTOOLS_EXECUTION_RESPONSE:";
   var BASE64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -76,20 +78,29 @@
     return isRecord(value) && (value.ok === true && "result" in value || value.ok === false && isExecutionError(value.error));
   }
   function parseRoll20ExecuteCommand(content) {
+    var _a;
     const parts = content.trim().split(/\s+/);
-    if (parts.length !== 3 || parts[0] !== ROLL20_EXECUTE_COMMAND || !isValidRequestId(parts[1])) {
+    if (parts.length !== 4 || parts[0] !== ROLL20_EXECUTE_COMMAND || !/^\d+$/.test((_a = parts[1]) != null ? _a : "") || !isValidRequestId(parts[2])) {
       return null;
     }
-    const code = decodeBase64Url(parts[2]);
-    return code ? { requestId: parts[1], code } : null;
+    const code = decodeBase64Url(parts[3]);
+    return code ? {
+      requestId: parts[2],
+      protocolVersion: Number.parseInt(parts[1], 10),
+      code
+    } : null;
   }
   function formatRoll20ExecuteResponse(requestId, outcome) {
     if (!isValidRequestId(requestId)) {
       throw new Error("Invalid GM Tools request ID.");
     }
-    const serialized = JSON.stringify(outcome);
+    const serialized = JSON.stringify({
+      protocolVersion: ROLL20_PROTOCOL_VERSION,
+      modVersion: ROLL20_MOD_VERSION,
+      outcome
+    });
     const roundTripped = JSON.parse(serialized);
-    if (!isRoll20ExecutionOutcome(roundTripped)) {
+    if (!isRecord(roundTripped) || roundTripped.protocolVersion !== ROLL20_PROTOCOL_VERSION || roundTripped.modVersion !== ROLL20_MOD_VERSION || !isRoll20ExecutionOutcome(roundTripped.outcome)) {
       throw new Error("The Roll20 result is not JSON-serializable.");
     }
     return `${RESPONSE_PREFIX}${requestId}:${encodeBase64Url(serialized)}`;
@@ -120,6 +131,13 @@
       response = formatRoll20ExecuteResponse(requestId, errorOutcome(error));
     }
     sendChat("GM Tools", `/w gm ${response}`, null, { noarchive: true });
+    log(`GM Tools response submitted: ${requestId}`);
+  }
+  function completeExecution(requestId, outcome) {
+    log(
+      `GM Tools execution completed: ${requestId} (${outcome.ok ? "success" : "error"})`
+    );
+    sendOutcome(requestId, outcome);
   }
   function executeCode(requestId, code) {
     try {
@@ -129,24 +147,42 @@ ${code}
 })()`);
       if (typeof result === "object" && result !== null && "then" in result && typeof result.then === "function") {
         void Promise.resolve(result).then(
-          (value) => sendOutcome(requestId, { ok: true, result: value != null ? value : null }),
-          (error) => sendOutcome(requestId, errorOutcome(error))
+          (value) => completeExecution(requestId, {
+            ok: true,
+            result: value != null ? value : null
+          }),
+          (error) => completeExecution(requestId, errorOutcome(error))
         );
         return;
       }
-      sendOutcome(requestId, { ok: true, result: result != null ? result : null });
+      completeExecution(requestId, { ok: true, result: result != null ? result : null });
     } catch (error) {
-      sendOutcome(requestId, errorOutcome(error));
+      completeExecution(requestId, errorOutcome(error));
     }
   }
   function handleChatMessage(message) {
     if (message.type !== "api" || !playerIsGM(message.playerid)) return;
     const command = parseRoll20ExecuteCommand(message.content);
     if (!command) return;
+    log(
+      `GM Tools command received: ${command.requestId} (protocol ${command.protocolVersion})`
+    );
+    if (command.protocolVersion !== ROLL20_PROTOCOL_VERSION) {
+      sendOutcome(command.requestId, {
+        ok: false,
+        error: {
+          name: "ProtocolVersionError",
+          message: `Unsupported GM Tools protocol ${command.protocolVersion}; this Mod requires protocol ${ROLL20_PROTOCOL_VERSION}.`
+        }
+      });
+      return;
+    }
     executeCode(command.requestId, command.code);
   }
   on("ready", () => {
     on("chat:message", handleChatMessage);
-    log("GM Tools execution bridge ready");
+    log(
+      `GM Tools execution bridge ${ROLL20_MOD_VERSION} (protocol ${ROLL20_PROTOCOL_VERSION}) ready`
+    );
   });
 })();

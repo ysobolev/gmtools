@@ -49,10 +49,14 @@ import {
 } from "./openrouter-protocol";
 import {
   ROLL20_EXECUTE_REQUEST_TYPE,
+  ROLL20_PROTOCOL_VERSION,
   isRoll20ExecuteResponseMessage,
+  type Roll20ExecuteRequestMessage,
+  type Roll20ExecuteResponseMessage,
   type Roll20ExecutionOutcome,
   type SendAcknowledgement,
 } from "../protocol";
+import { EXTENSION_BUILD_ID, EXTENSION_VERSION } from "../build-info";
 import {
   BACKGROUND_EXECUTION_STORAGE_KEY,
   DEBUG_LOGGING_STORAGE_KEY,
@@ -74,6 +78,9 @@ const AUTH_STORAGE_KEYS = [
 ] as const;
 const ROLL20_EDITOR_URL_PREFIX = "https://app.roll20.net/editor/";
 const ROLL20_EXECUTION_TIMEOUT_MS = 45_000;
+const ROLL20_TOMBSTONE_STORAGE_KEY = "gmToolsRoll20TimeoutTombstones";
+const ROLL20_TOMBSTONE_LIMIT = 100;
+const ROLL20_TOMBSTONE_TTL_MS = 15 * 60_000;
 const SERVICE_WORKER_KEEPALIVE_INTERVAL_MS = 20_000;
 const MAX_ROLL20_CODE_LENGTH = 20_000;
 const activeChatControllers = new Set<AbortController>();
@@ -92,6 +99,33 @@ const pendingRoll20Executions = new Map<
     readonly permanentTabBinding: boolean;
   }
 >();
+
+interface Roll20TimeoutTombstone {
+  readonly requestId: string;
+  readonly chatId: string;
+  readonly tabId: number;
+  readonly toolCallId: string;
+  readonly dispatchedAt: number;
+  readonly timedOutAt: number;
+  readonly expiresAt: number;
+  readonly debug?: DebugLogger;
+}
+
+class Roll20ExecutionTimeoutError extends Error {
+  constructor() {
+    super("Roll20 did not return a result within 45 seconds.");
+    this.name = "Roll20ExecutionTimeoutError";
+  }
+}
+
+class Roll20CompatibilityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "Roll20CompatibilityError";
+  }
+}
+
+const roll20TimeoutTombstones = new Map<string, Roll20TimeoutTombstone>();
 
 type ConversationTerminal =
   | { readonly type: "complete" }
@@ -426,6 +460,145 @@ function removePendingRoll20Execution(requestId: string): void {
   pendingRoll20Executions.delete(requestId);
 }
 
+function isStoredRoll20TimeoutTombstone(
+  value: unknown,
+): value is Omit<Roll20TimeoutTombstone, "debug"> {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.requestId === "string" &&
+    typeof record.chatId === "string" &&
+    typeof record.tabId === "number" &&
+    typeof record.toolCallId === "string" &&
+    typeof record.dispatchedAt === "number" &&
+    typeof record.timedOutAt === "number" &&
+    typeof record.expiresAt === "number"
+  );
+}
+
+function pruneMemoryTombstones(now = Date.now()): void {
+  for (const [requestId, tombstone] of roll20TimeoutTombstones) {
+    if (tombstone.expiresAt <= now) roll20TimeoutTombstones.delete(requestId);
+  }
+  while (roll20TimeoutTombstones.size > ROLL20_TOMBSTONE_LIMIT) {
+    const oldestRequestId = roll20TimeoutTombstones.keys().next().value;
+    if (typeof oldestRequestId !== "string") break;
+    roll20TimeoutTombstones.delete(oldestRequestId);
+  }
+}
+
+function rememberRoll20Timeout(tombstone: Roll20TimeoutTombstone): void {
+  roll20TimeoutTombstones.set(tombstone.requestId, tombstone);
+  pruneMemoryTombstones(tombstone.timedOutAt);
+  const { debug: _debug, ...storedTombstone } = tombstone;
+  void chrome.storage.session
+    .get(ROLL20_TOMBSTONE_STORAGE_KEY)
+    .then((stored) => {
+      const now = Date.now();
+      const existing = Array.isArray(stored[ROLL20_TOMBSTONE_STORAGE_KEY])
+        ? stored[ROLL20_TOMBSTONE_STORAGE_KEY].filter(
+            (value: unknown) =>
+              isStoredRoll20TimeoutTombstone(value) && value.expiresAt > now,
+          )
+        : [];
+      const next = [
+        ...existing.filter(
+          (value) => value.requestId !== storedTombstone.requestId,
+        ),
+        storedTombstone,
+      ].slice(-ROLL20_TOMBSTONE_LIMIT);
+      return chrome.storage.session.set({
+        [ROLL20_TOMBSTONE_STORAGE_KEY]: next,
+      });
+    })
+    .catch(() => undefined);
+}
+
+async function findStoredRoll20Timeout(
+  requestId: string,
+): Promise<Roll20TimeoutTombstone | undefined> {
+  pruneMemoryTombstones();
+  const memoryTombstone = roll20TimeoutTombstones.get(requestId);
+  if (memoryTombstone) return memoryTombstone;
+  const stored = await chrome.storage.session.get(ROLL20_TOMBSTONE_STORAGE_KEY);
+  const now = Date.now();
+  if (!Array.isArray(stored[ROLL20_TOMBSTONE_STORAGE_KEY])) return undefined;
+  return stored[ROLL20_TOMBSTONE_STORAGE_KEY].find(
+    (value: unknown) =>
+      isStoredRoll20TimeoutTombstone(value) &&
+      value.requestId === requestId &&
+      value.expiresAt > now,
+  );
+}
+
+function removeStoredRoll20Timeout(requestId: string): void {
+  roll20TimeoutTombstones.delete(requestId);
+  void chrome.storage.session
+    .get(ROLL20_TOMBSTONE_STORAGE_KEY)
+    .then((stored) => {
+      if (!Array.isArray(stored[ROLL20_TOMBSTONE_STORAGE_KEY])) return;
+      return chrome.storage.session.set({
+        [ROLL20_TOMBSTONE_STORAGE_KEY]: stored[
+          ROLL20_TOMBSTONE_STORAGE_KEY
+        ].filter(
+          (value: unknown) =>
+            !isStoredRoll20TimeoutTombstone(value) ||
+            value.requestId !== requestId,
+        ),
+      });
+    })
+    .catch(() => undefined);
+}
+
+async function loggerForUnexpectedRoll20Result(
+  chatId: string,
+  tombstone?: Roll20TimeoutTombstone,
+): Promise<DebugLogger> {
+  if (tombstone?.debug) return tombstone.debug;
+  const stored = await chrome.storage.local.get(DEBUG_LOGGING_STORAGE_KEY);
+  return createDebugLogger(
+    isDebugLoggingEnabled(stored[DEBUG_LOGGING_STORAGE_KEY]),
+    chatId,
+  );
+}
+
+async function logUnexpectedRoll20Result(
+  message: Roll20ExecuteResponseMessage,
+  senderTabId: number,
+): Promise<void> {
+  if (!isRoll20ExecuteResponseMessage(message)) return;
+  const tombstone = await findStoredRoll20Timeout(message.requestId).catch(
+    () => undefined,
+  );
+  const debug = await loggerForUnexpectedRoll20Result(
+    tombstone?.chatId ?? "unknown",
+    tombstone,
+  );
+  if (tombstone && tombstone.tabId === senderTabId) {
+    const receivedAt = Date.now();
+    debug.group("Late Roll20 result received after timeout", {
+      "Tool call ID": tombstone.toolCallId,
+      "Bridge request ID": message.requestId,
+      "Tab ID": senderTabId,
+      "Total duration (ms)": receivedAt - tombstone.dispatchedAt,
+      "Arrived after timeout (ms)": receivedAt - tombstone.timedOutAt,
+      "Protocol version": message.protocolVersion,
+      "Mod version": message.modVersion,
+      Outcome: message.outcome,
+    });
+    removeStoredRoll20Timeout(message.requestId);
+    return;
+  }
+  debug.group("Unmatched Roll20 result received", {
+    "Bridge request ID": message.requestId,
+    "Tab ID": senderTabId,
+    ...(tombstone ? { "Expected tab ID": tombstone.tabId } : {}),
+    "Protocol version": message.protocolVersion,
+    "Mod version": message.modVersion,
+    Outcome: message.outcome,
+  });
+}
+
 chrome.runtime.onMessage.addListener((message: unknown, sender): void => {
   if (
     !isRoll20ExecuteResponseMessage(message) ||
@@ -435,14 +608,30 @@ chrome.runtime.onMessage.addListener((message: unknown, sender): void => {
   }
 
   const pending = pendingRoll20Executions.get(message.requestId);
-  if (!pending || pending.tabId !== sender.tab?.id) return;
+  const senderTabId = sender.tab?.id;
+  if (!pending || pending.tabId !== senderTabId) {
+    if (typeof senderTabId === "number") {
+      void logUnexpectedRoll20Result(message, senderTabId);
+    }
+    return;
+  }
   pending.debug.group("Roll20 result received", {
     "Tool call ID": pending.toolCallId,
     "Bridge request ID": message.requestId,
     "Tab ID": pending.tabId,
+    "Protocol version": message.protocolVersion,
+    "Mod version": message.modVersion,
     Outcome: message.outcome,
   });
   removePendingRoll20Execution(message.requestId);
+  if (message.protocolVersion !== ROLL20_PROTOCOL_VERSION) {
+    pending.reject(
+      new Roll20CompatibilityError(
+        `The Roll20 Mod uses protocol ${message.protocolVersion}, but this extension requires protocol ${ROLL20_PROTOCOL_VERSION}. Update the campaign Mod script.`,
+      ),
+    );
+    return;
+  }
   pending.resolve(message.outcome);
 });
 
@@ -483,6 +672,12 @@ function isSendAcknowledgement(value: unknown): value is SendAcknowledgement {
     value !== null &&
     "ok" in value &&
     typeof value.ok === "boolean" &&
+    "extensionVersion" in value &&
+    typeof value.extensionVersion === "string" &&
+    "buildId" in value &&
+    typeof value.buildId === "string" &&
+    "protocolVersion" in value &&
+    typeof value.protocolVersion === "number" &&
     (!("error" in value) ||
       value.error === undefined ||
       typeof value.error === "string")
@@ -541,11 +736,7 @@ function errorMessage(error: unknown): string {
 
 async function sendToRoll20ContentScript(
   tabId: number,
-  message: {
-    readonly type: typeof ROLL20_EXECUTE_REQUEST_TYPE;
-    readonly requestId: string;
-    readonly code: string;
-  },
+  message: Roll20ExecuteRequestMessage,
   debug: DebugLogger,
   toolCallId: string,
 ): Promise<unknown> {
@@ -571,6 +762,7 @@ async function executeRoll20(
   code: string,
   abortSignal: AbortSignal,
   debug: DebugLogger,
+  chatId: string,
   toolCallId: string,
   boundTabId?: number,
 ): Promise<Roll20ExecutionOutcome> {
@@ -584,11 +776,15 @@ async function executeRoll20(
       ? await findActiveRoll20Tab()
       : await getBoundRoll20Tab(boundTabId);
   const requestId = crypto.randomUUID();
+  const dispatchedAt = Date.now();
   debug.group("Roll20 dispatch started", {
     "Tool call ID": toolCallId,
     "Bridge request ID": requestId,
     "Tab ID": tab.id,
     "Tab URL": tab.url,
+    "Extension version": EXTENSION_VERSION,
+    "Extension build ID": EXTENSION_BUILD_ID,
+    "Protocol version": ROLL20_PROTOCOL_VERSION,
   });
 
   return new Promise<Roll20ExecutionOutcome>((resolve, reject) => {
@@ -611,8 +807,19 @@ async function executeRoll20(
       );
     };
     const timeoutId = setTimeout(() => {
+      const timedOutAt = Date.now();
+      rememberRoll20Timeout({
+        requestId,
+        chatId,
+        tabId: tab.id as number,
+        toolCallId,
+        dispatchedAt,
+        timedOutAt,
+        expiresAt: timedOutAt + ROLL20_TOMBSTONE_TTL_MS,
+        debug,
+      });
       rejectPending(
-        new Error("Roll20 did not return a result within 45 seconds."),
+        new Roll20ExecutionTimeoutError(),
         "Roll20 execution timed out",
       );
     }, ROLL20_EXECUTION_TIMEOUT_MS);
@@ -641,6 +848,9 @@ async function executeRoll20(
         type: ROLL20_EXECUTE_REQUEST_TYPE,
         requestId,
         code,
+        extensionVersion: EXTENSION_VERSION,
+        buildId: EXTENSION_BUILD_ID,
+        protocolVersion: ROLL20_PROTOCOL_VERSION,
       },
       debug,
       toolCallId,
@@ -652,7 +862,21 @@ async function executeRoll20(
           Acknowledgement: acknowledgement,
         });
         if (!isSendAcknowledgement(acknowledgement)) {
-          rejectPending(new Error("The Roll20 bridge returned an invalid acknowledgement."));
+          rejectPending(
+            new Roll20CompatibilityError(
+              "The Roll20 page is running an incompatible GM Tools content script. Reload the page.",
+            ),
+          );
+        } else if (
+          acknowledgement.extensionVersion !== EXTENSION_VERSION ||
+          acknowledgement.buildId !== EXTENSION_BUILD_ID ||
+          acknowledgement.protocolVersion !== ROLL20_PROTOCOL_VERSION
+        ) {
+          rejectPending(
+            new Roll20CompatibilityError(
+              `The Roll20 page is running GM Tools ${acknowledgement.extensionVersion} build ${acknowledgement.buildId}. Reload the page to use ${EXTENSION_VERSION} build ${EXTENSION_BUILD_ID}.`,
+            ),
+          );
         } else if (!acknowledgement.ok) {
           rejectPending(new Error(acknowledgement.error ?? "Could not use Roll20 chat."));
         }
@@ -673,11 +897,12 @@ function queueRoll20Execution(
   code: string,
   abortSignal: AbortSignal,
   debug: DebugLogger,
+  chatId: string,
   toolCallId: string,
   boundTabId?: number,
 ): Promise<Roll20ExecutionOutcome> {
   const execution = roll20ExecutionQueue.then(() =>
-    executeRoll20(code, abortSignal, debug, toolCallId, boundTabId),
+    executeRoll20(code, abortSignal, debug, chatId, toolCallId, boundTabId),
   );
   roll20ExecutionQueue = execution.then(
     () => undefined,
@@ -778,10 +1003,33 @@ async function streamChat(
             code,
             abortSignal ?? abortController.signal,
             debug,
+            job.chatId,
             toolCallId,
             job.backgroundEnabled ? job.targetTabId : undefined,
           );
         } catch (error) {
+          if (error instanceof Roll20ExecutionTimeoutError) {
+            return {
+              ok: false,
+              error: {
+                code: "ROLL20_EXECUTION_TIMEOUT",
+                message:
+                  "Roll20 did not return a result within 45 seconds. The execution may still be running.",
+                retryable: false,
+                executionState: "unknown",
+              },
+            };
+          }
+          if (error instanceof Roll20CompatibilityError) {
+            return {
+              ok: false,
+              error: {
+                code: "ROLL20_BRIDGE_INCOMPATIBLE",
+                message: error.message,
+                retryable: false,
+              },
+            };
+          }
           let message = errorMessage(error);
           let tabUnavailable =
             message.includes("campaign tab was closed") ||

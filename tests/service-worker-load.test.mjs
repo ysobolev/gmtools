@@ -6,6 +6,7 @@ import vm from "node:vm";
 test("the generated service worker starts without browser-global errors", async () => {
   const listeners = new Map();
   const localData = {
+    gmToolsDebugLoggingEnabled: true,
     openRouterPersistAuth: true,
     openRouterApiKey: "sk-or-v1-persisted-test-key",
     openRouterUserId: "user-1",
@@ -31,6 +32,7 @@ test("the generated service worker starts without browser-global errors", async 
   });
   let sessionStorageRestricted = false;
   let localStorageRestricted = false;
+  const debugLabels = [];
   const sandbox = {
     AbortController,
     Blob,
@@ -88,7 +90,12 @@ test("the generated service worker starts without browser-global errors", async 
         },
       },
     },
-    console,
+    console: {
+      ...console,
+      groupCollapsed: (label) => debugLabels.push(label),
+      groupEnd: () => undefined,
+      log: () => undefined,
+    },
     crypto,
     fetch,
     setTimeout,
@@ -145,4 +152,65 @@ test("the generated service worker starts without browser-global errors", async 
     ) === true,
   );
   assert.equal(contentScriptHandled, false);
+
+  for (const listener of listeners.get("message")) {
+    listener(
+      {
+        type: "GMTOOLS_ROLL20_EXECUTE_RESPONSE",
+        requestId: "deadbeef-1234",
+        protocolVersion: 1,
+        modVersion: "0.1.0",
+        outcome: { ok: true, result: "unexpected" },
+      },
+      {
+        id: "extension-id",
+        tab: { id: 7, url: "https://app.roll20.net/editor/123" },
+        url: "https://app.roll20.net/editor/123",
+      },
+      () => undefined,
+    );
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(
+    debugLabels.some((label) =>
+      label.includes("Unmatched Roll20 result received"),
+    ),
+  );
+
+  const now = Date.now();
+  sessionData.gmToolsRoll20TimeoutTombstones = [
+    {
+      requestId: "cafebeef-1234",
+      chatId: "chat-late",
+      tabId: 7,
+      toolCallId: "tool-late",
+      dispatchedAt: now - 50_000,
+      timedOutAt: now - 5_000,
+      expiresAt: now + 60_000,
+    },
+  ];
+  for (const listener of listeners.get("message")) {
+    listener(
+      {
+        type: "GMTOOLS_ROLL20_EXECUTE_RESPONSE",
+        requestId: "cafebeef-1234",
+        protocolVersion: 1,
+        modVersion: "0.1.0",
+        outcome: { ok: true, result: "eventually finished" },
+      },
+      {
+        id: "extension-id",
+        tab: { id: 7, url: "https://app.roll20.net/editor/123" },
+        url: "https://app.roll20.net/editor/123",
+      },
+      () => undefined,
+    );
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(
+    debugLabels.some((label) =>
+      label.includes("Late Roll20 result received after timeout"),
+    ),
+  );
+  assert.deepEqual(sessionData.gmToolsRoll20TimeoutTombstones, []);
 });

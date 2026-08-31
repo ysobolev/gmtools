@@ -1,5 +1,44 @@
-import { copyFile, mkdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { copyFile, mkdir, readFile, readdir } from "node:fs/promises";
 import { build } from "esbuild";
+
+async function sourceFiles(path) {
+  const entries = await readdir(path, { withFileTypes: true });
+  const files = await Promise.all(
+    entries.map((entry) => {
+      const child = `${path}/${entry.name}`;
+      return entry.isDirectory() ? sourceFiles(child) : [child];
+    }),
+  );
+  return files.flat();
+}
+
+const packageJson = JSON.parse(await readFile("package.json", "utf8"));
+const manifest = JSON.parse(
+  await readFile("src/extension/static/manifest.json", "utf8"),
+);
+if (packageJson.version !== manifest.version) {
+  throw new Error("package.json and extension manifest versions must match.");
+}
+
+const hashedFiles = [
+  ...(await sourceFiles("src/extension")),
+  "src/build-info.ts",
+  "src/protocol.ts",
+  "package.json",
+  "pnpm-lock.yaml",
+  "scripts/build.mjs",
+].sort();
+const sourceHash = createHash("sha256");
+for (const file of hashedFiles) {
+  sourceHash.update(file);
+  sourceHash.update(await readFile(file));
+}
+const extensionBuildId = sourceHash.digest("hex").slice(0, 12);
+const extensionDefines = {
+  __GMTOOLS_BUILD_ID__: JSON.stringify(extensionBuildId),
+  __GMTOOLS_EXTENSION_VERSION__: JSON.stringify(packageJson.version),
+};
 
 const generatedBanner = {
   js: "// Generated from TypeScript by `pnpm build`. Do not edit directly.",
@@ -16,6 +55,7 @@ await Promise.all([
     format: "iife",
     platform: "browser",
     target: "chrome114",
+    define: extensionDefines,
     banner: generatedBanner,
   }),
   build({
@@ -31,6 +71,7 @@ await Promise.all([
     target: "chrome114",
     jsx: "automatic",
     define: {
+      ...extensionDefines,
       "process.env.NODE_ENV": '"production"',
     },
     minify: true,

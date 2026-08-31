@@ -18,9 +18,12 @@ const protocol = await import(
 async function loadMod() {
   const handlers = new Map();
   const sentMessages = [];
+  const logs = [];
   const sandbox = {
     Function: undefined,
-    log() {},
+    log(message) {
+      logs.push(message);
+    },
     on(event, callback) {
       handlers.set(event, callback);
     },
@@ -39,7 +42,7 @@ async function loadMod() {
   const source = await readFile("roll20-mod/GMToolsPoc.js", "utf8");
   vm.runInNewContext(source, sandbox);
   handlers.get("ready")();
-  return { handlers, sentMessages };
+  return { handlers, logs, sentMessages };
 }
 
 function executeMessage(code, playerid = "gm") {
@@ -63,8 +66,8 @@ function readOutcome(sentMessage) {
 }
 
 test("the Mod script executes GM code and returns its result privately", async () => {
-  const { handlers, sentMessages } = await loadMod();
-  const { message } = executeMessage(
+  const { handlers, logs, sentMessages } = await loadMod();
+  const { message, requestId } = executeMessage(
     'return { roll: randomInteger(20), text: "Café 🐉" };',
   );
   handlers.get("chat:message")(message);
@@ -74,6 +77,24 @@ test("the Mod script executes GM code and returns its result privately", async (
     ok: true,
     result: { roll: 17, text: "Café 🐉" },
   });
+  assert.deepEqual(logs, [
+    "GM Tools execution bridge 0.1.0 (protocol 1) ready",
+    `GM Tools command received: ${requestId} (protocol 1)`,
+    `GM Tools execution completed: ${requestId} (success)`,
+    `GM Tools response submitted: ${requestId}`,
+  ]);
+});
+
+test("the Mod script rejects incompatible protocol versions", async () => {
+  const { handlers, sentMessages } = await loadMod();
+  const { message } = executeMessage("return 1;");
+  message.content = message.content.replace("!gmtools-exec 1 ", "!gmtools-exec 2 ");
+  handlers.get("chat:message")(message);
+
+  const outcome = readOutcome(sentMessages[0]);
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.error.name, "ProtocolVersionError");
+  assert.match(outcome.error.message, /protocol 2/);
 });
 
 test("the Mod script awaits promises returned by executed code", async () => {
