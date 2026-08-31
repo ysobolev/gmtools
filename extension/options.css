@@ -633,6 +633,43 @@ p {
   margin: 25px 28px 0;
 }
 
+.behavior-number-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 15px 16px;
+  border: 1px solid #343c49;
+  border-radius: 10px;
+  background: #151a23;
+}
+
+.behavior-number-card span {
+  display: grid;
+  gap: 4px;
+}
+
+.behavior-number-card strong {
+  color: #e9e6df;
+  font-size: 12px;
+}
+
+.behavior-number-card small {
+  color: #8f98a5;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.behavior-number-card input {
+  width: 72px;
+  padding: 8px 9px;
+  border: 1px solid #3c4553;
+  border-radius: 7px;
+  background: #10141b;
+  color: #f2eee7;
+  font: inherit;
+}
+
 .behavior-card:has(input:checked) {
   border-color: #8b5549;
   background: #251c20;
@@ -755,6 +792,7 @@ p {
 :root[data-theme="light"] .profile-item strong,
 :root[data-theme="light"] .radio-card strong,
 :root[data-theme="light"] .toggle-card strong,
+:root[data-theme="light"] .behavior-number-card strong,
 :root[data-theme="light"] .logout-row strong {
   color: #343137;
 }
@@ -770,6 +808,7 @@ p {
 :root[data-theme="light"] .field small,
 :root[data-theme="light"] .radio-card small,
 :root[data-theme="light"] .toggle-card small,
+:root[data-theme="light"] .behavior-number-card small,
 :root[data-theme="light"] .logout-row p,
 :root[data-theme="light"] .auth-status-card p,
 :root[data-theme="light"] .sidebar-note {
@@ -789,6 +828,8 @@ p {
 :root[data-theme="light"] .field textarea,
 :root[data-theme="light"] .radio-card,
 :root[data-theme="light"] .toggle-card,
+:root[data-theme="light"] .behavior-number-card,
+:root[data-theme="light"] .behavior-number-card input,
 :root[data-theme="light"] .auth-status-card {
   border-color: #d7d1c8;
   background: #fffdfa;

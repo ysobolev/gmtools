@@ -56,8 +56,10 @@ import {
 import {
   BACKGROUND_EXECUTION_STORAGE_KEY,
   DEBUG_LOGGING_STORAGE_KEY,
+  MAX_STEPS_STORAGE_KEY,
   isBackgroundExecutionEnabled,
   isDebugLoggingEnabled,
+  normalizeMaxSteps,
 } from "./behavior-settings";
 import { createDebugLogger, type DebugLogger } from "./debug-logger";
 
@@ -99,6 +101,7 @@ interface ConversationJob {
   readonly chatId: string;
   readonly profileId: string;
   readonly backgroundEnabled: boolean;
+  readonly maxSteps: number;
   readonly targetTabId?: number;
   readonly abortController: AbortController;
   readonly chunks: UIMessageChunk[];
@@ -812,7 +815,7 @@ async function streamChat(
     system: buildProfileInstructions(profile),
     messages: await convertToModelMessages(validation.data),
     tools,
-    stopWhen: isStepCount(8),
+    stopWhen: isStepCount(job.maxSteps),
     abortSignal: abortController.signal,
     onLanguageModelCallStart: (event) => {
       debug.group("→ Model", {
@@ -1003,6 +1006,7 @@ chrome.runtime.onConnect.addListener((port) => {
       const preferences = await chrome.storage.local.get([
         DEBUG_LOGGING_STORAGE_KEY,
         BACKGROUND_EXECUTION_STORAGE_KEY,
+        MAX_STEPS_STORAGE_KEY,
       ]);
       const backgroundEnabled = isBackgroundExecutionEnabled(
         preferences[BACKGROUND_EXECUTION_STORAGE_KEY],
@@ -1011,6 +1015,7 @@ chrome.runtime.onConnect.addListener((port) => {
         isDebugLoggingEnabled(preferences[DEBUG_LOGGING_STORAGE_KEY]),
         message.chatId,
       );
+      const maxSteps = normalizeMaxSteps(preferences[MAX_STEPS_STORAGE_KEY]);
       const targetTab = backgroundEnabled
         ? await findBackgroundRoll20Tab(port.sender?.tab)
         : undefined;
@@ -1020,6 +1025,7 @@ chrome.runtime.onConnect.addListener((port) => {
         chatId: message.chatId,
         profileId: message.profile.id,
         backgroundEnabled,
+        maxSteps,
         ...(typeof targetTab?.id === "number" ? { targetTabId: targetTab.id } : {}),
         abortController,
         chunks: [],
@@ -1032,6 +1038,7 @@ chrome.runtime.onConnect.addListener((port) => {
       if (!disconnected) attachToJob(job, port, message.requestId);
       debug.group("Conversation context", {
         "Background execution": backgroundEnabled,
+        "Maximum steps": maxSteps,
         "Bound Roll20 tab ID": job.targetTabId ?? "none",
         "Bound Roll20 tab URL": targetTab?.url ?? "none",
       });

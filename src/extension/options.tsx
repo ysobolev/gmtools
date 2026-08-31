@@ -2,9 +2,14 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   BACKGROUND_EXECUTION_STORAGE_KEY,
+  DEFAULT_MAX_STEPS,
   DEBUG_LOGGING_STORAGE_KEY,
+  MAX_MAX_STEPS,
+  MAX_STEPS_STORAGE_KEY,
+  MIN_MAX_STEPS,
   isBackgroundExecutionEnabled,
   isDebugLoggingEnabled,
+  normalizeMaxSteps,
 } from "./behavior-settings";
 import {
   applyDisplayTheme,
@@ -540,13 +545,17 @@ function AuthenticationSettings({
 function BehaviorSettings({
   backgroundExecutionEnabled,
   debugLoggingEnabled,
+  maxSteps,
   onBackgroundExecutionChange,
   onDebugLoggingChange,
+  onMaxStepsChange,
 }: {
   readonly backgroundExecutionEnabled: boolean;
   readonly debugLoggingEnabled: boolean;
+  readonly maxSteps: number;
   readonly onBackgroundExecutionChange: (enabled: boolean) => void;
   readonly onDebugLoggingChange: (enabled: boolean) => void;
+  readonly onMaxStepsChange: (steps: number) => void;
 }): React.JSX.Element {
   return (
     <section className="settings-panel simple-panel">
@@ -557,6 +566,30 @@ function BehaviorSettings({
       </div>
 
       <div className="behavior-options">
+        <label className="behavior-number-card">
+          <span>
+            <strong>Maximum steps per request</strong>
+            <small>
+              Limits the number of model and tool-call iterations that one
+              submitted message may use.
+            </small>
+          </span>
+          <input
+            max={MAX_MAX_STEPS}
+            min={MIN_MAX_STEPS}
+            onChange={(event) => {
+              const value = event.currentTarget.valueAsNumber;
+              if (Number.isInteger(value)) {
+                onMaxStepsChange(
+                  Math.max(MIN_MAX_STEPS, Math.min(MAX_MAX_STEPS, value)),
+                );
+              }
+            }}
+            type="number"
+            value={maxSteps}
+          />
+        </label>
+
         <label className="toggle-card behavior-card">
           <input
             checked={debugLoggingEnabled}
@@ -612,6 +645,7 @@ function OptionsApp(): React.JSX.Element {
   const [backgroundExecutionEnabled, setBackgroundExecutionEnabled] =
     useState(false);
   const [debugLoggingEnabled, setDebugLoggingEnabled] = useState(false);
+  const [maxSteps, setMaxSteps] = useState(DEFAULT_MAX_STEPS);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -629,6 +663,7 @@ function OptionsApp(): React.JSX.Element {
       .get([
         DEBUG_LOGGING_STORAGE_KEY,
         BACKGROUND_EXECUTION_STORAGE_KEY,
+        MAX_STEPS_STORAGE_KEY,
       ])
       .then((stored) => {
         setDebugLoggingEnabled(
@@ -639,6 +674,7 @@ function OptionsApp(): React.JSX.Element {
             stored[BACKGROUND_EXECUTION_STORAGE_KEY],
           ),
         );
+        setMaxSteps(normalizeMaxSteps(stored[MAX_STEPS_STORAGE_KEY]));
       });
   }, []);
 
@@ -682,6 +718,12 @@ function OptionsApp(): React.JSX.Element {
     void chrome.storage.local.set({
       [BACKGROUND_EXECUTION_STORAGE_KEY]: enabled,
     });
+  };
+
+  const changeMaxSteps = (steps: number): void => {
+    const normalized = normalizeMaxSteps(steps);
+    setMaxSteps(normalized);
+    void chrome.storage.local.set({ [MAX_STEPS_STORAGE_KEY]: normalized });
   };
 
   const changePersistence = (enabled: boolean): void => {
@@ -780,8 +822,10 @@ function OptionsApp(): React.JSX.Element {
             <BehaviorSettings
               backgroundExecutionEnabled={backgroundExecutionEnabled}
               debugLoggingEnabled={debugLoggingEnabled}
+              maxSteps={maxSteps}
               onBackgroundExecutionChange={changeBackgroundExecution}
               onDebugLoggingChange={changeDebugLogging}
+              onMaxStepsChange={changeMaxSteps}
             />
           </div>
           <div hidden={activeTab !== "authentication"}>

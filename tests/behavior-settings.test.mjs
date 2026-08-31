@@ -27,3 +27,13 @@ test("enables background execution only for an explicit true preference", () => 
   assert.equal(behavior.isBackgroundExecutionEnabled("true"), false);
   assert.equal(behavior.isBackgroundExecutionEnabled(undefined), false);
 });
+
+test("normalizes the maximum steps preference", () => {
+  assert.equal(behavior.normalizeMaxSteps(undefined), 16);
+  assert.equal(behavior.normalizeMaxSteps(8), 8);
+  assert.equal(behavior.normalizeMaxSteps(64), 64);
+  assert.equal(behavior.normalizeMaxSteps(0), 16);
+  assert.equal(behavior.normalizeMaxSteps(65), 16);
+  assert.equal(behavior.normalizeMaxSteps(4.5), 16);
+  assert.equal(behavior.normalizeMaxSteps("16"), 16);
+});
