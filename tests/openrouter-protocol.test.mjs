@@ -47,3 +47,42 @@ test("requires persistence state in authentication responses", () => {
     false,
   );
 });
+
+test("validates chat requests with stable conversation IDs", () => {
+  assert.equal(
+    protocol.isChatPortRequest({
+      type: protocol.CHAT_RESUME,
+      requestId: "request-1",
+      chatId: "chat-1",
+    }),
+    true,
+  );
+  assert.equal(
+    protocol.isChatPortRequest({
+      type: protocol.CHAT_RESUME,
+      requestId: "request-1",
+    }),
+    false,
+  );
+});
+
+test("validates chat lifecycle control messages", () => {
+  assert.equal(
+    protocol.isChatControlRequest({
+      type: protocol.CHAT_RESUME_QUERY,
+      chatId: "chat-1",
+    }),
+    true,
+  );
+  assert.equal(
+    protocol.isChatControlRequest({
+      type: protocol.CHAT_COMMIT,
+      chatId: 42,
+    }),
+    false,
+  );
+  assert.equal(
+    protocol.isChatControlResponse({ ok: true, available: true }),
+    true,
+  );
+});

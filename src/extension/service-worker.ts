@@ -30,12 +30,17 @@ import {
   AUTH_PERSISTENCE_REQUEST,
   AUTH_STATE_CHANGED,
   CHAT_ABORT,
+  CHAT_CLEAR,
   CHAT_CHUNK,
+  CHAT_COMMIT,
   CHAT_COMPLETE,
   CHAT_ERROR,
   CHAT_PORT_NAME,
+  CHAT_RESUME,
+  CHAT_RESUME_QUERY,
   CHAT_START,
   isAuthRequest,
+  isChatControlRequest,
   isChatPortRequest,
   type AuthRequest,
   type AuthResponse,
@@ -48,6 +53,13 @@ import {
   type Roll20ExecutionOutcome,
   type SendAcknowledgement,
 } from "../protocol";
+import {
+  BACKGROUND_EXECUTION_STORAGE_KEY,
+  DEBUG_LOGGING_STORAGE_KEY,
+  isBackgroundExecutionEnabled,
+  isDebugLoggingEnabled,
+} from "./behavior-settings";
+import { createDebugLogger, type DebugLogger } from "./debug-logger";
 
 const API_KEY_STORAGE_KEY = "openRouterApiKey";
 const USER_ID_STORAGE_KEY = "openRouterUserId";
@@ -73,8 +85,31 @@ const pendingRoll20Executions = new Map<
     readonly timeoutId: ReturnType<typeof setTimeout>;
     readonly abortSignal: AbortSignal;
     readonly abortListener: () => void;
+    readonly debug: DebugLogger;
+    readonly toolCallId: string;
+    readonly permanentTabBinding: boolean;
   }
 >();
+
+type ConversationTerminal =
+  | { readonly type: "complete" }
+  | { readonly type: "error"; readonly error: string };
+
+interface ConversationJob {
+  readonly chatId: string;
+  readonly profileId: string;
+  readonly backgroundEnabled: boolean;
+  readonly targetTabId?: number;
+  readonly abortController: AbortController;
+  readonly chunks: UIMessageChunk[];
+  readonly subscribers: Map<chrome.runtime.Port, string>;
+  readonly debug: DebugLogger;
+  targetTabUnavailableReason?: string;
+  terminal?: ConversationTerminal;
+}
+
+const conversationJobs = new Map<string, ConversationJob>();
+let conversationStartPending = false;
 
 interface StoredAuth {
   readonly openRouterApiKey?: unknown;
@@ -348,6 +383,26 @@ chrome.runtime.onMessage.addListener(
   },
 );
 
+chrome.runtime.onMessage.addListener(
+  (message: unknown, sender, sendResponse): boolean | undefined => {
+    if (!isChatControlRequest(message) || !isTrustedExtensionSender(sender)) {
+      return;
+    }
+    const job = conversationJobs.get(message.chatId);
+    if (message.type === CHAT_RESUME_QUERY) {
+      sendResponse({ ok: true, available: job?.backgroundEnabled === true });
+      return;
+    }
+    if (message.type === CHAT_CLEAR) {
+      job?.abortController.abort();
+      conversationJobs.delete(message.chatId);
+    } else if (message.type === CHAT_COMMIT && job?.terminal) {
+      conversationJobs.delete(message.chatId);
+    }
+    sendResponse({ ok: true });
+  },
+);
+
 function isTrustedRoll20ContentScript(
   sender: Pick<chrome.runtime.MessageSender, "id" | "tab" | "url">,
 ): boolean {
@@ -378,8 +433,45 @@ chrome.runtime.onMessage.addListener((message: unknown, sender): void => {
 
   const pending = pendingRoll20Executions.get(message.requestId);
   if (!pending || pending.tabId !== sender.tab?.id) return;
+  pending.debug.group("Roll20 result received", {
+    "Tool call ID": pending.toolCallId,
+    "Bridge request ID": message.requestId,
+    "Tab ID": pending.tabId,
+    Outcome: message.outcome,
+  });
   removePendingRoll20Execution(message.requestId);
   pending.resolve(message.outcome);
+});
+
+function rejectExecutionsForUnavailableTab(tabId: number, message: string): void {
+  for (const job of conversationJobs.values()) {
+    if (job.targetTabId === tabId && !job.terminal) {
+      job.targetTabUnavailableReason = message;
+    }
+  }
+  for (const [requestId, pending] of pendingRoll20Executions) {
+    if (pending.tabId !== tabId || !pending.permanentTabBinding) continue;
+    removePendingRoll20Execution(requestId);
+    pending.reject(new Error(message));
+  }
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  rejectExecutionsForUnavailableTab(
+    tabId,
+    "The Roll20 campaign tab was closed. This command must not be retried.",
+  );
+});
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (
+    typeof changeInfo.url === "string" &&
+    !changeInfo.url.startsWith(ROLL20_EDITOR_URL_PREFIX)
+  ) {
+    rejectExecutionsForUnavailableTab(
+      tabId,
+      "The Roll20 campaign tab navigated away. This command must not be retried.",
+    );
+  }
 });
 
 function isSendAcknowledgement(value: unknown): value is SendAcknowledgement {
@@ -408,6 +500,38 @@ async function findActiveRoll20Tab(): Promise<chrome.tabs.Tab> {
   return activeTab;
 }
 
+async function findBackgroundRoll20Tab(
+  senderTab: chrome.tabs.Tab | undefined,
+): Promise<chrome.tabs.Tab | undefined> {
+  if (
+    typeof senderTab?.id === "number" &&
+    senderTab.url?.startsWith(ROLL20_EDITOR_URL_PREFIX)
+  ) {
+    return senderTab;
+  }
+
+  const tabs = await chrome.tabs.query({ url: `${ROLL20_EDITOR_URL_PREFIX}*` });
+  const activeTab = tabs.find((tab) => tab.active);
+  return activeTab ?? (tabs.length === 1 ? tabs[0] : undefined);
+}
+
+async function getBoundRoll20Tab(tabId: number): Promise<chrome.tabs.Tab> {
+  let tab: chrome.tabs.Tab;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch {
+    throw new Error(
+      "The Roll20 campaign tab was closed. This command must not be retried.",
+    );
+  }
+  if (!tab.url?.startsWith(ROLL20_EDITOR_URL_PREFIX)) {
+    throw new Error(
+      "The Roll20 campaign tab navigated away. This command must not be retried.",
+    );
+  }
+  return tab;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -419,12 +543,19 @@ async function sendToRoll20ContentScript(
     readonly requestId: string;
     readonly code: string;
   },
+  debug: DebugLogger,
+  toolCallId: string,
 ): Promise<unknown> {
   try {
     return await chrome.tabs.sendMessage(tabId, message);
   } catch (error) {
     if (!errorMessage(error).includes("Receiving end does not exist")) throw error;
 
+    debug.group("Roll20 content script missing; injecting it", {
+      "Tool call ID": toolCallId,
+      "Bridge request ID": message.requestId,
+      "Tab ID": tabId,
+    });
     await chrome.scripting.executeScript({
       target: { tabId },
       files: ["content-script.js"],
@@ -436,25 +567,51 @@ async function sendToRoll20ContentScript(
 async function executeRoll20(
   code: string,
   abortSignal: AbortSignal,
+  debug: DebugLogger,
+  toolCallId: string,
+  boundTabId?: number,
 ): Promise<Roll20ExecutionOutcome> {
   if (!code.trim()) throw new Error("execute_roll20 received empty code.");
   if (code.length > MAX_ROLL20_CODE_LENGTH) {
     throw new Error("execute_roll20 code exceeds the 20,000-character limit.");
   }
 
-  const tab = await findActiveRoll20Tab();
+  const tab =
+    boundTabId === undefined
+      ? await findActiveRoll20Tab()
+      : await getBoundRoll20Tab(boundTabId);
   const requestId = crypto.randomUUID();
+  debug.group("Roll20 dispatch started", {
+    "Tool call ID": toolCallId,
+    "Bridge request ID": requestId,
+    "Tab ID": tab.id,
+    "Tab URL": tab.url,
+  });
 
   return new Promise<Roll20ExecutionOutcome>((resolve, reject) => {
-    const rejectPending = (error: Error): void => {
+    const rejectPending = (
+      error: Error,
+      label = "Roll20 dispatch failed",
+    ): void => {
+      debug.group(label, {
+        "Tool call ID": toolCallId,
+        "Bridge request ID": requestId,
+        Error: error,
+      });
       removePendingRoll20Execution(requestId);
       reject(error);
     };
     const abortListener = (): void => {
-      rejectPending(new DOMException("Roll20 execution was stopped.", "AbortError"));
+      rejectPending(
+        new DOMException("Roll20 execution was stopped.", "AbortError"),
+        "Roll20 execution aborted",
+      );
     };
     const timeoutId = setTimeout(() => {
-      rejectPending(new Error("Roll20 did not return a result within 45 seconds."));
+      rejectPending(
+        new Error("Roll20 did not return a result within 45 seconds."),
+        "Roll20 execution timed out",
+      );
     }, ROLL20_EXECUTION_TIMEOUT_MS);
 
     pendingRoll20Executions.set(requestId, {
@@ -464,6 +621,9 @@ async function executeRoll20(
       timeoutId,
       abortSignal,
       abortListener,
+      debug,
+      toolCallId,
+      permanentTabBinding: boundTabId !== undefined,
     });
     abortSignal.addEventListener("abort", abortListener, { once: true });
 
@@ -472,12 +632,22 @@ async function executeRoll20(
       return;
     }
 
-    void sendToRoll20ContentScript(tab.id as number, {
+    void sendToRoll20ContentScript(
+      tab.id as number,
+      {
         type: ROLL20_EXECUTE_REQUEST_TYPE,
         requestId,
         code,
-      })
+      },
+      debug,
+      toolCallId,
+    )
       .then((acknowledgement: unknown) => {
+        debug.group("Roll20 content-script response", {
+          "Tool call ID": toolCallId,
+          "Bridge request ID": requestId,
+          Acknowledgement: acknowledgement,
+        });
         if (!isSendAcknowledgement(acknowledgement)) {
           rejectPending(new Error("The Roll20 bridge returned an invalid acknowledgement."));
         } else if (!acknowledgement.ok) {
@@ -499,9 +669,12 @@ async function executeRoll20(
 function queueRoll20Execution(
   code: string,
   abortSignal: AbortSignal,
+  debug: DebugLogger,
+  toolCallId: string,
+  boundTabId?: number,
 ): Promise<Roll20ExecutionOutcome> {
   const execution = roll20ExecutionQueue.then(() =>
-    executeRoll20(code, abortSignal),
+    executeRoll20(code, abortSignal, debug, toolCallId, boundTabId),
   );
   roll20ExecutionQueue = execution.then(
     () => undefined,
@@ -541,11 +714,9 @@ function postToPort(port: chrome.runtime.Port, message: ChatPortResponse): boole
 }
 
 async function streamChat(
-  port: chrome.runtime.Port,
-  requestId: string,
+  job: ConversationJob,
   untrustedMessages: unknown,
   profile: AssistantProfile,
-  abortController: AbortController,
 ): Promise<void> {
   const validation = await safeValidateUIMessages<UIMessage>({
     messages: untrustedMessages,
@@ -557,6 +728,11 @@ async function streamChat(
     throw new Error("Connect to OpenRouter before sending a message.");
   }
 
+  const { abortController, debug } = job;
+  debug.group("Conversation started", {
+    Profile: { id: profile.id, name: profile.name, modelId: profile.modelId },
+  });
+
   const openrouter = createOpenRouter({
     apiKey: stored.openRouterApiKey,
     compatibility: "strict",
@@ -566,7 +742,7 @@ async function streamChat(
   const tools = {
     execute_roll20: tool({
       description:
-        "Execute JavaScript in the active campaign's Roll20 Mod sandbox. The code is a function body with access to Roll20 Mod globals such as findObjs, getObj, createObj, Campaign, sendChat, and state. Include an explicit return statement and return only JSON-serializable data. Returned promises are awaited.",
+        "Execute JavaScript in the campaign's Roll20 Mod sandbox. The code is a function body with access to Roll20 Mod globals such as findObjs, getObj, createObj, Campaign, sendChat, and state. Include an explicit return statement and return only JSON-serializable data. Returned promises are awaited. If the result says retryable is false, do not retry the command.",
       inputSchema: jsonSchema<{ readonly code: string }>({
         type: "object",
         properties: {
@@ -578,8 +754,57 @@ async function streamChat(
         required: ["code"],
         additionalProperties: false,
       }),
-      execute: ({ code }, { abortSignal }) =>
-        queueRoll20Execution(code, abortSignal ?? abortController.signal),
+      execute: async ({ code }, { abortSignal, toolCallId }) => {
+        const unavailableReason =
+          job.targetTabUnavailableReason ??
+          (job.backgroundEnabled && job.targetTabId === undefined
+            ? "No unambiguous Roll20 campaign tab was available when this conversation started."
+            : undefined);
+        if (unavailableReason) {
+          return {
+            ok: false,
+            error: {
+              code: "ROLL20_TAB_UNAVAILABLE",
+              message: unavailableReason,
+              retryable: false,
+            },
+          };
+        }
+        try {
+          return await queueRoll20Execution(
+            code,
+            abortSignal ?? abortController.signal,
+            debug,
+            toolCallId,
+            job.backgroundEnabled ? job.targetTabId : undefined,
+          );
+        } catch (error) {
+          let message = errorMessage(error);
+          let tabUnavailable =
+            message.includes("campaign tab was closed") ||
+            message.includes("campaign tab navigated away") ||
+            message.includes("No tab with id");
+          if (job.backgroundEnabled && job.targetTabId !== undefined) {
+            try {
+              await getBoundRoll20Tab(job.targetTabId);
+            } catch (tabError) {
+              message = errorMessage(tabError);
+              tabUnavailable = true;
+            }
+          }
+          if (job.backgroundEnabled && tabUnavailable) {
+            return {
+              ok: false,
+              error: {
+                code: "ROLL20_TAB_UNAVAILABLE",
+                message,
+                retryable: false,
+              },
+            };
+          }
+          throw error;
+        }
+      },
     }),
   };
   const result = streamText({
@@ -589,6 +814,53 @@ async function streamChat(
     tools,
     stopWhen: isStepCount(8),
     abortSignal: abortController.signal,
+    onLanguageModelCallStart: (event) => {
+      debug.group("→ Model", {
+        "Call ID": event.callId,
+        Provider: event.provider,
+        Model: event.modelId,
+        Instructions: event.instructions,
+        Messages: event.messages,
+      });
+    },
+    onLanguageModelCallEnd: (event) => {
+      debug.group("← Model", {
+        "Call ID": event.callId,
+        Provider: event.provider,
+        Model: event.modelId,
+        "Finish reason": event.finishReason,
+        Content: event.content,
+        Usage: event.usage,
+        Performance: event.performance,
+      });
+    },
+    onToolExecutionStart: (event) => {
+      debug.group(`Tool call · ${event.toolCall.toolName}`, {
+        "Call ID": event.callId,
+        "Tool call ID": event.toolCall.toolCallId,
+        Arguments: event.toolCall.input,
+      });
+    },
+    onToolExecutionEnd: (event) => {
+      debug.group(`Tool response · ${event.toolCall.toolName}`, {
+        "Call ID": event.callId,
+        "Tool call ID": event.toolCall.toolCallId,
+        "Duration (ms)": event.toolExecutionMs,
+        Response:
+          event.toolOutput.type === "tool-result"
+            ? event.toolOutput.output
+            : event.toolOutput.error,
+        Status: event.toolOutput.type,
+      });
+    },
+    onError: ({ error }) => {
+      debug.group("Model stream error", { Error: error });
+    },
+    onAbort: (event) => {
+      debug.group("Conversation aborted", {
+        "Completed steps": event.steps.length,
+      });
+    },
   });
   const stream = toUIMessageStream({
     stream: result.stream,
@@ -601,12 +873,65 @@ async function streamChat(
   });
 
   for await (const chunk of stream as ReadableStream<UIMessageChunk>) {
+    job.chunks.push(chunk);
+    broadcastJob(job, (requestId) => ({
+      type: CHAT_CHUNK,
+      requestId,
+      chunk,
+    }));
+  }
+  finishJob(job, { type: "complete" });
+  debug.group("Conversation completed", {});
+}
+
+function broadcastJob(
+  job: ConversationJob,
+  createMessage: (requestId: string) => ChatPortResponse,
+): void {
+  for (const [port, requestId] of job.subscribers) {
+    if (!postToPort(port, createMessage(requestId))) {
+      job.subscribers.delete(port);
+    }
+  }
+}
+
+function finishJob(job: ConversationJob, terminal: ConversationTerminal): void {
+  if (job.terminal) return;
+  job.terminal = terminal;
+  broadcastJob(job, (requestId) =>
+    terminal.type === "complete"
+      ? { type: CHAT_COMPLETE, requestId }
+      : { type: CHAT_ERROR, requestId, error: terminal.error },
+  );
+  if (!job.backgroundEnabled && job.subscribers.size === 0) {
+    conversationJobs.delete(job.chatId);
+  }
+}
+
+function attachToJob(
+  job: ConversationJob,
+  port: chrome.runtime.Port,
+  requestId: string,
+): void {
+  job.subscribers.set(port, requestId);
+  job.debug.group("Conversation attached", {
+    "Buffered chunks": job.chunks.length,
+    Terminal: job.terminal?.type ?? "running",
+  });
+  for (const chunk of job.chunks) {
     if (!postToPort(port, { type: CHAT_CHUNK, requestId, chunk })) {
-      abortController.abort();
+      job.subscribers.delete(port);
       return;
     }
   }
-  postToPort(port, { type: CHAT_COMPLETE, requestId });
+  if (job.terminal) {
+    postToPort(
+      port,
+      job.terminal.type === "complete"
+        ? { type: CHAT_COMPLETE, requestId }
+        : { type: CHAT_ERROR, requestId, error: job.terminal.error },
+    );
+  }
 }
 
 async function keepServiceWorkerAlive<T>(operation: Promise<T>): Promise<T> {
@@ -627,48 +952,122 @@ chrome.runtime.onConnect.addListener((port) => {
     return;
   }
 
-  let activeRequestId: string | null = null;
-  let abortController: AbortController | null = null;
+  let attachedJob: ConversationJob | null = null;
+  let attachedRequestId: string | null = null;
+  let disconnected = false;
 
   port.onMessage.addListener((message: unknown) => {
     if (!isChatPortRequest(message)) return;
 
     if (message.type === CHAT_ABORT) {
-      if (message.requestId === activeRequestId) abortController?.abort();
+      if (
+        message.requestId === attachedRequestId &&
+        message.chatId === attachedJob?.chatId
+      ) {
+        attachedJob.abortController.abort();
+      }
       return;
     }
 
-    if (message.type !== CHAT_START || activeRequestId) return;
-    activeRequestId = message.requestId;
-    abortController = new AbortController();
-    activeChatControllers.add(abortController);
-
-    void keepServiceWorkerAlive(
-      streamChat(
-        port,
-        message.requestId,
-        message.messages,
-        message.profile,
-        abortController,
-      ),
-    )
-      .catch((error: unknown) => {
-        if (abortController?.signal.aborted) {
-          postToPort(port, { type: CHAT_COMPLETE, requestId: message.requestId });
-          return;
-        }
+    if (attachedJob) return;
+    if (message.type === CHAT_RESUME) {
+      const job = conversationJobs.get(message.chatId);
+      if (!job?.backgroundEnabled) {
         postToPort(port, {
           type: CHAT_ERROR,
           requestId: message.requestId,
-          error: userFacingModelError(error),
+          error: "The background conversation is no longer available.",
         });
-      })
-      .finally(() => {
-        if (abortController) activeChatControllers.delete(abortController);
-        activeRequestId = null;
-        abortController = null;
+        return;
+      }
+      attachedJob = job;
+      attachedRequestId = message.requestId;
+      attachToJob(job, port, message.requestId);
+      return;
+    }
+
+    const runningJob = [...conversationJobs.values()].find(
+      (job) => !job.terminal,
+    );
+    if (runningJob || conversationStartPending) {
+      postToPort(port, {
+        type: CHAT_ERROR,
+        requestId: message.requestId,
+        error: "Another conversation is already running.",
       });
+      return;
+    }
+    conversationStartPending = true;
+
+    void (async () => {
+      const preferences = await chrome.storage.local.get([
+        DEBUG_LOGGING_STORAGE_KEY,
+        BACKGROUND_EXECUTION_STORAGE_KEY,
+      ]);
+      const backgroundEnabled = isBackgroundExecutionEnabled(
+        preferences[BACKGROUND_EXECUTION_STORAGE_KEY],
+      );
+      const debug = createDebugLogger(
+        isDebugLoggingEnabled(preferences[DEBUG_LOGGING_STORAGE_KEY]),
+        message.chatId,
+      );
+      const targetTab = backgroundEnabled
+        ? await findBackgroundRoll20Tab(port.sender?.tab)
+        : undefined;
+      if (disconnected && !backgroundEnabled) return;
+      const abortController = new AbortController();
+      const job: ConversationJob = {
+        chatId: message.chatId,
+        profileId: message.profile.id,
+        backgroundEnabled,
+        ...(typeof targetTab?.id === "number" ? { targetTabId: targetTab.id } : {}),
+        abortController,
+        chunks: [],
+        subscribers: new Map(),
+        debug,
+      };
+      conversationJobs.set(job.chatId, job);
+      attachedJob = job;
+      attachedRequestId = message.requestId;
+      if (!disconnected) attachToJob(job, port, message.requestId);
+      debug.group("Conversation context", {
+        "Background execution": backgroundEnabled,
+        "Bound Roll20 tab ID": job.targetTabId ?? "none",
+        "Bound Roll20 tab URL": targetTab?.url ?? "none",
+      });
+      activeChatControllers.add(abortController);
+
+      void keepServiceWorkerAlive(streamChat(job, message.messages, message.profile))
+        .catch((error: unknown) => {
+          finishJob(
+            job,
+            abortController.signal.aborted
+              ? { type: "complete" }
+              : { type: "error", error: userFacingModelError(error) },
+          );
+        })
+        .finally(() => {
+          activeChatControllers.delete(abortController);
+        });
+    })().catch((error: unknown) => {
+      postToPort(port, {
+        type: CHAT_ERROR,
+        requestId: message.requestId,
+        error: userFacingModelError(error),
+      });
+    }).finally(() => {
+      conversationStartPending = false;
+    });
   });
 
-  port.onDisconnect.addListener(() => abortController?.abort());
+  port.onDisconnect.addListener(() => {
+    disconnected = true;
+    const job = attachedJob;
+    if (!job) return;
+    job.subscribers.delete(port);
+    job.debug.group("Conversation detached", {
+      "Background execution": job.backgroundEnabled,
+    });
+    if (!job.backgroundEnabled && !job.terminal) job.abortController.abort();
+  });
 });

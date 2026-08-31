@@ -5,7 +5,10 @@ import {
   CHAT_COMPLETE,
   CHAT_ERROR,
   CHAT_PORT_NAME,
+  CHAT_RESUME,
+  CHAT_RESUME_QUERY,
   CHAT_START,
+  isChatControlResponse,
   isChatPortResponse,
 } from "./openrouter-protocol";
 
@@ -13,14 +16,33 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
   constructor(private readonly profile: AssistantProfile) {}
 
   async sendMessages({
+    chatId,
     messages,
     abortSignal,
   }: Parameters<ChatTransport<UIMessage>["sendMessages"]>[0]): Promise<
     ReadableStream<UIMessageChunk>
   > {
+    return this.openStream(
+      chatId,
+      abortSignal,
+      (port, requestId) =>
+        port.postMessage({
+          type: CHAT_START,
+          requestId,
+          chatId,
+          messages,
+          profile: this.profile,
+        }),
+    );
+  }
+
+  private openStream(
+    chatId: string,
+    abortSignal: AbortSignal | undefined,
+    startRequest: (port: chrome.runtime.Port, requestId: string) => void,
+  ): ReadableStream<UIMessageChunk> {
     const requestId = crypto.randomUUID();
     const port = chrome.runtime.connect({ name: CHAT_PORT_NAME });
-    const profile = this.profile;
 
     return new ReadableStream<UIMessageChunk>({
       start(controller) {
@@ -36,7 +58,7 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
 
         const onAbort = (): void => {
           try {
-            port.postMessage({ type: CHAT_ABORT, requestId });
+            port.postMessage({ type: CHAT_ABORT, requestId, chatId });
           } catch {
             // The worker may already have closed the port.
           } finally {
@@ -74,17 +96,25 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
           return;
         }
         abortSignal?.addEventListener("abort", onAbort, { once: true });
-        port.postMessage({
-          type: CHAT_START,
-          requestId,
-          messages,
-          profile,
-        });
+        startRequest(port, requestId);
       },
     });
   }
 
-  async reconnectToStream(): Promise<null> {
-    return null;
+  async reconnectToStream({
+    chatId,
+  }: Parameters<ChatTransport<UIMessage>["reconnectToStream"]>[0]): Promise<
+    ReadableStream<UIMessageChunk> | null
+  > {
+    const response: unknown = await chrome.runtime.sendMessage({
+      type: CHAT_RESUME_QUERY,
+      chatId,
+    });
+    if (!isChatControlResponse(response) || response.available !== true) {
+      return null;
+    }
+    return this.openStream(chatId, undefined, (port, requestId) => {
+      port.postMessage({ type: CHAT_RESUME, requestId, chatId });
+    });
   }
 }

@@ -33,6 +33,8 @@ import {
   AUTH_CONNECT_REQUEST,
   AUTH_STATE_CHANGED,
   AUTH_STATUS_REQUEST,
+  CHAT_CLEAR,
+  CHAT_COMMIT,
   isAuthResponse,
   isAuthStateChangedMessage,
   type AuthRequest,
@@ -41,6 +43,7 @@ import {
 
 const CHAT_HISTORY_STORAGE_KEY = "openRouterChatHistory";
 interface StoredConversation {
+  readonly chatId: string;
   readonly profileId: string;
   readonly messages: unknown;
 }
@@ -52,16 +55,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function readStoredConversation(
   value: unknown,
   profileId: string,
-): unknown[] {
-  if (Array.isArray(value)) return value;
+): { readonly chatId: string; readonly messages: unknown[] } {
+  if (Array.isArray(value)) {
+    return { chatId: crypto.randomUUID(), messages: value };
+  }
   if (
     isRecord(value) &&
     value.profileId === profileId &&
     Array.isArray(value.messages)
   ) {
-    return value.messages;
+    return {
+      chatId:
+        typeof value.chatId === "string" ? value.chatId : crypto.randomUUID(),
+      messages: value.messages,
+    };
   }
-  return [];
+  return { chatId: crypto.randomUUID(), messages: [] };
+}
+
+function sendChatControl(
+  type: typeof CHAT_CLEAR | typeof CHAT_COMMIT,
+  chatId: string,
+): void {
+  void chrome.runtime.sendMessage({ type, chatId }).catch(() => undefined);
 }
 const markdownComponents: Components = {
   a: ({ node: _node, ...properties }) => (
@@ -170,11 +186,17 @@ function LoadingScreen(): React.JSX.Element {
 
 function ChatScreen({
   activeProfile,
+  chatId,
+  initialMessages,
+  onClearConversation,
   onManageProfiles,
   onSelectProfile,
   profiles,
 }: {
   readonly activeProfile: AssistantProfile;
+  readonly chatId: string;
+  readonly initialMessages: UIMessage[];
+  readonly onClearConversation: () => void;
   readonly onManageProfiles: () => void;
   readonly onSelectProfile: (profileId: string) => void;
   readonly profiles: readonly AssistantProfile[];
@@ -192,47 +214,52 @@ function ChatScreen({
     error,
     clearError,
     setMessages,
-  } = useChat({ transport, throttle: 40 });
+  } = useChat({
+    id: chatId,
+    messages: initialMessages,
+    transport,
+    throttle: 40,
+    resume: true,
+  });
   const [input, setInput] = useState("");
-  const [historyReady, setHistoryReady] = useState(false);
+  const activeTurnRef = useRef(false);
+  const safeMessagesRef = useRef(initialMessages);
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const busy = status === "submitted" || status === "streaming";
   const activity = getChatActivity(status, messages);
 
   useEffect(() => {
-    let cancelled = false;
-    void chrome.storage.session
-      .get(CHAT_HISTORY_STORAGE_KEY)
-      .then(async (stored) => {
-        const validation = await safeValidateUIMessages<UIMessage>({
-          messages: readStoredConversation(
-            stored[CHAT_HISTORY_STORAGE_KEY],
-            activeProfile.id,
-          ),
-        });
-        if (!cancelled && validation.success) setMessages(validation.data);
-      })
-      .finally(() => {
-        if (!cancelled) setHistoryReady(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeProfile.id, setMessages]);
-
-  useEffect(() => {
-    if (!historyReady) return;
-    const timeoutId = window.setTimeout(() => {
+    if (status === "submitted") {
+      activeTurnRef.current = true;
+      safeMessagesRef.current = messages;
       void chrome.storage.session.set({
         [CHAT_HISTORY_STORAGE_KEY]: {
+          chatId,
           profileId: activeProfile.id,
           messages,
         } satisfies StoredConversation,
       });
-    }, 200);
-    return () => window.clearTimeout(timeoutId);
-  }, [activeProfile.id, historyReady, messages]);
+      return;
+    }
+    if (status === "streaming") {
+      activeTurnRef.current = true;
+      return;
+    }
+    if (status === "ready" && activeTurnRef.current) {
+      activeTurnRef.current = false;
+      safeMessagesRef.current = messages;
+      void chrome.storage.session
+        .set({
+          [CHAT_HISTORY_STORAGE_KEY]: {
+            chatId,
+            profileId: activeProfile.id,
+            messages,
+          } satisfies StoredConversation,
+        })
+        .then(() => sendChatControl(CHAT_COMMIT, chatId));
+    }
+  }, [activeProfile.id, chatId, messages, status]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: busy ? "auto" : "smooth" });
@@ -268,9 +295,21 @@ function ChatScreen({
   const clearConversation = (): void => {
     stop();
     clearError();
-    setMessages([]);
-    void chrome.storage.session.remove(CHAT_HISTORY_STORAGE_KEY);
-    textareaRef.current?.focus();
+    sendChatControl(CHAT_CLEAR, chatId);
+    onClearConversation();
+  };
+
+  const stopGeneration = (): void => {
+    activeTurnRef.current = false;
+    stop();
+    window.setTimeout(() => setMessages(safeMessagesRef.current), 0);
+  };
+
+  const selectProfile = (profileId: string): void => {
+    if (profileId === activeProfile.id) return;
+    stop();
+    sendChatControl(CHAT_CLEAR, chatId);
+    onSelectProfile(profileId);
   };
 
   return (
@@ -279,7 +318,7 @@ function ChatScreen({
         <div className="profile-control">
           <select
             aria-label="Active assistant profile"
-            onChange={(event) => onSelectProfile(event.target.value)}
+            onChange={(event) => selectProfile(event.target.value)}
             value={activeProfile.id}
           >
             {profiles.map((profile) => (
@@ -371,7 +410,7 @@ function ChatScreen({
             <button
               aria-label="Stop generating"
               className="send-button stop-button"
-              onClick={stop}
+              onClick={stopGeneration}
               type="button"
             >
               ■
@@ -400,6 +439,62 @@ function ChatScreen({
   );
 }
 
+function ChatSession({
+  activeProfile,
+  onClearConversation,
+  onManageProfiles,
+  onSelectProfile,
+  profiles,
+}: {
+  readonly activeProfile: AssistantProfile;
+  readonly onClearConversation: () => void;
+  readonly onManageProfiles: () => void;
+  readonly onSelectProfile: (profileId: string) => void;
+  readonly profiles: readonly AssistantProfile[];
+}): React.JSX.Element {
+  const [conversation, setConversation] = useState<{
+    readonly chatId: string;
+    readonly messages: UIMessage[];
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void chrome.storage.session
+      .get(CHAT_HISTORY_STORAGE_KEY)
+      .then(async (stored) => {
+        const candidate = readStoredConversation(
+          stored[CHAT_HISTORY_STORAGE_KEY],
+          activeProfile.id,
+        );
+        const validation = await safeValidateUIMessages<UIMessage>({
+          messages: candidate.messages,
+        });
+        if (!cancelled) {
+          setConversation({
+            chatId: candidate.chatId,
+            messages: validation.success ? validation.data : [],
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProfile.id]);
+
+  if (!conversation) return <LoadingScreen />;
+  return (
+    <ChatScreen
+      activeProfile={activeProfile}
+      chatId={conversation.chatId}
+      initialMessages={conversation.messages}
+      onClearConversation={onClearConversation}
+      onManageProfiles={onManageProfiles}
+      onSelectProfile={onSelectProfile}
+      profiles={profiles}
+    />
+  );
+}
+
 function ChatWorkspace(): React.JSX.Element {
   const [profiles, setProfiles] = useState<AssistantProfile[] | null>(null);
   const [activeProfileId, setActiveProfileId] = useState("");
@@ -408,8 +503,22 @@ function ChatWorkspace(): React.JSX.Element {
   const activeProfileIdRef = useRef("");
 
   const clearChat = useCallback((): void => {
-    void chrome.storage.session.remove(CHAT_HISTORY_STORAGE_KEY);
-    setChatRevision((revision) => revision + 1);
+    void (async () => {
+      try {
+        const stored = await chrome.storage.session.get(
+          CHAT_HISTORY_STORAGE_KEY,
+        );
+        const value = stored[CHAT_HISTORY_STORAGE_KEY];
+        if (isRecord(value) && typeof value.chatId === "string") {
+          sendChatControl(CHAT_CLEAR, value.chatId);
+        }
+      } finally {
+        await chrome.storage.session
+          .remove(CHAT_HISTORY_STORAGE_KEY)
+          .catch(() => undefined);
+        setChatRevision((revision) => revision + 1);
+      }
+    })();
   }, []);
 
   const applyProfileState = useCallback((
@@ -494,9 +603,10 @@ function ChatWorkspace(): React.JSX.Element {
   };
 
   return (
-    <ChatScreen
+    <ChatSession
       activeProfile={activeProfile}
       key={`${activeProfile.id}:${chatRevision}`}
+      onClearConversation={clearChat}
       onManageProfiles={() => void chrome.runtime.openOptionsPage()}
       onSelectProfile={selectProfile}
       profiles={profiles}

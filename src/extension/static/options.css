@@ -526,7 +526,7 @@ p {
 }
 
 .radio-card,
-.persistence-card {
+.toggle-card {
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -543,27 +543,27 @@ p {
 }
 
 .radio-card input,
-.persistence-card input {
+.toggle-card input {
   flex: none;
   margin: 3px 0 0;
   accent-color: #cb5b42;
 }
 
 .radio-card span,
-.persistence-card span {
+.toggle-card span {
   display: grid;
   gap: 4px;
 }
 
 .radio-card strong,
-.persistence-card strong,
+.toggle-card strong,
 .logout-row strong {
   color: #e9e6df;
   font-size: 12px;
 }
 
 .radio-card small,
-.persistence-card small {
+.toggle-card small {
   color: #8f98a5;
   font-size: 10px;
   font-weight: 400;
@@ -624,6 +624,29 @@ p {
 }
 
 .persistence-card:has(input:checked) small {
+  color: #d0af72;
+}
+
+.behavior-options {
+  display: grid;
+  gap: 10px;
+  margin: 25px 28px 0;
+}
+
+.behavior-card:has(input:checked) {
+  border-color: #8b5549;
+  background: #251c20;
+}
+
+.behavior-card.unavailable {
+  cursor: not-allowed;
+}
+
+.behavior-card.unavailable input {
+  cursor: not-allowed;
+}
+
+.toggle-card .warning-note {
   color: #d0af72;
 }
 
@@ -707,7 +730,8 @@ p {
 
 :root[data-theme="light"] .settings-tab.active,
 :root[data-theme="light"] .profile-item.selected,
-:root[data-theme="light"] .radio-card:has(input:checked) {
+:root[data-theme="light"] .radio-card:has(input:checked),
+:root[data-theme="light"] .behavior-card:has(input:checked) {
   border-color: #d5a99c;
   background: #fff1eb;
 }
@@ -730,7 +754,7 @@ p {
 
 :root[data-theme="light"] .profile-item strong,
 :root[data-theme="light"] .radio-card strong,
-:root[data-theme="light"] .persistence-card strong,
+:root[data-theme="light"] .toggle-card strong,
 :root[data-theme="light"] .logout-row strong {
   color: #343137;
 }
@@ -745,11 +769,15 @@ p {
 :root[data-theme="light"] .settings-panel-heading p:last-child,
 :root[data-theme="light"] .field small,
 :root[data-theme="light"] .radio-card small,
-:root[data-theme="light"] .persistence-card small,
+:root[data-theme="light"] .toggle-card small,
 :root[data-theme="light"] .logout-row p,
 :root[data-theme="light"] .auth-status-card p,
 :root[data-theme="light"] .sidebar-note {
   color: #77747a;
+}
+
+:root[data-theme="light"] .toggle-card .warning-note {
+  color: #9a6820;
 }
 
 :root[data-theme="light"] .field {
@@ -760,7 +788,7 @@ p {
 :root[data-theme="light"] .field select,
 :root[data-theme="light"] .field textarea,
 :root[data-theme="light"] .radio-card,
-:root[data-theme="light"] .persistence-card,
+:root[data-theme="light"] .toggle-card,
 :root[data-theme="light"] .auth-status-card {
   border-color: #d7d1c8;
   background: #fffdfa;
@@ -842,6 +870,7 @@ p {
 
   .settings-panel-heading,
   .choice-group,
+  .behavior-options,
   .auth-status-card,
   .persistence-card,
   .logout-row,

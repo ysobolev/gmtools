@@ -1,6 +1,12 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  BACKGROUND_EXECUTION_STORAGE_KEY,
+  DEBUG_LOGGING_STORAGE_KEY,
+  isBackgroundExecutionEnabled,
+  isDebugLoggingEnabled,
+} from "./behavior-settings";
+import {
   applyDisplayTheme,
   DEFAULT_DISPLAY_THEME,
   DISPLAY_THEME_STORAGE_KEY,
@@ -34,7 +40,7 @@ import {
   type SheetAdapterId,
 } from "./profile-config";
 
-type SettingsTab = "profiles" | "display" | "authentication";
+type SettingsTab = "profiles" | "display" | "behavior" | "authentication";
 type EditorMode =
   | { readonly kind: "new" }
   | { readonly kind: "edit"; readonly profileId: string };
@@ -491,7 +497,7 @@ function AuthenticationSettings({
         ) : null}
       </div>
 
-      <label className="persistence-card">
+      <label className="toggle-card persistence-card">
         <input
           checked={status?.persistent ?? false}
           disabled={busy || !status}
@@ -531,9 +537,81 @@ function AuthenticationSettings({
   );
 }
 
+function BehaviorSettings({
+  backgroundExecutionEnabled,
+  debugLoggingEnabled,
+  onBackgroundExecutionChange,
+  onDebugLoggingChange,
+}: {
+  readonly backgroundExecutionEnabled: boolean;
+  readonly debugLoggingEnabled: boolean;
+  readonly onBackgroundExecutionChange: (enabled: boolean) => void;
+  readonly onDebugLoggingChange: (enabled: boolean) => void;
+}): React.JSX.Element {
+  return (
+    <section className="settings-panel simple-panel">
+      <div className="settings-panel-heading">
+        <p className="section-label">Assistant operation</p>
+        <h2>Behavior</h2>
+        <p>Control diagnostics and how GM Tools handles active tasks.</p>
+      </div>
+
+      <div className="behavior-options">
+        <label className="toggle-card behavior-card">
+          <input
+            checked={debugLoggingEnabled}
+            onChange={(event) => onDebugLoggingChange(event.target.checked)}
+            type="checkbox"
+          />
+          <span>
+            <strong>Enable console debugging output</strong>
+            <small>
+              Writes diagnostic information to the extension service-worker
+              console. Debug output may contain conversation and tool-call
+              details.
+            </small>
+          </span>
+        </label>
+
+        <label className="toggle-card behavior-card">
+          <input
+            checked={backgroundExecutionEnabled}
+            onChange={(event) =>
+              onBackgroundExecutionChange(event.target.checked)
+            }
+            type="checkbox"
+          />
+          <span>
+            <strong>Continue running tasks in the background</strong>
+            <small>
+              Keeps the active conversation and its Roll20 tool calls running
+              when the side panel is closed. Reopening the panel reconnects to
+              the task.
+            </small>
+          </span>
+        </label>
+
+        <label className="toggle-card behavior-card unavailable">
+          <input checked={false} disabled readOnly type="checkbox" />
+          <span>
+            <strong>Use private JavaScript API for chat</strong>
+            <small className="warning-note">
+              Risky and not implemented yet. This would rely on undocumented
+              Roll20 internals that may change without notice.
+            </small>
+          </span>
+        </label>
+      </div>
+    </section>
+  );
+}
+
 function OptionsApp(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<SettingsTab>("profiles");
   const [theme, setTheme] = useState<DisplayTheme>(DEFAULT_DISPLAY_THEME);
+  const [backgroundExecutionEnabled, setBackgroundExecutionEnabled] =
+    useState(false);
+  const [debugLoggingEnabled, setDebugLoggingEnabled] = useState(false);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -545,6 +623,24 @@ function OptionsApp(): React.JSX.Element {
     });
   }, []);
   useEffect(() => applyDisplayTheme(theme), [theme]);
+
+  useEffect(() => {
+    void chrome.storage.local
+      .get([
+        DEBUG_LOGGING_STORAGE_KEY,
+        BACKGROUND_EXECUTION_STORAGE_KEY,
+      ])
+      .then((stored) => {
+        setDebugLoggingEnabled(
+          isDebugLoggingEnabled(stored[DEBUG_LOGGING_STORAGE_KEY]),
+        );
+        setBackgroundExecutionEnabled(
+          isBackgroundExecutionEnabled(
+            stored[BACKGROUND_EXECUTION_STORAGE_KEY],
+          ),
+        );
+      });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -574,6 +670,18 @@ function OptionsApp(): React.JSX.Element {
   const changeTheme = (nextTheme: DisplayTheme): void => {
     setTheme(nextTheme);
     void chrome.storage.local.set({ [DISPLAY_THEME_STORAGE_KEY]: nextTheme });
+  };
+
+  const changeDebugLogging = (enabled: boolean): void => {
+    setDebugLoggingEnabled(enabled);
+    void chrome.storage.local.set({ [DEBUG_LOGGING_STORAGE_KEY]: enabled });
+  };
+
+  const changeBackgroundExecution = (enabled: boolean): void => {
+    setBackgroundExecutionEnabled(enabled);
+    void chrome.storage.local.set({
+      [BACKGROUND_EXECUTION_STORAGE_KEY]: enabled,
+    });
   };
 
   const changePersistence = (enabled: boolean): void => {
@@ -620,6 +728,11 @@ function OptionsApp(): React.JSX.Element {
       description: "Theme and appearance",
     },
     {
+      id: "behavior",
+      label: "Behavior",
+      description: "Diagnostics and background tasks",
+    },
+    {
       id: "authentication",
       label: "Authentication",
       description: "OpenRouter credentials",
@@ -662,6 +775,14 @@ function OptionsApp(): React.JSX.Element {
           </div>
           <div hidden={activeTab !== "display"}>
             <DisplaySettings onChange={changeTheme} theme={theme} />
+          </div>
+          <div hidden={activeTab !== "behavior"}>
+            <BehaviorSettings
+              backgroundExecutionEnabled={backgroundExecutionEnabled}
+              debugLoggingEnabled={debugLoggingEnabled}
+              onBackgroundExecutionChange={changeBackgroundExecution}
+              onDebugLoggingChange={changeDebugLogging}
+            />
           </div>
           <div hidden={activeTab !== "authentication"}>
             <AuthenticationSettings

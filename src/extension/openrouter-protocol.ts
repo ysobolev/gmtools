@@ -12,7 +12,11 @@ export const AUTH_STATE_CHANGED = "GMTOOLS_AUTH_STATE_CHANGED" as const;
 
 export const CHAT_PORT_NAME = "GMTOOLS_OPENROUTER_CHAT" as const;
 export const CHAT_START = "GMTOOLS_CHAT_START" as const;
+export const CHAT_RESUME = "GMTOOLS_CHAT_RESUME" as const;
 export const CHAT_ABORT = "GMTOOLS_CHAT_ABORT" as const;
+export const CHAT_RESUME_QUERY = "GMTOOLS_CHAT_RESUME_QUERY" as const;
+export const CHAT_COMMIT = "GMTOOLS_CHAT_COMMIT" as const;
+export const CHAT_CLEAR = "GMTOOLS_CHAT_CLEAR" as const;
 export const CHAT_CHUNK = "GMTOOLS_CHAT_CHUNK" as const;
 export const CHAT_COMPLETE = "GMTOOLS_CHAT_COMPLETE" as const;
 export const CHAT_ERROR = "GMTOOLS_CHAT_ERROR" as const;
@@ -47,13 +51,30 @@ export type ChatPortRequest =
   | {
       readonly type: typeof CHAT_START;
       readonly requestId: string;
+      readonly chatId: string;
       readonly messages: UIMessage[];
       readonly profile: AssistantProfile;
     }
   | {
+      readonly type: typeof CHAT_RESUME;
+      readonly requestId: string;
+      readonly chatId: string;
+    }
+  | {
       readonly type: typeof CHAT_ABORT;
       readonly requestId: string;
+      readonly chatId: string;
     };
+
+export type ChatControlRequest =
+  | { readonly type: typeof CHAT_RESUME_QUERY; readonly chatId: string }
+  | { readonly type: typeof CHAT_COMMIT; readonly chatId: string }
+  | { readonly type: typeof CHAT_CLEAR; readonly chatId: string };
+
+export interface ChatControlResponse {
+  readonly ok: true;
+  readonly available?: boolean;
+}
 
 export type ChatPortResponse =
   | {
@@ -109,12 +130,40 @@ export function isAuthStateChangedMessage(
 }
 
 export function isChatPortRequest(value: unknown): value is ChatPortRequest {
-  if (!isRecord(value) || typeof value.requestId !== "string") return false;
-  if (value.type === CHAT_ABORT) return true;
+  if (
+    !isRecord(value) ||
+    typeof value.requestId !== "string" ||
+    typeof value.chatId !== "string"
+  ) {
+    return false;
+  }
+  if (value.type === CHAT_ABORT || value.type === CHAT_RESUME) return true;
   return (
     value.type === CHAT_START &&
     Array.isArray(value.messages) &&
     isAssistantProfile(value.profile)
+  );
+}
+
+export function isChatControlRequest(
+  value: unknown,
+): value is ChatControlRequest {
+  return (
+    isRecord(value) &&
+    typeof value.chatId === "string" &&
+    (value.type === CHAT_RESUME_QUERY ||
+      value.type === CHAT_COMMIT ||
+      value.type === CHAT_CLEAR)
+  );
+}
+
+export function isChatControlResponse(
+  value: unknown,
+): value is ChatControlResponse {
+  return (
+    isRecord(value) &&
+    value.ok === true &&
+    (value.available === undefined || typeof value.available === "boolean")
   );
 }
 

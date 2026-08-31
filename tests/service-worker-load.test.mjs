@@ -63,6 +63,10 @@ test("the generated service worker starts without browser-global errors", async 
       sidePanel: {
         setPanelBehavior: async () => undefined,
       },
+      tabs: {
+        onRemoved: event("tab-removed"),
+        onUpdated: event("tab-updated"),
+      },
       storage: {
         local: {
           get: async (keys) => getStored(localData, keys),
