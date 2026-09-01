@@ -343,6 +343,15 @@ h1 {
   background: #d3a04c;
 }
 
+.chat-drawer-activity.unread {
+  color: #8fc9a1 !important;
+}
+
+.chat-drawer-activity.unread > span {
+  background: #67bb82;
+  animation: none;
+}
+
 @keyframes drawer-activity-pulse {
   50% {
     opacity: 0.35;
@@ -1049,6 +1058,17 @@ h1 {
 
 :root[data-theme="light"] .chat-delete-confirm p {
   color: #4c4544;
+}
+
+:root[data-theme="light"] .chat-delete-confirm button:not(.danger) {
+  border-color: #cfc6bc;
+  background: #fffdfa;
+  color: #4a464c;
+}
+
+:root[data-theme="light"] .chat-delete-confirm button:not(.danger):hover {
+  border-color: #b9aea3;
+  background: #f1ece5;
 }
 
 :root[data-theme="light"] .chat-context-row select,

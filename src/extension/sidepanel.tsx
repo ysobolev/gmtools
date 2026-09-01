@@ -524,7 +524,9 @@ function ChatScreen({
                         <span>
                           {candidate.campaignName ?? "No campaign bound"}
                         </span>
-                        {drawerActivity ? (
+                        {drawerActivity &&
+                        (drawerActivity.state !== "unread" ||
+                          candidate.id !== chatId) ? (
                           <span
                             className={`chat-drawer-activity ${drawerActivity.state}`}
                             title={drawerActivity.summary}
@@ -532,7 +534,9 @@ function ChatScreen({
                             <span aria-hidden="true" />
                             {drawerActivity.state === "working"
                               ? "Working"
-                              : "Thinking"}
+                              : drawerActivity.state === "unread"
+                                ? "New response"
+                                : "Thinking"}
                           </span>
                         ) : null}
                       </span>

@@ -574,6 +574,7 @@ chrome.runtime.onMessage.addListener(
       conversationJobs.delete(message.chatId);
       void removeCampaignBinding(message.chatId);
     } else if (message.type === CHAT_COMMIT && job?.terminal) {
+      setJobActivity(job, "idle");
       conversationJobs.delete(message.chatId);
     }
     sendResponse({ ok: true });
@@ -2101,7 +2102,7 @@ function setJobActivity(
 function finishJob(job: ConversationJob, terminal: ConversationTerminal): void {
   if (job.terminal) return;
   job.terminal = terminal;
-  setJobActivity(job, "idle");
+  setJobActivity(job, terminal.type === "complete" ? "unread" : "idle");
   broadcastJob(job, (requestId) =>
     terminal.type === "complete"
       ? { type: CHAT_COMPLETE, requestId }

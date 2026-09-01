@@ -120,6 +120,7 @@ test("validates chat activity snapshots and updates", () => {
       activities: [
         { chatId: "chat-1", state: "thinking" },
         { chatId: "chat-2", state: "working", summary: "moving Flippy" },
+        { chatId: "chat-3", state: "unread" },
       ],
     }),
     true,

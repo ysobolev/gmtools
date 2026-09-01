@@ -108,7 +108,7 @@ export interface ChatControlResponse {
   readonly available?: boolean;
 }
 
-export type ChatActivityState = "idle" | "thinking" | "working";
+export type ChatActivityState = "idle" | "thinking" | "working" | "unread";
 
 export interface ChatActivityStatus {
   readonly chatId: string;
@@ -151,7 +151,8 @@ function isChatActivityStatus(value: unknown): value is ChatActivityStatus {
     typeof value.chatId === "string" &&
     (value.state === "idle" ||
       value.state === "thinking" ||
-      value.state === "working") &&
+      value.state === "working" ||
+      value.state === "unread") &&
     (value.summary === undefined || typeof value.summary === "string")
   );
 }
