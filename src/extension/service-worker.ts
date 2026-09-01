@@ -143,6 +143,10 @@ const campaignDiscoveryAttempts = new Map<
   string,
   Promise<CampaignStatus>
 >();
+const campaignRouteDiscoveryAttempts = new Map<
+  string,
+  Promise<CampaignIdentity | undefined>
+>();
 
 interface CampaignIdentity {
   readonly campaignId: string;
@@ -161,6 +165,8 @@ interface CampaignBinding {
 interface CampaignRoute {
   readonly tabId: number;
 }
+
+let campaignRouteMutationQueue: Promise<void> = Promise.resolve();
 
 interface CampaignTarget extends CampaignBinding {
   readonly tabId: number;
@@ -659,7 +665,6 @@ async function removeCampaignBinding(chatId: string): Promise<void> {
     });
   }
   await updateChatCampaign(chatId, undefined).catch(() => undefined);
-  await removeCampaignRoute(chatId);
 }
 
 function isCampaignRoute(value: unknown): value is CampaignRoute {
@@ -670,7 +675,7 @@ function isCampaignRoute(value: unknown): value is CampaignRoute {
   );
 }
 
-async function getCampaignRoutes(): Promise<Record<string, CampaignRoute>> {
+async function readCampaignRoutes(): Promise<Record<string, CampaignRoute>> {
   const stored = await chrome.storage.session.get(CAMPAIGN_ROUTES_STORAGE_KEY);
   const value = stored[CAMPAIGN_ROUTES_STORAGE_KEY];
   if (typeof value !== "object" || value === null) return {};
@@ -681,24 +686,48 @@ async function getCampaignRoutes(): Promise<Record<string, CampaignRoute>> {
   );
 }
 
+async function getCampaignRoutes(): Promise<Record<string, CampaignRoute>> {
+  await campaignRouteMutationQueue;
+  return readCampaignRoutes();
+}
+
 async function getCampaignRoute(
-  chatId: string,
+  campaignId: string,
 ): Promise<CampaignRoute | undefined> {
-  return (await getCampaignRoutes())[chatId];
+  return (await getCampaignRoutes())[campaignId];
 }
 
-async function setCampaignRoute(chatId: string, tabId: number): Promise<void> {
-  const routes = await getCampaignRoutes();
-  await chrome.storage.session.set({
-    [CAMPAIGN_ROUTES_STORAGE_KEY]: { ...routes, [chatId]: { tabId } },
+async function setCampaignRoute(
+  campaignId: string,
+  tabId: number,
+): Promise<void> {
+  const mutation = campaignRouteMutationQueue.then(async () => {
+    const routes = await readCampaignRoutes();
+    await chrome.storage.session.set({
+      [CAMPAIGN_ROUTES_STORAGE_KEY]: { ...routes, [campaignId]: { tabId } },
+    });
   });
+  campaignRouteMutationQueue = mutation.catch(() => undefined);
+  await mutation;
+  for (const job of conversationJobs.values()) {
+    if (job.campaignId === campaignId) job.targetTabId = tabId;
+  }
 }
 
-async function removeCampaignRoute(chatId: string): Promise<void> {
-  const routes = await getCampaignRoutes();
-  if (!(chatId in routes)) return;
-  delete routes[chatId];
-  await chrome.storage.session.set({ [CAMPAIGN_ROUTES_STORAGE_KEY]: routes });
+async function removeCampaignRoute(campaignId: string): Promise<void> {
+  const mutation = campaignRouteMutationQueue.then(async () => {
+    const routes = await readCampaignRoutes();
+    if (!(campaignId in routes)) return;
+    delete routes[campaignId];
+    await chrome.storage.session.set({
+      [CAMPAIGN_ROUTES_STORAGE_KEY]: routes,
+    });
+  });
+  campaignRouteMutationQueue = mutation.catch(() => undefined);
+  await mutation;
+  for (const job of conversationJobs.values()) {
+    if (job.campaignId === campaignId) job.targetTabId = undefined;
+  }
 }
 
 function notifyCampaignStatus(status: CampaignStatus): void {
@@ -1019,44 +1048,67 @@ chrome.runtime.onMessage.addListener((message: unknown, sender): void => {
 });
 
 function rejectExecutionsForUnavailableTab(tabId: number, message: string): void {
-  for (const job of conversationJobs.values()) {
-    if (job.targetTabId === tabId && !job.terminal) {
-      job.targetTabId = undefined;
-      notifyCampaignStatus({
-        chatId: job.chatId,
-        state: "connecting",
-        ...(job.campaignId ? { campaignId: job.campaignId } : {}),
-        ...(job.campaignName ? { name: job.campaignName } : {}),
-        detail: `${message} Looking for another tab with the same campaign.`,
-      });
-      void (async () => {
-        await removeCampaignRoute(job.chatId);
-        const binding = await getCampaignBinding(job.chatId);
-        const identity = binding
-          ? await locateBoundCampaign(job.chatId, binding, job.debug).catch(
-              () => undefined,
-            )
-          : undefined;
+  void (async () => {
+    const routes = await getCampaignRoutes();
+    const routedCampaignIds = Object.entries(routes)
+      .filter(([, route]) => route.tabId === tabId)
+      .map(([campaignId]) => campaignId);
+    const jobCampaignIds = [...conversationJobs.values()]
+      .filter(
+        (job) =>
+          job.targetTabId === tabId &&
+          !job.terminal &&
+          typeof job.campaignId === "string",
+      )
+      .map((job) => job.campaignId as string);
+    const campaignIds = [...new Set([...routedCampaignIds, ...jobCampaignIds])];
+
+    for (const campaignId of campaignIds) {
+      const jobs = [...conversationJobs.values()].filter(
+        (job) => job.campaignId === campaignId && !job.terminal,
+      );
+      await removeCampaignRoute(campaignId);
+      for (const job of jobs) {
+        notifyCampaignStatus({
+          chatId: job.chatId,
+          state: "connecting",
+          campaignId,
+          ...(job.campaignName ? { name: job.campaignName } : {}),
+          detail: `${message} Looking for another tab with the same campaign.`,
+        });
+      }
+
+      const representative = jobs[0];
+      if (!representative) continue;
+      const binding = await getCampaignBinding(representative.chatId);
+      const identity = binding
+        ? await locateBoundCampaign(
+            representative.chatId,
+            binding,
+            representative.debug,
+          ).catch(() => undefined)
+        : undefined;
+      for (const job of jobs) {
         notifyCampaignStatus(
           identity && binding
             ? {
                 chatId: job.chatId,
                 state: "connected",
-                campaignId: binding.campaignId,
+                campaignId,
                 name: binding.name,
               }
             : {
                 chatId: job.chatId,
                 state: "disconnected",
-                ...(binding ? { campaignId: binding.campaignId } : {}),
-                ...(binding ? { name: binding.name } : {}),
+                campaignId,
+                ...(job.campaignName ? { name: job.campaignName } : {}),
                 detail:
                   "No open Roll20 GM tab matches this conversation's campaign.",
               },
         );
-      })();
+      }
     }
-  }
+  })();
   for (const [requestId, pending] of pendingRoll20Executions) {
     if (pending.tabId !== tabId) continue;
     removePendingRoll20Execution(requestId);
@@ -1240,8 +1292,7 @@ function campaignStatusForError(chatId: string, error: unknown): CampaignStatus 
 }
 
 async function candidateRoll20Tabs(
-  chatId: string,
-  activeOnly: boolean,
+  campaignId: string,
 ): Promise<chrome.tabs.Tab[]> {
   const candidates: chrome.tabs.Tab[] = [];
   const seen = new Set<number>();
@@ -1261,17 +1312,15 @@ async function candidateRoll20Tabs(
     active: true,
     lastFocusedWindow: true,
   });
-  add(activeTab);
-  if (activeOnly) return candidates;
-
-  const route = await getCampaignRoute(chatId);
+  const route = await getCampaignRoute(campaignId);
   if (route) {
     try {
       add(await chrome.tabs.get(route.tabId));
     } catch {
-      await removeCampaignRoute(chatId);
+      await removeCampaignRoute(campaignId);
     }
   }
+  add(activeTab);
   const openRoll20Tabs = await chrome.tabs.query({
     url: `${ROLL20_EDITOR_URL_PREFIX}*`,
   });
@@ -1283,45 +1332,58 @@ async function locateBoundCampaign(
   chatId: string,
   binding: CampaignBinding,
   debug: DebugLogger,
-  activeOnly = false,
 ): Promise<CampaignIdentity | undefined> {
-  const tabs = await candidateRoll20Tabs(chatId, activeOnly);
-  for (const tab of tabs) {
-    try {
-      const identity = await discoverCampaignInTab(tab, debug);
-      if (identity.isGM && identity.campaignId === binding.campaignId) {
-        await setCampaignRoute(chatId, identity.tabId);
-        const job = conversationJobs.get(chatId);
-        if (job) {
-          job.targetTabId = identity.tabId;
-          job.campaignId = binding.campaignId;
-          job.campaignName = binding.name;
+  const existingAttempt = campaignRouteDiscoveryAttempts.get(
+    binding.campaignId,
+  );
+  const attempt = existingAttempt ?? (async () => {
+    const tabs = await candidateRoll20Tabs(binding.campaignId);
+    for (const tab of tabs) {
+      try {
+        const identity = await discoverCampaignInTab(tab, debug);
+        if (identity.isGM && identity.campaignId === binding.campaignId) {
+          await setCampaignRoute(binding.campaignId, identity.tabId);
+          debug.group("Roll20 campaign route selected", {
+            "Campaign ID": binding.campaignId,
+            "Campaign name": binding.name,
+            "Tab ID": identity.tabId,
+          });
+          return identity;
         }
-        debug.group("Roll20 campaign route selected", {
-          "Campaign ID": binding.campaignId,
-          "Campaign name": binding.name,
+        debug.group("Roll20 campaign route skipped", {
+          "Expected campaign ID": binding.campaignId,
+          "Reported campaign ID": identity.campaignId,
           "Tab ID": identity.tabId,
+          "GM access": identity.isGM,
         });
-        return identity;
+      } catch (error) {
+        debug.group("Roll20 campaign probe failed", {
+          "Campaign ID": binding.campaignId,
+          "Tab ID": tab.id,
+          Error: error,
+        });
       }
-      debug.group("Roll20 campaign route skipped", {
-        "Expected campaign ID": binding.campaignId,
-        "Reported campaign ID": identity.campaignId,
-        "Tab ID": identity.tabId,
-        "GM access": identity.isGM,
-      });
-    } catch (error) {
-      debug.group("Roll20 campaign probe failed", {
-        "Campaign ID": binding.campaignId,
-        "Tab ID": tab.id,
-        Error: error,
-      });
+    }
+    await removeCampaignRoute(binding.campaignId);
+    return undefined;
+  })();
+  if (!existingAttempt) {
+    campaignRouteDiscoveryAttempts.set(binding.campaignId, attempt);
+  }
+  try {
+    const identity = await attempt;
+    const job = conversationJobs.get(chatId);
+    if (job) {
+      job.targetTabId = identity?.tabId;
+      job.campaignId = binding.campaignId;
+      job.campaignName = binding.name;
+    }
+    return identity;
+  } finally {
+    if (!existingAttempt) {
+      campaignRouteDiscoveryAttempts.delete(binding.campaignId);
     }
   }
-  await removeCampaignRoute(chatId);
-  const job = conversationJobs.get(chatId);
-  if (job) job.targetTabId = undefined;
-  return undefined;
 }
 
 async function discoverAndBindCampaign(chatId: string): Promise<CampaignStatus> {
@@ -1383,7 +1445,7 @@ async function discoverAndBindCampaign(chatId: string): Promise<CampaignStatus> 
         modVersion: identity.modVersion,
       };
       await setCampaignBinding(chatId, binding);
-      await setCampaignRoute(chatId, identity.tabId);
+      await setCampaignRoute(binding.campaignId, identity.tabId);
       return {
         chatId,
         state: "connected",
@@ -1625,14 +1687,14 @@ async function ensureJobCampaignBinding(
   if (!binding) throw new Error("The Roll20 campaign could not be bound.");
   let tabId = forceRouteDiscovery ? undefined : job.targetTabId;
   if (tabId === undefined && !forceRouteDiscovery) {
-    tabId = (await getCampaignRoute(job.chatId))?.tabId;
+    tabId = (await getCampaignRoute(binding.campaignId))?.tabId;
   }
   if (tabId !== undefined) {
     try {
       await getBoundRoll20Tab(tabId);
     } catch {
       tabId = undefined;
-      await removeCampaignRoute(job.chatId);
+      await removeCampaignRoute(binding.campaignId);
     }
   }
   if (tabId === undefined) {
@@ -1640,7 +1702,6 @@ async function ensureJobCampaignBinding(
       job.chatId,
       binding,
       job.debug,
-      !job.backgroundEnabled,
     );
     if (!identity) {
       throw new Roll20CommandRejectedError(
@@ -1789,7 +1850,7 @@ async function streamChat(
               Reason: error,
             });
             job.targetTabId = undefined;
-            await removeCampaignRoute(job.chatId);
+            await removeCampaignRoute(initialTarget.campaignId);
             notifyCampaignStatus({
               chatId: job.chatId,
               state: "connecting",
@@ -2114,7 +2175,7 @@ chrome.runtime.onConnect.addListener((port) => {
       );
       const campaignBinding = await getCampaignBinding(message.chatId);
       const campaignRoute = campaignBinding
-        ? await getCampaignRoute(message.chatId)
+        ? await getCampaignRoute(campaignBinding.campaignId)
         : undefined;
       if (disconnected && !backgroundEnabled) return;
       const abortController = new AbortController();
