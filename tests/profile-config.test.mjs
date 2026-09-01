@@ -58,6 +58,14 @@ test("composes base, ruleset, sheet, and user guidance", () => {
   assert.match(prompt, /object\.get\(property, resolve\)/);
   assert.match(prompt, /Dungeons & Dragons Fifth Edition/);
   assert.match(prompt, /getSheetItem and setSheetItem/);
+  assert.match(prompt, /Both functions are asynchronous/);
+  assert.match(prompt, /Use Promise\.all for independent reads/);
+  assert.match(prompt, /getSheetItem\(characterId, itemName, "max"\)/);
+  assert.match(prompt, /user\. prefix/);
+  assert.match(prompt, /Experimental Mod server/);
+  assert.match(prompt, /Never infer a Beacon sheet-item name/);
+  assert.match(prompt, /documentation and read-only inspection/);
+  assert.match(prompt, /do not perform the mutation/);
   assert.match(prompt, /appState is a legacy attribute/);
   assert.match(prompt, /attribute\.set\("current", "npc"\)/);
   assert.match(prompt, /Do not set appState with setSheetItem/);
