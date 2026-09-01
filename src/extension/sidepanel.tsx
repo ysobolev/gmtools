@@ -2,6 +2,7 @@ import { useChat } from "@ai-sdk/react";
 import { safeValidateUIMessages, type UIMessage } from "ai";
 import {
   FormEvent,
+  DragEvent,
   KeyboardEvent,
   useCallback,
   useEffect,
@@ -12,6 +13,13 @@ import {
 import { createRoot } from "react-dom/client";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import {
+  countMarkdownImageReferences,
+  type DisplayableAssistantImage,
+  getGeneratedImageDragPayload,
+  getDisplayableAssistantImages,
+  isOpenRouterImageUrl,
+} from "./assistant-images";
 import { getChatActivity, getRoll20Receipts } from "./chat-activity";
 import {
   applyDisplayTheme,
@@ -79,12 +87,76 @@ function sendChatControl(
 ): void {
   void chrome.runtime.sendMessage({ type, chatId }).catch(() => undefined);
 }
-const markdownComponents: Components = {
-  a: ({ node: _node, ...properties }) => (
-    <a {...properties} rel="noopener noreferrer" target="_blank" />
-  ),
-  img: ({ alt }) => <span className="image-placeholder">[Image: {alt ?? "image"}]</span>,
-};
+function GeneratedImage({
+  alt,
+  image,
+}: {
+  readonly alt?: string | undefined;
+  readonly image: DisplayableAssistantImage;
+}): React.JSX.Element {
+  const draggable = image.url.startsWith(
+    `data:${image.mediaType};base64,`,
+  );
+  const handleDragStart = (event: DragEvent<HTMLImageElement>): void => {
+    const payload = getGeneratedImageDragPayload(image);
+    if (!payload) {
+      event.preventDefault();
+      return;
+    }
+    const buffer = new ArrayBuffer(payload.bytes.byteLength);
+    new Uint8Array(buffer).set(payload.bytes);
+    const file = new File([buffer], payload.filename, {
+      type: payload.mediaType,
+    });
+    event.dataTransfer.clearData();
+    event.dataTransfer.items.add(file);
+    event.dataTransfer.setData("DownloadURL", payload.downloadUrl);
+    event.dataTransfer.effectAllowed = "copy";
+  };
+  return (
+    <img
+      alt={alt ?? image.filename ?? "Generated image"}
+      className="generated-image"
+      draggable={draggable}
+      loading="lazy"
+      onDragStart={handleDragStart}
+      referrerPolicy="no-referrer"
+      src={image.url}
+      title={draggable ? "Drag into Roll20 to upload" : undefined}
+    />
+  );
+}
+
+function createMarkdownComponents(
+  generatedImages: readonly DisplayableAssistantImage[] = [],
+): Components {
+  let generatedImageIndex = 0;
+  return {
+    a: ({ node: _node, ...properties }) => (
+      <a {...properties} rel="noopener noreferrer" target="_blank" />
+    ),
+    img: ({ alt, src }) => {
+      if (isOpenRouterImageUrl(src)) {
+        return (
+          <img
+            alt={alt ?? "Generated image"}
+            className="generated-image"
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            src={src as string}
+          />
+        );
+      }
+      const generatedImage = generatedImages[generatedImageIndex];
+      generatedImageIndex += 1;
+      return generatedImage ? (
+        <GeneratedImage alt={alt ?? undefined} image={generatedImage} />
+      ) : (
+        <span className="image-placeholder">[Image: {alt ?? "image"}]</span>
+      );
+    },
+  };
+}
 
 async function sendAuthRequest(message: AuthRequest): Promise<AuthStatus> {
   const response: unknown = await chrome.runtime.sendMessage(message);
@@ -345,11 +417,29 @@ function ChatScreen({
           </div>
         ) : (
           <div className="message-list">
-            {messages.map((message) => {
+            {messages.map((message, messageIndex) => {
               const text = textFromMessage(message);
               const receipts =
                 message.role === "assistant" ? getRoll20Receipts(message) : [];
-              if (!text && receipts.length === 0) return null;
+              const images =
+                message.role === "assistant"
+                  ? getDisplayableAssistantImages(message.parts)
+                  : [];
+              const embeddedImageCount = Math.min(
+                images.length,
+                countMarkdownImageReferences(text),
+              );
+              const embeddedImages = images.slice(0, embeddedImageCount);
+              const trailingImages = images.slice(embeddedImageCount);
+              const visibleTrailingImages =
+                status === "streaming" &&
+                message.role === "assistant" &&
+                messageIndex === messages.length - 1
+                  ? []
+                  : trailingImages;
+              if (!text && receipts.length === 0 && images.length === 0) {
+                return null;
+              }
               return (
                 <article
                   className={`message ${message.role}`}
@@ -378,7 +468,7 @@ function ChatScreen({
                     text ? (
                       <div className="message-text message-markdown">
                         <ReactMarkdown
-                          components={markdownComponents}
+                          components={createMarkdownComponents(embeddedImages)}
                           remarkPlugins={[remarkGfm]}
                         >
                           {text}
@@ -388,6 +478,12 @@ function ChatScreen({
                   ) : (
                     <div className="message-text">{text}</div>
                   )}
+                  {visibleTrailingImages.map((image, index) => (
+                    <GeneratedImage
+                      image={image}
+                      key={`${image.url.slice(0, 80)}:${index}`}
+                    />
+                  ))}
                 </article>
               );
             })}

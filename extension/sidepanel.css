@@ -471,6 +471,24 @@ h1 {
   font-style: italic;
 }
 
+.generated-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 10px 0;
+  border: 1px solid #343b48;
+  border-radius: 10px;
+  background: #161a22;
+}
+
+.generated-image[draggable="true"] {
+  cursor: grab;
+}
+
+.generated-image[draggable="true"]:active {
+  cursor: grabbing;
+}
+
 .activity-indicator {
   display: flex;
   align-items: center;

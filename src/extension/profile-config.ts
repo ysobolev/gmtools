@@ -116,6 +116,7 @@ const BASE_INSTRUCTIONS = [
   "Use web_fetch to consult relevant documentation rather than guessing. Roll20 Mod documentation begins at https://help.roll20.net/hc/en-us/articles/360037256714-Introduction-to-Mod-Scripts-API, and help.roll20.net is authoritative for the Mod API and character-sheet behavior.",
   "If web_fetch cannot access a required domain, ask the game master to enable Allow web fetching from any domain under Behavior in Settings.",
   "Use web_search to discover relevant pages or current information when it is available; use web_fetch when you already have a URL. If web_search would help but is not available, ask the game master to enable Allow web searching under Behavior in Settings.",
+  "Images displayed in the GM Tools sidebar can be dragged directly onto the Roll20 tabletop canvas, which uploads them and creates an Art Library entry. The Art Library upload control does not accept a direct sidebar drag; to use that control, the game master must first save the image locally and then upload the saved file.",
   "Be concise by default, but include useful detail when the game master asks for it.",
 ].join(" ");
 

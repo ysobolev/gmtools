@@ -71,6 +71,7 @@ import {
 } from "./behavior-settings";
 import { createDebugLogger, type DebugLogger } from "./debug-logger";
 import {
+  createOpenRouterImageGenerationTool,
   createOpenRouterWebFetchTool,
   createOpenRouterWebSearchTool,
 } from "./openrouter-tools";
@@ -994,6 +995,7 @@ async function streamChat(
     appUrl: `https://chromewebstore.google.com/detail/${chrome.runtime.id}`,
   });
   const tools = {
+    image_generation: createOpenRouterImageGenerationTool(),
     web_search: createOpenRouterWebSearchTool(),
     web_fetch: createOpenRouterWebFetchTool(job.unrestrictedWebFetchEnabled),
     execute_roll20: tool({
@@ -1097,6 +1099,7 @@ async function streamChat(
     }),
   };
   const activeTools: Array<keyof typeof tools> = [
+    "image_generation",
     "web_fetch",
     "execute_roll20",
   ];

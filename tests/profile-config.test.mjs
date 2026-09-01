@@ -56,6 +56,8 @@ test("composes base, ruleset, sheet, and user guidance", () => {
   assert.match(prompt, /enable Allow web fetching from any domain under Behavior/);
   assert.match(prompt, /Use web_search to discover relevant pages/);
   assert.match(prompt, /enable Allow web searching under Behavior/);
+  assert.match(prompt, /dragged directly onto the Roll20 tabletop canvas/);
+  assert.match(prompt, /must first save the image locally/);
   assert.match(prompt, /Introduction-to-Mod-Scripts-API/);
   assert.match(prompt, /bio, notes, defaulttoken, and gmnotes are callback-only/);
   assert.match(prompt, /object\.get\(property, resolve\)/);

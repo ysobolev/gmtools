@@ -52,6 +52,28 @@ interface WebSearchToolOptions {
   };
 }
 
+interface ImageGenerationResult {
+  readonly status?: "ok" | "error";
+  readonly imageUrl?: string;
+  readonly error?: string;
+}
+
+const imageGenerationToolFactory = createProviderDefinedToolFactory<
+  ImageGenerationResult,
+  Record<string, never>
+>({
+  id: "openrouter.image_generation",
+  inputSchema: jsonSchema<ImageGenerationResult>({
+    type: "object",
+    properties: {
+      status: { type: "string", enum: ["ok", "error"] },
+      imageUrl: { type: "string" },
+      error: { type: "string" },
+    },
+    additionalProperties: true,
+  }),
+});
+
 const webSearchToolFactory = createProviderDefinedToolFactory<
   WebSearchResult,
   WebSearchToolOptions
@@ -85,4 +107,8 @@ export function createOpenRouterWebSearchTool() {
       max_total_results: 10,
     },
   });
+}
+
+export function createOpenRouterImageGenerationTool() {
+  return imageGenerationToolFactory({});
 }
