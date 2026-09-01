@@ -344,24 +344,13 @@ function ChatScreen({
     };
   }, [chatId]);
 
-  const campaignLabel = (() => {
-    switch (campaignStatus.state) {
-      case "connected":
-        return campaignStatus.name ?? "Roll20 campaign";
-      case "connecting":
-        return "Connecting to campaign…";
-      case "not-gm":
-        return "GM access required";
-      case "unavailable":
-        return "Roll20 Mod unavailable";
-      case "disconnected":
-        return `${campaignStatus.name ?? "Campaign"} · disconnected`;
-      case "incompatible":
-        return `${campaignStatus.name ?? "Campaign"} · update required`;
-      default:
-        return "No campaign connected";
-    }
-  })();
+  const campaignLabel =
+    campaignStatus.campaignId && campaignStatus.name
+      ? campaignStatus.name
+      : "No campaign bound";
+  const campaignBound = Boolean(
+    campaignStatus.campaignId && campaignStatus.name,
+  );
 
   useEffect(() => {
     if (status === "submitted") {
@@ -449,7 +438,44 @@ function ChatScreen({
   return (
     <main className="chat-shell">
       <header className="chat-header">
-        <div className="profile-control">
+        <div className="chat-title-row">
+          <button
+            aria-label="Open chats"
+            className="chat-menu-button"
+            disabled
+            title="Multiple chats are coming soon"
+            type="button"
+          >
+            <span aria-hidden="true">☰</span>
+          </button>
+          <h1
+            aria-label={`Campaign: ${campaignLabel}`}
+            className={campaignBound ? "bound" : "unbound"}
+            title={campaignLabel}
+          >
+            {campaignLabel}
+          </h1>
+          <button
+            className="chat-settings-button"
+            type="button"
+            onClick={onManageProfiles}
+          >
+            Settings
+          </button>
+        </div>
+        <div className="chat-context-row">
+          <span className="chat-name">
+            <span className="chat-name-text">New Chat</span>
+            <button
+              aria-label="Edit chat title"
+              className="chat-name-edit"
+              disabled
+              title="Chat titles are coming soon"
+              type="button"
+            >
+              <span aria-hidden="true">✎</span>
+            </button>
+          </span>
           <select
             aria-label="Active assistant profile"
             onChange={(event) => selectProfile(event.target.value)}
@@ -461,17 +487,7 @@ function ChatScreen({
               </option>
             ))}
           </select>
-          <button type="button" onClick={onManageProfiles}>
-            Settings
-          </button>
         </div>
-        <p
-          className={`campaign-label ${campaignStatus.state}`}
-          title={campaignStatus.detail}
-        >
-          <span aria-hidden="true" className="campaign-label-dot" />
-          {campaignLabel}
-        </p>
       </header>
 
       <section className="conversation" aria-live="polite">

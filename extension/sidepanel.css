@@ -206,60 +206,111 @@ h1 {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 5px;
+  gap: 8px;
   min-height: 55px;
-  padding: 11px 17px;
+  padding: 10px 17px 11px;
   border-bottom: 1px solid #242a35;
   background: rgb(13 16 23 / 88%);
   backdrop-filter: blur(12px);
 }
 
-.campaign-label {
+.chat-title-row,
+.chat-context-row {
   display: flex;
   align-items: center;
-  gap: 6px;
   min-width: 0;
+}
+
+.chat-title-row {
+  gap: 8px;
+}
+
+.chat-title-row h1 {
+  min-width: 0;
+  flex: 1;
   margin: 0;
   overflow: hidden;
-  color: #8f97a5;
-  font-size: 10px;
-  line-height: 1.2;
+  color: #f0ece4;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.campaign-label-dot {
-  width: 6px;
-  height: 6px;
+.chat-title-row h1.unbound {
+  color: #8f97a4;
+  font-weight: 600;
+}
+
+.chat-menu-button,
+.chat-settings-button {
+  border: 0;
+  background: none;
+}
+
+.chat-menu-button {
+  display: grid;
+  width: 24px;
+  height: 24px;
   flex: 0 0 auto;
-  border-radius: 50%;
-  background: #69717f;
+  padding: 0;
+  place-items: center;
+  color: #aeb5c0;
+  cursor: default;
+  font-size: 16px;
+  line-height: 1;
+  margin-left: -9px;
+  opacity: 1;
 }
 
-.campaign-label.connected .campaign-label-dot {
-  background: #70ad86;
+.chat-settings-button {
+  padding: 0;
+  color: #d99780;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
 }
 
-.campaign-label.connecting .campaign-label-dot {
-  background: #d0a562;
+.chat-context-row {
+  gap: 10px;
+  padding-left: 23px;
 }
 
-.campaign-label.not-gm .campaign-label-dot,
-.campaign-label.unavailable .campaign-label-dot,
-.campaign-label.disconnected .campaign-label-dot,
-.campaign-label.incompatible .campaign-label-dot {
-  background: #c87566;
-}
-
-.profile-control {
+.chat-name {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #b9c0ca;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.profile-control select {
-  width: min(220px, 65vw);
+.chat-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-name-edit {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #7f8794;
+  cursor: default;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 1;
+}
+
+.chat-context-row select {
+  width: min(180px, 48%);
   min-width: 0;
   padding: 5px 25px 5px 8px;
   border: 1px solid #303744;
@@ -267,15 +318,6 @@ h1 {
   background: #181d27;
   color: #e9e6df;
   font-size: 11px;
-}
-
-.profile-control button {
-  border: 0;
-  background: none;
-  color: #d99780;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 700;
 }
 
 .composer-meta button,
@@ -739,15 +781,28 @@ h1 {
   background: rgb(250 248 244 / 92%);
 }
 
-:root[data-theme="light"] .profile-control select,
+:root[data-theme="light"] .chat-context-row select,
 :root[data-theme="light"] .composer {
   border-color: #d4cec5;
   background: #fffdfa;
   color: #343137;
 }
 
-:root[data-theme="light"] .campaign-label {
-  color: #747178;
+:root[data-theme="light"] .chat-title-row h1 {
+  color: #302e33;
+}
+
+:root[data-theme="light"] .chat-menu-button,
+:root[data-theme="light"] .chat-name {
+  color: #6f6b72;
+}
+
+:root[data-theme="light"] .chat-title-row h1.unbound {
+  color: #969197;
+}
+
+:root[data-theme="light"] .chat-name-edit {
+  color: #89848a;
 }
 
 :root[data-theme="light"] .message.user {
@@ -810,8 +865,8 @@ h1 {
     padding-inline: 13px;
   }
 
-  .profile-control select {
-    width: 145px;
+  .chat-context-row select {
+    width: min(145px, 48%);
   }
 
   .message-list {

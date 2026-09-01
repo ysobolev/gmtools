@@ -1291,6 +1291,13 @@ async function discoverAndBindCampaign(chatId: string): Promise<CampaignStatus> 
     const existing = await getCampaignBinding(chatId);
     const debug = await campaignDebugLogger(chatId);
     if (existing) {
+      notifyCampaignStatus({
+        chatId,
+        state: "connecting",
+        campaignId: existing.campaignId,
+        name: existing.name,
+        detail: "Looking for an open Roll20 tab with this campaign.",
+      });
       const identity = await locateBoundCampaign(
         chatId,
         existing,
