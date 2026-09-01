@@ -66,6 +66,7 @@ import {
   normalizeMaxSteps,
 } from "./behavior-settings";
 import { createDebugLogger, type DebugLogger } from "./debug-logger";
+import { createOpenRouterWebFetchTool } from "./openrouter-tools";
 
 const API_KEY_STORAGE_KEY = "openRouterApiKey";
 const USER_ID_STORAGE_KEY = "openRouterUserId";
@@ -932,6 +933,22 @@ function userFacingModelError(error: unknown): string {
     : "The model request failed.";
 }
 
+function modelErrorDebugDetails(error: unknown): Record<string, unknown> {
+  if (typeof error !== "object" || error === null) return { Error: error };
+  const record = error as Record<string, unknown>;
+  return {
+    Error: error,
+    Name: record.name,
+    Message: record.message,
+    Type: record.type,
+    Code: record.code,
+    "Status code": record.statusCode,
+    Retryable: record.isRetryable,
+    Data: record.data,
+    Cause: record.cause,
+  };
+}
+
 function postToPort(port: chrome.runtime.Port, message: ChatPortResponse): boolean {
   try {
     port.postMessage(message);
@@ -968,6 +985,7 @@ async function streamChat(
     appUrl: `https://chromewebstore.google.com/detail/${chrome.runtime.id}`,
   });
   const tools = {
+    web_fetch: createOpenRouterWebFetchTool(),
     execute_roll20: tool({
       description:
         "Execute JavaScript in the campaign's Roll20 Mod sandbox. The code is a function body with access to Roll20 Mod globals such as findObjs, getObj, createObj, Campaign, sendChat, and state. Include an explicit return statement and return only JSON-serializable data. Returned promises are awaited. If the result says retryable is false, do not retry the command.",
@@ -1105,7 +1123,7 @@ async function streamChat(
       });
     },
     onError: ({ error }) => {
-      debug.group("Model stream error", { Error: error });
+      debug.group("Model stream error", modelErrorDebugDetails(error));
     },
     onAbort: (event) => {
       debug.group("Conversation aborted", {

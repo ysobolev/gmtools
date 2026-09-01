@@ -18,6 +18,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
+    "@ai-sdk/provider-utils": "5.0.33",
     "@ai-sdk/react": "^4.0.87",
     "@openrouter/ai-sdk-provider": "^3.0.0",
     "ai": "^7.0.84",

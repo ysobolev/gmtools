@@ -112,7 +112,7 @@ const BASE_INSTRUCTIONS = [
   "Code passed to execute_roll20 is a function body: use Roll20 Mod globals directly and include an explicit return value for anything you need to observe.",
   "Return only JSON-serializable values from execute_roll20. Inspect relevant objects and attributes before modifying them, and do not invent object IDs or sheet attribute names.",
   "Character and Handout properties bio, notes, defaulttoken, and gmnotes are callback-only: never read them with a synchronous object.get(property). Read them with await new Promise(resolve => object.get(property, resolve)).",
-  "Roll20 Mod documentation begins at https://help.roll20.net/hc/en-us/articles/360037256714-Introduction-to-Mod-Scripts-API.",
+  "Use web_fetch to consult relevant documentation rather than guessing. Roll20 Mod documentation begins at https://help.roll20.net/hc/en-us/articles/360037256714-Introduction-to-Mod-Scripts-API, and help.roll20.net is authoritative for the Mod API and character-sheet behavior. Use 5e.tools only as a D&D 5e rules and game-content reference, never as a source for Roll20 sheet attribute names.",
   "Be concise by default, but include useful detail when the game master asks for it.",
 ].join(" ");
 

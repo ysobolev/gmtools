@@ -48,7 +48,9 @@ test("composes base, ruleset, sheet, and user guidance", () => {
   });
 
   assert.match(prompt, /execute_roll20/);
+  assert.match(prompt, /Use web_fetch to consult relevant documentation/);
   assert.match(prompt, /Introduction-to-Mod-Scripts-API/);
+  assert.match(prompt, /Use 5e\.tools only as a D&D 5e rules/);
   assert.match(prompt, /bio, notes, defaulttoken, and gmnotes are callback-only/);
   assert.match(prompt, /object\.get\(property, resolve\)/);
   assert.match(prompt, /Dungeons & Dragons Fifth Edition/);
