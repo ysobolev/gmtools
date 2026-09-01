@@ -8,9 +8,11 @@ import {
   MAX_STEPS_STORAGE_KEY,
   MIN_MAX_STEPS,
   UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
+  WEB_SEARCH_STORAGE_KEY,
   isBackgroundExecutionEnabled,
   isDebugLoggingEnabled,
   isUnrestrictedWebFetchEnabled,
+  isWebSearchEnabled,
   normalizeMaxSteps,
 } from "./behavior-settings";
 import {
@@ -549,19 +551,23 @@ function BehaviorSettings({
   debugLoggingEnabled,
   maxSteps,
   unrestrictedWebFetchEnabled,
+  webSearchEnabled,
   onBackgroundExecutionChange,
   onDebugLoggingChange,
   onMaxStepsChange,
   onUnrestrictedWebFetchChange,
+  onWebSearchChange,
 }: {
   readonly backgroundExecutionEnabled: boolean;
   readonly debugLoggingEnabled: boolean;
   readonly maxSteps: number;
   readonly unrestrictedWebFetchEnabled: boolean;
+  readonly webSearchEnabled: boolean;
   readonly onBackgroundExecutionChange: (enabled: boolean) => void;
   readonly onDebugLoggingChange: (enabled: boolean) => void;
   readonly onMaxStepsChange: (steps: number) => void;
   readonly onUnrestrictedWebFetchChange: (enabled: boolean) => void;
+  readonly onWebSearchChange: (enabled: boolean) => void;
 }): React.JSX.Element {
   return (
     <section className="settings-panel simple-panel">
@@ -649,6 +655,23 @@ function BehaviorSettings({
           </span>
         </label>
 
+        <label className="toggle-card behavior-card">
+          <input
+            checked={webSearchEnabled}
+            onChange={(event) => onWebSearchChange(event.target.checked)}
+            type="checkbox"
+          />
+          <span>
+            <strong>Allow web searching</strong>
+            <small className="warning-note">
+              Privacy and security risk. This allows the model to send search
+              queries to OpenRouter and Exa. Queries may reveal conversation
+              details, results may contain malicious instructions, and every
+              search may incur additional charges.
+            </small>
+          </span>
+        </label>
+
         <label className="toggle-card behavior-card unavailable">
           <input checked={false} disabled readOnly type="checkbox" />
           <span>
@@ -672,6 +695,7 @@ function OptionsApp(): React.JSX.Element {
   const [debugLoggingEnabled, setDebugLoggingEnabled] = useState(false);
   const [unrestrictedWebFetchEnabled, setUnrestrictedWebFetchEnabled] =
     useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [maxSteps, setMaxSteps] = useState(DEFAULT_MAX_STEPS);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
@@ -692,6 +716,7 @@ function OptionsApp(): React.JSX.Element {
         BACKGROUND_EXECUTION_STORAGE_KEY,
         MAX_STEPS_STORAGE_KEY,
         UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
+        WEB_SEARCH_STORAGE_KEY,
       ])
       .then((stored) => {
         setDebugLoggingEnabled(
@@ -708,6 +733,7 @@ function OptionsApp(): React.JSX.Element {
             stored[UNRESTRICTED_WEB_FETCH_STORAGE_KEY],
           ),
         );
+        setWebSearchEnabled(isWebSearchEnabled(stored[WEB_SEARCH_STORAGE_KEY]));
       });
   }, []);
 
@@ -764,6 +790,11 @@ function OptionsApp(): React.JSX.Element {
     void chrome.storage.local.set({
       [UNRESTRICTED_WEB_FETCH_STORAGE_KEY]: enabled,
     });
+  };
+
+  const changeWebSearch = (enabled: boolean): void => {
+    setWebSearchEnabled(enabled);
+    void chrome.storage.local.set({ [WEB_SEARCH_STORAGE_KEY]: enabled });
   };
 
   const changePersistence = (enabled: boolean): void => {
@@ -867,7 +898,9 @@ function OptionsApp(): React.JSX.Element {
               onDebugLoggingChange={changeDebugLogging}
               onMaxStepsChange={changeMaxSteps}
               onUnrestrictedWebFetchChange={changeUnrestrictedWebFetch}
+              onWebSearchChange={changeWebSearch}
               unrestrictedWebFetchEnabled={unrestrictedWebFetchEnabled}
+              webSearchEnabled={webSearchEnabled}
             />
           </div>
           <div hidden={activeTab !== "authentication"}>

@@ -62,13 +62,18 @@ import {
   DEBUG_LOGGING_STORAGE_KEY,
   MAX_STEPS_STORAGE_KEY,
   UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
+  WEB_SEARCH_STORAGE_KEY,
   isBackgroundExecutionEnabled,
   isDebugLoggingEnabled,
   isUnrestrictedWebFetchEnabled,
+  isWebSearchEnabled,
   normalizeMaxSteps,
 } from "./behavior-settings";
 import { createDebugLogger, type DebugLogger } from "./debug-logger";
-import { createOpenRouterWebFetchTool } from "./openrouter-tools";
+import {
+  createOpenRouterWebFetchTool,
+  createOpenRouterWebSearchTool,
+} from "./openrouter-tools";
 
 const API_KEY_STORAGE_KEY = "openRouterApiKey";
 const USER_ID_STORAGE_KEY = "openRouterUserId";
@@ -139,6 +144,7 @@ interface ConversationJob {
   readonly profileId: string;
   readonly backgroundEnabled: boolean;
   readonly unrestrictedWebFetchEnabled: boolean;
+  readonly webSearchEnabled: boolean;
   readonly maxSteps: number;
   readonly targetTabId?: number;
   readonly abortController: AbortController;
@@ -988,6 +994,7 @@ async function streamChat(
     appUrl: `https://chromewebstore.google.com/detail/${chrome.runtime.id}`,
   });
   const tools = {
+    web_search: createOpenRouterWebSearchTool(),
     web_fetch: createOpenRouterWebFetchTool(job.unrestrictedWebFetchEnabled),
     execute_roll20: tool({
       description:
@@ -1079,11 +1086,17 @@ async function streamChat(
       },
     }),
   };
+  const activeTools: Array<keyof typeof tools> = [
+    "web_fetch",
+    "execute_roll20",
+  ];
+  if (job.webSearchEnabled) activeTools.unshift("web_search");
   const result = streamText({
     model: openrouter(profile.modelId),
     system: buildProfileInstructions(profile),
     messages: await convertToModelMessages(validation.data),
     tools,
+    activeTools,
     stopWhen: isStepCount(job.maxSteps),
     abortSignal: abortController.signal,
     onLanguageModelCallStart: (event) => {
@@ -1277,6 +1290,7 @@ chrome.runtime.onConnect.addListener((port) => {
         BACKGROUND_EXECUTION_STORAGE_KEY,
         MAX_STEPS_STORAGE_KEY,
         UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
+        WEB_SEARCH_STORAGE_KEY,
       ]);
       const backgroundEnabled = isBackgroundExecutionEnabled(
         preferences[BACKGROUND_EXECUTION_STORAGE_KEY],
@@ -1289,6 +1303,9 @@ chrome.runtime.onConnect.addListener((port) => {
       const unrestrictedWebFetchEnabled = isUnrestrictedWebFetchEnabled(
         preferences[UNRESTRICTED_WEB_FETCH_STORAGE_KEY],
       );
+      const webSearchEnabled = isWebSearchEnabled(
+        preferences[WEB_SEARCH_STORAGE_KEY],
+      );
       const targetTab = backgroundEnabled
         ? await findBackgroundRoll20Tab(port.sender?.tab)
         : undefined;
@@ -1299,6 +1316,7 @@ chrome.runtime.onConnect.addListener((port) => {
         profileId: message.profile.id,
         backgroundEnabled,
         unrestrictedWebFetchEnabled,
+        webSearchEnabled,
         maxSteps,
         ...(typeof targetTab?.id === "number" ? { targetTabId: targetTab.id } : {}),
         abortController,
@@ -1313,6 +1331,7 @@ chrome.runtime.onConnect.addListener((port) => {
       debug.group("Conversation context", {
         "Background execution": backgroundEnabled,
         "Unrestricted web fetch": unrestrictedWebFetchEnabled,
+        "Web search": webSearchEnabled,
         "Maximum steps": maxSteps,
         "Bound Roll20 tab ID": job.targetTabId ?? "none",
         "Bound Roll20 tab URL": targetTab?.url ?? "none",

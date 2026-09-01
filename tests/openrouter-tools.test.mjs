@@ -16,20 +16,7 @@ const openrouterTools = await import(
   `data:text/javascript;base64,${Buffer.from(moduleSource).toString("base64")}`
 );
 
-test("configures OpenRouter web fetch with a strict documentation allowlist", () => {
-  const webFetch = openrouterTools.createOpenRouterWebFetchTool();
-
-  assert.equal(webFetch.type, "provider");
-  assert.equal(webFetch.id, "openrouter.web_fetch");
-  assert.deepEqual(webFetch.args, {
-    parameters: {
-      engine: "exa",
-      allowed_domains: ["help.roll20.net"],
-    },
-  });
-});
-
-test("serializes web fetch in OpenRouter's server-tool wire format", async () => {
+async function serializeTools(tools, activeTools) {
   let requestBody;
   const openrouter = createOpenRouter({
     apiKey: "test-key",
@@ -63,10 +50,31 @@ test("serializes web fetch in OpenRouter's server-tool wire format", async () =>
   await generateText({
     model: openrouter("openai/gpt-5.2"),
     prompt: "Read the documentation.",
-    tools: { web_fetch: openrouterTools.createOpenRouterWebFetchTool() },
+    tools,
+    activeTools,
   });
+  return requestBody.tools;
+}
 
-  assert.deepEqual(requestBody.tools, [
+test("configures OpenRouter web fetch with a strict documentation allowlist", () => {
+  const webFetch = openrouterTools.createOpenRouterWebFetchTool();
+
+  assert.equal(webFetch.type, "provider");
+  assert.equal(webFetch.id, "openrouter.web_fetch");
+  assert.deepEqual(webFetch.args, {
+    parameters: {
+      engine: "exa",
+      allowed_domains: ["help.roll20.net"],
+    },
+  });
+});
+
+test("serializes web fetch in OpenRouter's server-tool wire format", async () => {
+  const tools = {
+    web_search: openrouterTools.createOpenRouterWebSearchTool(),
+    web_fetch: openrouterTools.createOpenRouterWebFetchTool(),
+  };
+  assert.deepEqual(await serializeTools(tools, ["web_fetch"]), [
     {
       type: "openrouter:web_fetch",
       parameters: {
@@ -83,4 +91,36 @@ test("omits the domain allowlist when unrestricted fetching is enabled", () => {
   assert.deepEqual(webFetch.args, {
     parameters: { engine: "exa" },
   });
+});
+
+test("configures bounded OpenRouter web search", () => {
+  const webSearch = openrouterTools.createOpenRouterWebSearchTool();
+
+  assert.equal(webSearch.type, "provider");
+  assert.equal(webSearch.id, "openrouter.web_search");
+  assert.deepEqual(webSearch.args, {
+    parameters: {
+      engine: "exa",
+      max_results: 5,
+      max_total_results: 10,
+    },
+  });
+});
+
+test("serializes enabled web search in OpenRouter's current wire format", async () => {
+  const tools = {
+    web_search: openrouterTools.createOpenRouterWebSearchTool(),
+    web_fetch: openrouterTools.createOpenRouterWebFetchTool(),
+  };
+
+  assert.deepEqual(await serializeTools(tools, ["web_search"]), [
+    {
+      type: "openrouter:web_search",
+      parameters: {
+        engine: "exa",
+        max_results: 5,
+        max_total_results: 10,
+      },
+    },
+  ]);
 });

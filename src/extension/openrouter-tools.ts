@@ -3,9 +3,7 @@ import {
   jsonSchema,
 } from "@ai-sdk/provider-utils";
 
-export const WEB_FETCH_ALLOWED_DOMAINS = [
-  "help.roll20.net",
-] as const;
+export const WEB_FETCH_ALLOWED_DOMAINS = ["help.roll20.net"] as const;
 
 interface WebFetchResult {
   readonly url?: string;
@@ -42,6 +40,32 @@ const webFetchToolFactory = createProviderDefinedToolFactory<
   }),
 });
 
+interface WebSearchResult {
+  readonly results?: readonly unknown[];
+}
+
+interface WebSearchToolOptions {
+  readonly parameters: {
+    readonly engine: "exa";
+    readonly max_results: number;
+    readonly max_total_results: number;
+  };
+}
+
+const webSearchToolFactory = createProviderDefinedToolFactory<
+  WebSearchResult,
+  WebSearchToolOptions
+>({
+  id: "openrouter.web_search",
+  inputSchema: jsonSchema<WebSearchResult>({
+    type: "object",
+    properties: {
+      results: { type: "array", items: {} },
+    },
+    additionalProperties: true,
+  }),
+});
+
 export function createOpenRouterWebFetchTool(allowAnyDomain = false) {
   return webFetchToolFactory({
     parameters: {
@@ -49,6 +73,16 @@ export function createOpenRouterWebFetchTool(allowAnyDomain = false) {
       ...(allowAnyDomain
         ? {}
         : { allowed_domains: [...WEB_FETCH_ALLOWED_DOMAINS] }),
+    },
+  });
+}
+
+export function createOpenRouterWebSearchTool() {
+  return webSearchToolFactory({
+    parameters: {
+      engine: "exa",
+      max_results: 5,
+      max_total_results: 10,
     },
   });
 }

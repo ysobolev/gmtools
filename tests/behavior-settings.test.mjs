@@ -35,6 +35,13 @@ test("enables unrestricted web fetch only for an explicit true preference", () =
   assert.equal(behavior.isUnrestrictedWebFetchEnabled(undefined), false);
 });
 
+test("enables web search only for an explicit true preference", () => {
+  assert.equal(behavior.isWebSearchEnabled(true), true);
+  assert.equal(behavior.isWebSearchEnabled(false), false);
+  assert.equal(behavior.isWebSearchEnabled("true"), false);
+  assert.equal(behavior.isWebSearchEnabled(undefined), false);
+});
+
 test("normalizes the maximum steps preference", () => {
   assert.equal(behavior.normalizeMaxSteps(undefined), 16);
   assert.equal(behavior.normalizeMaxSteps(8), 8);

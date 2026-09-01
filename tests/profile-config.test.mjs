@@ -51,6 +51,8 @@ test("composes base, ruleset, sheet, and user guidance", () => {
   assert.match(prompt, /Use web_fetch to consult relevant documentation/);
   assert.match(prompt, /If web_fetch cannot access a required domain/);
   assert.match(prompt, /enable Allow web fetching from any domain under Behavior/);
+  assert.match(prompt, /Use web_search to discover relevant pages/);
+  assert.match(prompt, /enable Allow web searching under Behavior/);
   assert.match(prompt, /Introduction-to-Mod-Scripts-API/);
   assert.match(prompt, /bio, notes, defaulttoken, and gmnotes are callback-only/);
   assert.match(prompt, /object\.get\(property, resolve\)/);
