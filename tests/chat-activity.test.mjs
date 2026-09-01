@@ -38,6 +38,23 @@ test("shows the active sandbox call summary while it is executing", () => {
   );
 });
 
+test("allows longer summaries up to the 120-character hard limit", () => {
+  const summary = "x".repeat(130);
+  assert.deepEqual(
+    getChatActivity("streaming", [
+      assistant([
+        {
+          type: "tool-execute_roll20",
+          toolCallId: "tool-1",
+          state: "input-available",
+          input: { summary, code: "return 1;" },
+        },
+      ]),
+    ]),
+    { kind: "Working", summary: "x".repeat(120) },
+  );
+});
+
 test("shows only the first unresolved sandbox call summary", () => {
   assert.deepEqual(
     getChatActivity("streaming", [

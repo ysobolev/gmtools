@@ -18,7 +18,7 @@ function getToolSummary(part: unknown): string | undefined {
   const summary = (input as { readonly summary?: unknown }).summary;
   if (typeof summary !== "string") return undefined;
   const trimmed = summary.trim();
-  return trimmed ? trimmed.slice(0, 60) : undefined;
+  return trimmed ? trimmed.slice(0, 120) : undefined;
 }
 
 function explicitlyReportsFailure(value: unknown): boolean {

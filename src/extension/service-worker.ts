@@ -1010,7 +1010,7 @@ async function streamChat(
           summary: {
             type: "string",
             minLength: 1,
-            maxLength: 60,
+            maxLength: 120,
             description:
               "A plain-text status label no longer than 60 characters, such as 'checking Flippy’s hit points' or 'moving Flippy north'. Start with a lowercase letter unless capitalization is required for a proper noun or acronym. Distinguish inspection from modification, name known targets, and do not include code or internal reasoning.",
           },
