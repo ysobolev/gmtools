@@ -1,19 +1,26 @@
 export const ROLL20_EXECUTE_REQUEST_TYPE = "GMTOOLS_ROLL20_EXECUTE" as const;
 export const ROLL20_EXECUTE_RESPONSE_TYPE =
   "GMTOOLS_ROLL20_EXECUTE_RESPONSE" as const;
+export const ROLL20_ACKNOWLEDGEMENT_TYPE =
+  "GMTOOLS_ROLL20_ACKNOWLEDGEMENT" as const;
 export const ROLL20_EXECUTE_COMMAND = "!gmtools-exec" as const;
-export const ROLL20_PROTOCOL_VERSION = 1 as const;
-export const ROLL20_MOD_VERSION = "0.1.0" as const;
+export const ROLL20_PROTOCOL_VERSION = 2 as const;
+export const ROLL20_MOD_VERSION = "0.2.0" as const;
 
 const REQUEST_ID_PATTERN = /^[a-f0-9-]{8,64}$/i;
 const RESPONSE_PREFIX = "GMTOOLS_EXECUTION_RESPONSE:";
+const ACKNOWLEDGEMENT_PREFIX = "GMTOOLS_EXECUTION_ACKNOWLEDGED:";
 const BASE64URL_ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 export interface Roll20ExecuteRequestMessage {
   readonly type: typeof ROLL20_EXECUTE_REQUEST_TYPE;
   readonly requestId: string;
+  readonly kind: "identify" | "execute";
   readonly code: string;
+  readonly expectedCampaignId?: string;
+  readonly issuedAt: number;
+  readonly expiresAt: number;
   readonly extensionVersion: string;
   readonly buildId: string;
   readonly protocolVersion: number;
@@ -34,13 +41,30 @@ export interface Roll20ExecuteResponseMessage {
   readonly requestId: string;
   readonly protocolVersion: number;
   readonly modVersion: string;
+  readonly campaignId: string;
   readonly outcome: Roll20ExecutionOutcome;
+}
+
+export interface Roll20AcknowledgementMessage {
+  readonly type: typeof ROLL20_ACKNOWLEDGEMENT_TYPE;
+  readonly requestId: string;
+  readonly protocolVersion: number;
+  readonly modVersion: string;
+  readonly campaignId: string;
+  readonly isGM: boolean;
+  readonly accepted: boolean;
+  readonly error?: Roll20ExecutionError;
+  readonly pageTitle?: string;
 }
 
 export interface Roll20ExecuteCommand {
   readonly requestId: string;
   readonly protocolVersion: number;
+  readonly kind: "identify" | "execute";
   readonly code: string;
+  readonly expectedCampaignId?: string;
+  readonly issuedAt: number;
+  readonly expiresAt: number;
 }
 
 export interface SendAcknowledgement {
@@ -156,11 +180,19 @@ export function isRoll20ExecuteRequestMessage(
     isRecord(value) &&
     value.type === ROLL20_EXECUTE_REQUEST_TYPE &&
     isValidRequestId(value.requestId) &&
+    (value.kind === "identify" || value.kind === "execute") &&
     typeof value.extensionVersion === "string" &&
     typeof value.buildId === "string" &&
     typeof value.protocolVersion === "number" &&
     typeof value.code === "string" &&
-    value.code.length > 0
+    typeof value.issuedAt === "number" &&
+    typeof value.expiresAt === "number" &&
+    (value.expectedCampaignId === undefined ||
+      typeof value.expectedCampaignId === "string") &&
+    (value.kind === "identify" ||
+      (value.code.length > 0 &&
+        typeof value.expectedCampaignId === "string" &&
+        value.expectedCampaignId.length > 0))
   );
 }
 
@@ -173,19 +205,58 @@ export function isRoll20ExecuteResponseMessage(
     isValidRequestId(value.requestId) &&
     typeof value.protocolVersion === "number" &&
     typeof value.modVersion === "string" &&
+    typeof value.campaignId === "string" &&
     isRoll20ExecutionOutcome(value.outcome)
+  );
+}
+
+export function isRoll20AcknowledgementMessage(
+  value: unknown,
+): value is Roll20AcknowledgementMessage {
+  return (
+    isRecord(value) &&
+    value.type === ROLL20_ACKNOWLEDGEMENT_TYPE &&
+    isValidRequestId(value.requestId) &&
+    typeof value.protocolVersion === "number" &&
+    typeof value.modVersion === "string" &&
+    typeof value.campaignId === "string" &&
+    typeof value.isGM === "boolean" &&
+    typeof value.accepted === "boolean" &&
+    (value.error === undefined || isExecutionError(value.error)) &&
+    (value.pageTitle === undefined || typeof value.pageTitle === "string")
   );
 }
 
 export function formatRoll20ExecuteCommand(
   requestId: string,
   code: string,
+  options: {
+    readonly kind?: "identify" | "execute";
+    readonly expectedCampaignId?: string;
+    readonly issuedAt?: number;
+    readonly expiresAt?: number;
+  } = {},
 ): string {
   if (!isValidRequestId(requestId)) {
     throw new Error("Invalid GM Tools request ID.");
   }
-  if (!code) throw new Error("Roll20 code cannot be empty.");
-  return `${ROLL20_EXECUTE_COMMAND} ${ROLL20_PROTOCOL_VERSION} ${requestId} ${encodeBase64Url(code)}`;
+  const kind = options.kind ?? "execute";
+  if (kind === "execute" && !code) throw new Error("Roll20 code cannot be empty.");
+  if (kind === "execute" && !options.expectedCampaignId) {
+    throw new Error("Roll20 execution requires a campaign ID.");
+  }
+  const issuedAt = options.issuedAt ?? Date.now();
+  const expiresAt = options.expiresAt ?? issuedAt + 15_000;
+  const payload = JSON.stringify({
+    kind,
+    code,
+    issuedAt,
+    expiresAt,
+    ...(options.expectedCampaignId
+      ? { expectedCampaignId: options.expectedCampaignId }
+      : {}),
+  });
+  return `${ROLL20_EXECUTE_COMMAND} ${ROLL20_PROTOCOL_VERSION} ${requestId} ${encodeBase64Url(payload)}`;
 }
 
 export function parseRoll20ExecuteCommand(
@@ -201,18 +272,44 @@ export function parseRoll20ExecuteCommand(
     return null;
   }
 
-  const code = decodeBase64Url(parts[3]!);
-  return code
-    ? {
-        requestId: parts[2]!,
-        protocolVersion: Number.parseInt(parts[1]!, 10),
-        code,
-      }
-    : null;
+  const decoded = decodeBase64Url(parts[3]!);
+  if (!decoded) return null;
+  try {
+    const payload: unknown = JSON.parse(decoded);
+    if (
+      !isRecord(payload) ||
+      (payload.kind !== "identify" && payload.kind !== "execute") ||
+      typeof payload.code !== "string" ||
+      typeof payload.issuedAt !== "number" ||
+      typeof payload.expiresAt !== "number" ||
+      (payload.expectedCampaignId !== undefined &&
+        typeof payload.expectedCampaignId !== "string") ||
+      (payload.kind === "execute" &&
+        (!payload.code ||
+          typeof payload.expectedCampaignId !== "string" ||
+          !payload.expectedCampaignId))
+    ) {
+      return null;
+    }
+    return {
+      requestId: parts[2]!,
+      protocolVersion: Number.parseInt(parts[1]!, 10),
+      kind: payload.kind,
+      code: payload.code,
+      issuedAt: payload.issuedAt,
+      expiresAt: payload.expiresAt,
+      ...(payload.expectedCampaignId
+        ? { expectedCampaignId: payload.expectedCampaignId }
+        : {}),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function formatRoll20ExecuteResponse(
   requestId: string,
+  campaignId: string,
   outcome: Roll20ExecutionOutcome,
 ): string {
   if (!isValidRequestId(requestId)) {
@@ -221,6 +318,7 @@ export function formatRoll20ExecuteResponse(
   const serialized = JSON.stringify({
     protocolVersion: ROLL20_PROTOCOL_VERSION,
     modVersion: ROLL20_MOD_VERSION,
+    campaignId,
     outcome,
   });
   const roundTripped: unknown = JSON.parse(serialized);
@@ -228,11 +326,33 @@ export function formatRoll20ExecuteResponse(
     !isRecord(roundTripped) ||
     roundTripped.protocolVersion !== ROLL20_PROTOCOL_VERSION ||
     roundTripped.modVersion !== ROLL20_MOD_VERSION ||
+    roundTripped.campaignId !== campaignId ||
     !isRoll20ExecutionOutcome(roundTripped.outcome)
   ) {
     throw new Error("The Roll20 result is not JSON-serializable.");
   }
   return `${RESPONSE_PREFIX}${requestId}:${encodeBase64Url(serialized)}`;
+}
+
+export function formatRoll20Acknowledgement(
+  requestId: string,
+  campaignId: string,
+  isGM: boolean,
+  accepted: boolean,
+  error?: Roll20ExecutionError,
+): string {
+  if (!isValidRequestId(requestId)) {
+    throw new Error("Invalid GM Tools request ID.");
+  }
+  const serialized = JSON.stringify({
+    protocolVersion: ROLL20_PROTOCOL_VERSION,
+    modVersion: ROLL20_MOD_VERSION,
+    campaignId,
+    isGM,
+    accepted,
+    ...(error ? { error } : {}),
+  });
+  return `${ACKNOWLEDGEMENT_PREFIX}${requestId}:${encodeBase64Url(serialized)}`;
 }
 
 export function parseRoll20ExecuteResponseText(
@@ -254,6 +374,7 @@ export function parseRoll20ExecuteResponseText(
       !isRecord(envelope) ||
       typeof envelope.protocolVersion !== "number" ||
       typeof envelope.modVersion !== "string" ||
+      typeof envelope.campaignId !== "string" ||
       !isRoll20ExecutionOutcome(envelope.outcome)
     ) {
       return null;
@@ -263,8 +384,35 @@ export function parseRoll20ExecuteResponseText(
       requestId: match[1]!,
       protocolVersion: envelope.protocolVersion,
       modVersion: envelope.modVersion,
+      campaignId: envelope.campaignId,
       outcome: envelope.outcome,
     };
+  } catch {
+    return null;
+  }
+}
+
+export function parseRoll20AcknowledgementText(
+  content: string,
+): Roll20AcknowledgementMessage | null {
+  const pattern = new RegExp(
+    `${ACKNOWLEDGEMENT_PREFIX}([a-f0-9-]{8,64}):([A-Za-z0-9_-]+)`,
+    "i",
+  );
+  const match = content.match(pattern);
+  if (!match) return null;
+  const decoded = decodeBase64Url(match[2]!);
+  if (!decoded) return null;
+  try {
+    const envelope: unknown = JSON.parse(decoded);
+    const message: unknown = isRecord(envelope)
+      ? {
+          type: ROLL20_ACKNOWLEDGEMENT_TYPE,
+          requestId: match[1]!,
+          ...envelope,
+        }
+      : null;
+    return isRoll20AcknowledgementMessage(message) ? message : null;
   } catch {
     return null;
   }

@@ -1,9 +1,11 @@
 import {
+  ROLL20_ACKNOWLEDGEMENT_TYPE,
   ROLL20_PROTOCOL_VERSION,
   type SendAcknowledgement,
   type Roll20ExecuteRequestMessage,
   formatRoll20ExecuteCommand,
   isRoll20ExecuteRequestMessage,
+  parseRoll20AcknowledgementText,
   parseRoll20ExecuteResponseText,
 } from "../protocol";
 import { EXTENSION_BUILD_ID, EXTENSION_VERSION } from "../build-info";
@@ -73,7 +75,14 @@ function sendApiCommand(
   try {
     setNativeValue(
       input,
-      formatRoll20ExecuteCommand(request.requestId, request.code),
+      formatRoll20ExecuteCommand(request.requestId, request.code, {
+        kind: request.kind,
+        ...(request.expectedCampaignId
+          ? { expectedCampaignId: request.expectedCampaignId }
+          : {}),
+        issuedAt: request.issuedAt,
+        expiresAt: request.expiresAt,
+      }),
     );
     button.click();
 
@@ -107,7 +116,10 @@ function inspectAddedNode(node: Node): void {
   if (candidates.size === 0) candidates.add(element);
 
   for (const candidate of candidates) {
-    const response = parseRoll20ExecuteResponseText(candidate.textContent ?? "");
+    const text = candidate.textContent ?? "";
+    const response =
+      parseRoll20AcknowledgementText(text) ??
+      parseRoll20ExecuteResponseText(text);
     if (!response) continue;
 
     try {
@@ -115,7 +127,12 @@ function inspectAddedNode(node: Node): void {
       // the page. Do not let a stale observer consume a response that a newly
       // injected observer can still deliver.
       if (!chrome.runtime.id) continue;
-      const delivery = chrome.runtime.sendMessage(response);
+      const delivery = chrome.runtime.sendMessage({
+        ...response,
+        ...(response.type === ROLL20_ACKNOWLEDGEMENT_TYPE
+          ? { pageTitle: document.title }
+          : {}),
+      });
 
       // MutationObserver callbacks run at the microtask checkpoint, before the
       // next paint, so the marked whisper is removed before normal display.

@@ -5,6 +5,8 @@ interface Roll20ChatMessage {
   readonly who?: string;
 }
 
+declare const state: Record<string, unknown>;
+
 declare function on(event: "ready", callback: () => void): void;
 declare function on(
   event: "chat:message",

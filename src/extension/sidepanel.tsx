@@ -41,12 +41,16 @@ import {
   AUTH_CONNECT_REQUEST,
   AUTH_STATE_CHANGED,
   AUTH_STATUS_REQUEST,
+  CAMPAIGN_STATUS_REQUEST,
   CHAT_CLEAR,
   CHAT_COMMIT,
   isAuthResponse,
   isAuthStateChangedMessage,
+  isCampaignStatusChangedMessage,
+  isCampaignStatusResponse,
   type AuthRequest,
   type AuthStatus,
+  type CampaignStatus,
 } from "./openrouter-protocol";
 
 const CHAT_HISTORY_STORAGE_KEY = "openRouterChatHistory";
@@ -294,12 +298,70 @@ function ChatScreen({
     resume: true,
   });
   const [input, setInput] = useState("");
+  const [campaignStatus, setCampaignStatus] = useState<CampaignStatus>({
+    chatId,
+    state: "connecting",
+  });
   const activeTurnRef = useRef(false);
   const safeMessagesRef = useRef(initialMessages);
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const busy = status === "submitted" || status === "streaming";
   const activity = getChatActivity(status, messages);
+
+  useEffect(() => {
+    let active = true;
+    const handleCampaignStatus = (message: unknown): void => {
+      if (
+        active &&
+        isCampaignStatusChangedMessage(message) &&
+        message.status.chatId === chatId
+      ) {
+        setCampaignStatus(message.status);
+      }
+    };
+    chrome.runtime.onMessage.addListener(handleCampaignStatus);
+    void chrome.runtime
+      .sendMessage({ type: CAMPAIGN_STATUS_REQUEST, chatId })
+      .then((response: unknown) => {
+        if (!active) return;
+        if (isCampaignStatusResponse(response) && response.ok) {
+          setCampaignStatus(response.status);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setCampaignStatus({
+            chatId,
+            state: "unavailable",
+            detail: "Could not contact the extension service worker.",
+          });
+        }
+      });
+    return () => {
+      active = false;
+      chrome.runtime.onMessage.removeListener(handleCampaignStatus);
+    };
+  }, [chatId]);
+
+  const campaignLabel = (() => {
+    switch (campaignStatus.state) {
+      case "connected":
+        return campaignStatus.name ?? "Roll20 campaign";
+      case "connecting":
+        return "Connecting to campaign…";
+      case "not-gm":
+        return "GM access required";
+      case "unavailable":
+        return "Roll20 Mod unavailable";
+      case "disconnected":
+        return `${campaignStatus.name ?? "Campaign"} · disconnected`;
+      case "incompatible":
+        return `${campaignStatus.name ?? "Campaign"} · update required`;
+      default:
+        return "No campaign connected";
+    }
+  })();
 
   useEffect(() => {
     if (status === "submitted") {
@@ -403,6 +465,13 @@ function ChatScreen({
             Settings
           </button>
         </div>
+        <p
+          className={`campaign-label ${campaignStatus.state}`}
+          title={campaignStatus.detail}
+        >
+          <span aria-hidden="true" className="campaign-label-dot" />
+          {campaignLabel}
+        </p>
       </header>
 
       <section className="conversation" aria-live="polite">

@@ -4,10 +4,12 @@
   // src/protocol.ts
   var ROLL20_EXECUTE_REQUEST_TYPE = "GMTOOLS_ROLL20_EXECUTE";
   var ROLL20_EXECUTE_RESPONSE_TYPE = "GMTOOLS_ROLL20_EXECUTE_RESPONSE";
+  var ROLL20_ACKNOWLEDGEMENT_TYPE = "GMTOOLS_ROLL20_ACKNOWLEDGEMENT";
   var ROLL20_EXECUTE_COMMAND = "!gmtools-exec";
-  var ROLL20_PROTOCOL_VERSION = 1;
+  var ROLL20_PROTOCOL_VERSION = 2;
   var REQUEST_ID_PATTERN = /^[a-f0-9-]{8,64}$/i;
   var RESPONSE_PREFIX = "GMTOOLS_EXECUTION_RESPONSE:";
+  var ACKNOWLEDGEMENT_PREFIX = "GMTOOLS_EXECUTION_ACKNOWLEDGED:";
   var BASE64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
   function isRecord(value) {
     return typeof value === "object" && value !== null;
@@ -77,14 +79,30 @@
     return isRecord(value) && (value.ok === true && "result" in value || value.ok === false && isExecutionError(value.error));
   }
   function isRoll20ExecuteRequestMessage(value) {
-    return isRecord(value) && value.type === ROLL20_EXECUTE_REQUEST_TYPE && isValidRequestId(value.requestId) && typeof value.extensionVersion === "string" && typeof value.buildId === "string" && typeof value.protocolVersion === "number" && typeof value.code === "string" && value.code.length > 0;
+    return isRecord(value) && value.type === ROLL20_EXECUTE_REQUEST_TYPE && isValidRequestId(value.requestId) && (value.kind === "identify" || value.kind === "execute") && typeof value.extensionVersion === "string" && typeof value.buildId === "string" && typeof value.protocolVersion === "number" && typeof value.code === "string" && typeof value.issuedAt === "number" && typeof value.expiresAt === "number" && (value.expectedCampaignId === void 0 || typeof value.expectedCampaignId === "string") && (value.kind === "identify" || value.code.length > 0 && typeof value.expectedCampaignId === "string" && value.expectedCampaignId.length > 0);
   }
-  function formatRoll20ExecuteCommand(requestId, code) {
+  function isRoll20AcknowledgementMessage(value) {
+    return isRecord(value) && value.type === ROLL20_ACKNOWLEDGEMENT_TYPE && isValidRequestId(value.requestId) && typeof value.protocolVersion === "number" && typeof value.modVersion === "string" && typeof value.campaignId === "string" && typeof value.isGM === "boolean" && typeof value.accepted === "boolean" && (value.error === void 0 || isExecutionError(value.error)) && (value.pageTitle === void 0 || typeof value.pageTitle === "string");
+  }
+  function formatRoll20ExecuteCommand(requestId, code, options = {}) {
     if (!isValidRequestId(requestId)) {
       throw new Error("Invalid GM Tools request ID.");
     }
-    if (!code) throw new Error("Roll20 code cannot be empty.");
-    return `${ROLL20_EXECUTE_COMMAND} ${ROLL20_PROTOCOL_VERSION} ${requestId} ${encodeBase64Url(code)}`;
+    const kind = options.kind ?? "execute";
+    if (kind === "execute" && !code) throw new Error("Roll20 code cannot be empty.");
+    if (kind === "execute" && !options.expectedCampaignId) {
+      throw new Error("Roll20 execution requires a campaign ID.");
+    }
+    const issuedAt = options.issuedAt ?? Date.now();
+    const expiresAt = options.expiresAt ?? issuedAt + 15e3;
+    const payload = JSON.stringify({
+      kind,
+      code,
+      issuedAt,
+      expiresAt,
+      ...options.expectedCampaignId ? { expectedCampaignId: options.expectedCampaignId } : {}
+    });
+    return `${ROLL20_EXECUTE_COMMAND} ${ROLL20_PROTOCOL_VERSION} ${requestId} ${encodeBase64Url(payload)}`;
   }
   function parseRoll20ExecuteResponseText(content) {
     const pattern = new RegExp(
@@ -97,7 +115,7 @@
     if (!decoded) return null;
     try {
       const envelope = JSON.parse(decoded);
-      if (!isRecord(envelope) || typeof envelope.protocolVersion !== "number" || typeof envelope.modVersion !== "string" || !isRoll20ExecutionOutcome(envelope.outcome)) {
+      if (!isRecord(envelope) || typeof envelope.protocolVersion !== "number" || typeof envelope.modVersion !== "string" || typeof envelope.campaignId !== "string" || !isRoll20ExecutionOutcome(envelope.outcome)) {
         return null;
       }
       return {
@@ -105,15 +123,37 @@
         requestId: match[1],
         protocolVersion: envelope.protocolVersion,
         modVersion: envelope.modVersion,
+        campaignId: envelope.campaignId,
         outcome: envelope.outcome
       };
     } catch {
       return null;
     }
   }
+  function parseRoll20AcknowledgementText(content) {
+    const pattern = new RegExp(
+      `${ACKNOWLEDGEMENT_PREFIX}([a-f0-9-]{8,64}):([A-Za-z0-9_-]+)`,
+      "i"
+    );
+    const match = content.match(pattern);
+    if (!match) return null;
+    const decoded = decodeBase64Url(match[2]);
+    if (!decoded) return null;
+    try {
+      const envelope = JSON.parse(decoded);
+      const message = isRecord(envelope) ? {
+        type: ROLL20_ACKNOWLEDGEMENT_TYPE,
+        requestId: match[1],
+        ...envelope
+      } : null;
+      return isRoll20AcknowledgementMessage(message) ? message : null;
+    } catch {
+      return null;
+    }
+  }
 
   // src/build-info.ts
-  var EXTENSION_BUILD_ID = "d77d604b2b9e";
+  var EXTENSION_BUILD_ID = "b9491f7b6b76";
   var EXTENSION_VERSION = "0.2.0";
 
   // src/extension/content-script.ts
@@ -160,7 +200,12 @@
     try {
       setNativeValue(
         input,
-        formatRoll20ExecuteCommand(request.requestId, request.code)
+        formatRoll20ExecuteCommand(request.requestId, request.code, {
+          kind: request.kind,
+          ...request.expectedCampaignId ? { expectedCampaignId: request.expectedCampaignId } : {},
+          issuedAt: request.issuedAt,
+          expiresAt: request.expiresAt
+        })
       );
       button.click();
       setTimeout(() => setNativeValue(input, previousValue), 0);
@@ -182,11 +227,15 @@
     element.querySelectorAll(".message").forEach((message) => candidates.add(message));
     if (candidates.size === 0) candidates.add(element);
     for (const candidate of candidates) {
-      const response = parseRoll20ExecuteResponseText(candidate.textContent ?? "");
+      const text = candidate.textContent ?? "";
+      const response = parseRoll20AcknowledgementText(text) ?? parseRoll20ExecuteResponseText(text);
       if (!response) continue;
       try {
         if (!chrome.runtime.id) continue;
-        const delivery = chrome.runtime.sendMessage(response);
+        const delivery = chrome.runtime.sendMessage({
+          ...response,
+          ...response.type === ROLL20_ACKNOWLEDGEMENT_TYPE ? { pageTitle: document.title } : {}
+        });
         (candidate.closest(".message") ?? candidate).remove();
         void delivery.catch(() => void 0);
       } catch {

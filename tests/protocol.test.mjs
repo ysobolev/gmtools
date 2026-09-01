@@ -16,13 +16,21 @@ const protocol = await import(
 test("round-trips JavaScript through the Roll20 command protocol", () => {
   const requestId = "12345678-abcd-4abc-8def-123456789abc";
   const code = 'return { message: "Café 🐉", roll: randomInteger(20) };';
-  const command = protocol.formatRoll20ExecuteCommand(requestId, code);
+  const command = protocol.formatRoll20ExecuteCommand(requestId, code, {
+    expectedCampaignId: "campaign-test",
+    issuedAt: 1000,
+    expiresAt: 11000,
+  });
 
-  assert.match(command, /^!gmtools-exec 1 [a-f0-9-]+ [A-Za-z0-9_-]+$/i);
+  assert.match(command, /^!gmtools-exec 2 [a-f0-9-]+ [A-Za-z0-9_-]+$/i);
   assert.deepEqual(protocol.parseRoll20ExecuteCommand(command), {
     requestId,
-    protocolVersion: 1,
+    protocolVersion: 2,
+    kind: "execute",
     code,
+    expectedCampaignId: "campaign-test",
+    issuedAt: 1000,
+    expiresAt: 11000,
   });
 });
 
@@ -36,21 +44,45 @@ test("round-trips successful results and execution errors", () => {
 
   assert.deepEqual(
     protocol.parseRoll20ExecuteResponseText(
-      protocol.formatRoll20ExecuteResponse(requestId, success),
+      protocol.formatRoll20ExecuteResponse(requestId, "campaign-test", success),
     ),
     {
       type: "GMTOOLS_ROLL20_EXECUTE_RESPONSE",
       requestId,
-      protocolVersion: 1,
-      modVersion: "0.1.0",
+      protocolVersion: 2,
+      modVersion: "0.2.0",
+      campaignId: "campaign-test",
       outcome: success,
     },
   );
   assert.deepEqual(
     protocol.parseRoll20ExecuteResponseText(
-      `whisper ${protocol.formatRoll20ExecuteResponse(requestId, failure)}`,
+      `whisper ${protocol.formatRoll20ExecuteResponse(requestId, "campaign-test", failure)}`,
     )?.outcome,
     failure,
+  );
+});
+
+test("round-trips campaign acknowledgements", () => {
+  const requestId = "12345678-abcd-4abc-8def-123456789abc";
+  assert.deepEqual(
+    protocol.parseRoll20AcknowledgementText(
+      protocol.formatRoll20Acknowledgement(
+        requestId,
+        "campaign-test",
+        true,
+        true,
+      ),
+    ),
+    {
+      type: "GMTOOLS_ROLL20_ACKNOWLEDGEMENT",
+      requestId,
+      protocolVersion: 2,
+      modVersion: "0.2.0",
+      campaignId: "campaign-test",
+      isGM: true,
+      accepted: true,
+    },
   );
 });
 
@@ -71,10 +103,14 @@ test("requires extension and protocol identity on page-bridge requests", () => {
   const request = {
     type: protocol.ROLL20_EXECUTE_REQUEST_TYPE,
     requestId: "12345678-abcd-4abc-8def-123456789abc",
+    kind: "execute",
     code: "return 1;",
+    expectedCampaignId: "campaign-test",
+    issuedAt: 1000,
+    expiresAt: 11000,
     extensionVersion: "0.2.0",
     buildId: "abcdef123456",
-    protocolVersion: 1,
+    protocolVersion: 2,
   };
   assert.equal(protocol.isRoll20ExecuteRequestMessage(request), true);
   assert.equal(

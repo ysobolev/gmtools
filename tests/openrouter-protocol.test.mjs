@@ -86,3 +86,34 @@ test("validates chat lifecycle control messages", () => {
     true,
   );
 });
+
+test("validates campaign status messages", () => {
+  const status = {
+    chatId: "chat-1",
+    state: "connected",
+    campaignId: "campaign-1",
+    name: "Tuesday Night",
+  };
+  assert.equal(
+    protocol.isCampaignStatusRequest({
+      type: protocol.CAMPAIGN_STATUS_REQUEST,
+      chatId: "chat-1",
+    }),
+    true,
+  );
+  assert.equal(protocol.isCampaignStatusResponse({ ok: true, status }), true);
+  assert.equal(
+    protocol.isCampaignStatusChangedMessage({
+      type: protocol.CAMPAIGN_STATUS_CHANGED,
+      status,
+    }),
+    true,
+  );
+  assert.equal(
+    protocol.isCampaignStatusResponse({
+      ok: true,
+      status: { ...status, state: "mystery" },
+    }),
+    false,
+  );
+});

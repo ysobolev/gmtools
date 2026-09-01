@@ -204,12 +204,51 @@ h1 {
   position: relative;
   z-index: 3;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
   min-height: 55px;
   padding: 11px 17px;
   border-bottom: 1px solid #242a35;
   background: rgb(13 16 23 / 88%);
   backdrop-filter: blur(12px);
+}
+
+.campaign-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #8f97a5;
+  font-size: 10px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.campaign-label-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #69717f;
+}
+
+.campaign-label.connected .campaign-label-dot {
+  background: #70ad86;
+}
+
+.campaign-label.connecting .campaign-label-dot {
+  background: #d0a562;
+}
+
+.campaign-label.not-gm .campaign-label-dot,
+.campaign-label.unavailable .campaign-label-dot,
+.campaign-label.disconnected .campaign-label-dot,
+.campaign-label.incompatible .campaign-label-dot {
+  background: #c87566;
 }
 
 .profile-control {
@@ -705,6 +744,10 @@ h1 {
   border-color: #d4cec5;
   background: #fffdfa;
   color: #343137;
+}
+
+:root[data-theme="light"] .campaign-label {
+  color: #747178;
 }
 
 :root[data-theme="light"] .message.user {

@@ -29,6 +29,8 @@ import {
   AUTH_DISCONNECT_REQUEST,
   AUTH_PERSISTENCE_REQUEST,
   AUTH_STATE_CHANGED,
+  CAMPAIGN_STATUS_CHANGED,
+  CAMPAIGN_STATUS_REQUEST,
   CHAT_ABORT,
   CHAT_CLEAR,
   CHAT_CHUNK,
@@ -40,16 +42,19 @@ import {
   CHAT_RESUME_QUERY,
   CHAT_START,
   isAuthRequest,
+  isCampaignStatusRequest,
   isChatControlRequest,
   isChatPortRequest,
   type AuthRequest,
   type AuthResponse,
   type AuthStatus,
+  type CampaignStatus,
   type ChatPortResponse,
 } from "./openrouter-protocol";
 import {
   ROLL20_EXECUTE_REQUEST_TYPE,
   ROLL20_PROTOCOL_VERSION,
+  isRoll20AcknowledgementMessage,
   isRoll20ExecuteResponseMessage,
   type Roll20ExecuteRequestMessage,
   type Roll20ExecuteResponseMessage,
@@ -87,6 +92,10 @@ const AUTH_STORAGE_KEYS = [
 ] as const;
 const ROLL20_EDITOR_URL_PREFIX = "https://app.roll20.net/editor/";
 const ROLL20_EXECUTION_TIMEOUT_MS = 45_000;
+const ROLL20_ACKNOWLEDGEMENT_TIMEOUT_MS = 5_000;
+const ROLL20_COMMAND_TTL_MS = 10_000;
+const CAMPAIGN_BINDINGS_STORAGE_KEY = "gmToolsCampaignBindings";
+const CAMPAIGN_ROUTES_STORAGE_KEY = "gmToolsCampaignRoutes";
 const ROLL20_TOMBSTONE_STORAGE_KEY = "gmToolsRoll20TimeoutTombstones";
 const ROLL20_TOMBSTONE_LIMIT = 100;
 const ROLL20_TOMBSTONE_TTL_MS = 15 * 60_000;
@@ -94,20 +103,59 @@ const SERVICE_WORKER_KEEPALIVE_INTERVAL_MS = 20_000;
 const MAX_ROLL20_CODE_LENGTH = 20_000;
 const activeChatControllers = new Set<AbortController>();
 let roll20ExecutionQueue: Promise<void> = Promise.resolve();
-const pendingRoll20Executions = new Map<
+
+interface PendingRoll20Execution {
+  readonly tabId: number;
+  readonly resolve: (outcome: Roll20ExecutionOutcome) => void;
+  readonly reject: (error: Error) => void;
+  timeoutId: ReturnType<typeof setTimeout>;
+  readonly abortSignal: AbortSignal;
+  readonly abortListener: () => void;
+  readonly debug: DebugLogger;
+  readonly chatId: string;
+  readonly toolCallId: string;
+  readonly dispatchedAt: number;
+  readonly expectedCampaignId: string;
+  acknowledged: boolean;
+}
+
+const pendingRoll20Executions = new Map<string, PendingRoll20Execution>();
+
+interface PendingCampaignDiscovery {
+  readonly tabId: number;
+  readonly resolve: (identity: CampaignIdentity) => void;
+  readonly reject: (error: Error) => void;
+  readonly timeoutId: ReturnType<typeof setTimeout>;
+  readonly debug: DebugLogger;
+}
+
+const pendingCampaignDiscoveries = new Map<string, PendingCampaignDiscovery>();
+const campaignDiscoveryAttempts = new Map<
   string,
-  {
-    readonly tabId: number;
-    readonly resolve: (outcome: Roll20ExecutionOutcome) => void;
-    readonly reject: (error: Error) => void;
-    readonly timeoutId: ReturnType<typeof setTimeout>;
-    readonly abortSignal: AbortSignal;
-    readonly abortListener: () => void;
-    readonly debug: DebugLogger;
-    readonly toolCallId: string;
-    readonly permanentTabBinding: boolean;
-  }
+  Promise<CampaignStatus>
 >();
+
+interface CampaignIdentity {
+  readonly campaignId: string;
+  readonly name: string;
+  readonly tabId: number;
+  readonly isGM: boolean;
+  readonly modVersion: string;
+}
+
+interface CampaignBinding {
+  readonly campaignId: string;
+  readonly name: string;
+  readonly modVersion: string;
+}
+
+interface CampaignRoute {
+  readonly tabId: number;
+}
+
+interface CampaignTarget extends CampaignBinding {
+  readonly tabId: number;
+}
 
 interface Roll20TimeoutTombstone {
   readonly requestId: string;
@@ -134,6 +182,30 @@ class Roll20CompatibilityError extends Error {
   }
 }
 
+class Roll20CommandRejectedError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "Roll20CommandRejectedError";
+    this.code = code;
+  }
+}
+
+class Roll20CampaignMismatchError extends Error {
+  constructor(message = "This conversation is bound to a different Roll20 campaign.") {
+    super(message);
+    this.name = "Roll20CampaignMismatchError";
+  }
+}
+
+class Roll20TabUnavailableBeforeDispatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "Roll20TabUnavailableBeforeDispatchError";
+  }
+}
+
 const roll20TimeoutTombstones = new Map<string, Roll20TimeoutTombstone>();
 
 type ConversationTerminal =
@@ -147,12 +219,13 @@ interface ConversationJob {
   readonly unrestrictedWebFetchEnabled: boolean;
   readonly webSearchEnabled: boolean;
   readonly maxSteps: number;
-  readonly targetTabId?: number;
+  targetTabId: number | undefined;
+  campaignId?: string;
+  campaignName?: string;
   readonly abortController: AbortController;
   readonly chunks: UIMessageChunk[];
   readonly subscribers: Map<chrome.runtime.Port, string>;
   readonly debug: DebugLogger;
-  targetTabUnavailableReason?: string;
   terminal?: ConversationTerminal;
 }
 
@@ -433,6 +506,20 @@ chrome.runtime.onMessage.addListener(
 
 chrome.runtime.onMessage.addListener(
   (message: unknown, sender, sendResponse): boolean | undefined => {
+    if (!isCampaignStatusRequest(message) || !isTrustedExtensionSender(sender)) {
+      return;
+    }
+    void discoverAndBindCampaign(message.chatId)
+      .then((status) => sendResponse({ ok: true, status }))
+      .catch((error: unknown) =>
+        sendResponse({ ok: false, error: errorMessage(error) }),
+      );
+    return true;
+  },
+);
+
+chrome.runtime.onMessage.addListener(
+  (message: unknown, sender, sendResponse): boolean | undefined => {
     if (!isChatControlRequest(message) || !isTrustedExtensionSender(sender)) {
       return;
     }
@@ -444,6 +531,7 @@ chrome.runtime.onMessage.addListener(
     if (message.type === CHAT_CLEAR) {
       job?.abortController.abort();
       conversationJobs.delete(message.chatId);
+      void removeCampaignBinding(message.chatId);
     } else if (message.type === CHAT_COMMIT && job?.terminal) {
       conversationJobs.delete(message.chatId);
     }
@@ -463,12 +551,163 @@ function isTrustedRoll20ContentScript(
   );
 }
 
+function campaignNameFromPageTitle(pageTitle?: string): string {
+  const name = pageTitle
+    ?.replace(/\s*[|\u2013\u2014-]\s*Roll20\s*$/i, "")
+    .trim();
+  return name || "Roll20 campaign";
+}
+
+function isCampaignBinding(value: unknown): value is CampaignBinding {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.campaignId === "string" &&
+    typeof record.name === "string" &&
+    typeof record.modVersion === "string"
+  );
+}
+
+async function getCampaignBindings(): Promise<Record<string, CampaignBinding>> {
+  const stored = await chrome.storage.session.get(CAMPAIGN_BINDINGS_STORAGE_KEY);
+  const value = stored[CAMPAIGN_BINDINGS_STORAGE_KEY];
+  if (typeof value !== "object" || value === null) return {};
+  let containedLegacyTabId = false;
+  const bindings = Object.fromEntries(
+    Object.entries(value).flatMap(([chatId, candidate]) => {
+      if (!isCampaignBinding(candidate)) return [];
+      if ("tabId" in candidate) containedLegacyTabId = true;
+      return [
+        [
+          chatId,
+          {
+            campaignId: candidate.campaignId,
+            name: candidate.name,
+            modVersion: candidate.modVersion,
+          },
+        ],
+      ];
+    }),
+  ) as Record<string, CampaignBinding>;
+  if (containedLegacyTabId) {
+    await chrome.storage.session.set({
+      [CAMPAIGN_BINDINGS_STORAGE_KEY]: bindings,
+    });
+  }
+  return bindings;
+}
+
+async function getCampaignBinding(
+  chatId: string,
+): Promise<CampaignBinding | undefined> {
+  return (await getCampaignBindings())[chatId];
+}
+
+async function setCampaignBinding(
+  chatId: string,
+  binding: CampaignBinding,
+): Promise<void> {
+  const bindings = await getCampaignBindings();
+  if (bindings[chatId]) return;
+  await chrome.storage.session.set({
+    [CAMPAIGN_BINDINGS_STORAGE_KEY]: { ...bindings, [chatId]: binding },
+  });
+}
+
+async function removeCampaignBinding(chatId: string): Promise<void> {
+  const bindings = await getCampaignBindings();
+  if (!(chatId in bindings)) return;
+  delete bindings[chatId];
+  await chrome.storage.session.set({ [CAMPAIGN_BINDINGS_STORAGE_KEY]: bindings });
+  await removeCampaignRoute(chatId);
+}
+
+function isCampaignRoute(value: unknown): value is CampaignRoute {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).tabId === "number"
+  );
+}
+
+async function getCampaignRoutes(): Promise<Record<string, CampaignRoute>> {
+  const stored = await chrome.storage.session.get(CAMPAIGN_ROUTES_STORAGE_KEY);
+  const value = stored[CAMPAIGN_ROUTES_STORAGE_KEY];
+  if (typeof value !== "object" || value === null) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, CampaignRoute] =>
+      isCampaignRoute(entry[1]),
+    ),
+  );
+}
+
+async function getCampaignRoute(
+  chatId: string,
+): Promise<CampaignRoute | undefined> {
+  return (await getCampaignRoutes())[chatId];
+}
+
+async function setCampaignRoute(chatId: string, tabId: number): Promise<void> {
+  const routes = await getCampaignRoutes();
+  await chrome.storage.session.set({
+    [CAMPAIGN_ROUTES_STORAGE_KEY]: { ...routes, [chatId]: { tabId } },
+  });
+}
+
+async function removeCampaignRoute(chatId: string): Promise<void> {
+  const routes = await getCampaignRoutes();
+  if (!(chatId in routes)) return;
+  delete routes[chatId];
+  await chrome.storage.session.set({ [CAMPAIGN_ROUTES_STORAGE_KEY]: routes });
+}
+
+function notifyCampaignStatus(status: CampaignStatus): void {
+  void chrome.runtime
+    .sendMessage({ type: CAMPAIGN_STATUS_CHANGED, status })
+    .catch(() => undefined);
+}
+
+async function campaignDebugLogger(chatId: string): Promise<DebugLogger> {
+  const stored = await chrome.storage.local.get(DEBUG_LOGGING_STORAGE_KEY);
+  return createDebugLogger(
+    isDebugLoggingEnabled(stored[DEBUG_LOGGING_STORAGE_KEY]),
+    chatId,
+  );
+}
+
 function removePendingRoll20Execution(requestId: string): void {
   const pending = pendingRoll20Executions.get(requestId);
   if (!pending) return;
   clearTimeout(pending.timeoutId);
   pending.abortSignal.removeEventListener("abort", pending.abortListener);
   pendingRoll20Executions.delete(requestId);
+}
+
+function beginRoll20ExecutionTimeout(
+  requestId: string,
+  pending: PendingRoll20Execution,
+): void {
+  clearTimeout(pending.timeoutId);
+  pending.timeoutId = setTimeout(() => {
+    const timedOutAt = Date.now();
+    rememberRoll20Timeout({
+      requestId,
+      chatId: pending.chatId,
+      tabId: pending.tabId,
+      toolCallId: pending.toolCallId,
+      dispatchedAt: pending.dispatchedAt,
+      timedOutAt,
+      expiresAt: timedOutAt + ROLL20_TOMBSTONE_TTL_MS,
+      debug: pending.debug,
+    });
+    pending.debug.group("Roll20 execution timed out", {
+      "Tool call ID": pending.toolCallId,
+      "Bridge request ID": requestId,
+      Error: new Roll20ExecutionTimeoutError(),
+    });
+    removePendingRoll20Execution(requestId);
+    pending.reject(new Roll20ExecutionTimeoutError());
+  }, ROLL20_EXECUTION_TIMEOUT_MS);
 }
 
 function isStoredRoll20TimeoutTombstone(
@@ -611,36 +850,129 @@ async function logUnexpectedRoll20Result(
 }
 
 chrome.runtime.onMessage.addListener((message: unknown, sender): void => {
-  if (
-    !isRoll20ExecuteResponseMessage(message) ||
-    !isTrustedRoll20ContentScript(sender)
-  ) {
+  if (!isTrustedRoll20ContentScript(sender)) return;
+  const senderTabId = sender.tab?.id;
+  if (typeof senderTabId !== "number") return;
+
+  if (isRoll20AcknowledgementMessage(message)) {
+    const discovery = pendingCampaignDiscoveries.get(message.requestId);
+    if (discovery) {
+      if (discovery.tabId !== senderTabId) return;
+      clearTimeout(discovery.timeoutId);
+      pendingCampaignDiscoveries.delete(message.requestId);
+      discovery.debug.group("Roll20 campaign handshake received", {
+        "Bridge request ID": message.requestId,
+        "Tab ID": senderTabId,
+        "Campaign ID": message.campaignId,
+        "Campaign name": campaignNameFromPageTitle(message.pageTitle),
+        "GM access": message.isGM,
+        Accepted: message.accepted,
+        "Protocol version": message.protocolVersion,
+        "Mod version": message.modVersion,
+        Error: message.error,
+      });
+      if (message.protocolVersion !== ROLL20_PROTOCOL_VERSION) {
+        discovery.reject(
+          new Roll20CompatibilityError(
+            `The Roll20 Mod uses protocol ${message.protocolVersion}, but this extension requires protocol ${ROLL20_PROTOCOL_VERSION}. Update the campaign Mod script.`,
+          ),
+        );
+      } else if (!message.accepted && message.isGM) {
+        discovery.reject(
+          new Roll20CommandRejectedError(
+            message.error?.name ?? "Roll20HandshakeRejectedError",
+            message.error?.message ?? "The Roll20 Mod rejected the handshake.",
+          ),
+        );
+      } else {
+        discovery.resolve({
+          campaignId: message.campaignId,
+          name: campaignNameFromPageTitle(message.pageTitle),
+          tabId: senderTabId,
+          isGM: message.isGM,
+          modVersion: message.modVersion,
+        });
+      }
+      return;
+    }
+
+    const pending = pendingRoll20Executions.get(message.requestId);
+    if (!pending || pending.tabId !== senderTabId) return;
+    pending.debug.group("Roll20 execution acknowledged", {
+      "Tool call ID": pending.toolCallId,
+      "Bridge request ID": message.requestId,
+      "Tab ID": senderTabId,
+      "Campaign ID": message.campaignId,
+      Accepted: message.accepted,
+      "GM access": message.isGM,
+      Error: message.error,
+    });
+    if (message.protocolVersion !== ROLL20_PROTOCOL_VERSION) {
+      removePendingRoll20Execution(message.requestId);
+      pending.reject(
+        new Roll20CompatibilityError(
+          `The Roll20 Mod uses protocol ${message.protocolVersion}, but this extension requires protocol ${ROLL20_PROTOCOL_VERSION}. Update the campaign Mod script.`,
+        ),
+      );
+      return;
+    }
+    if (message.campaignId !== pending.expectedCampaignId) {
+      removePendingRoll20Execution(message.requestId);
+      pending.reject(
+        !message.accepted && message.error?.name === "CampaignMismatchError"
+          ? new Roll20CampaignMismatchError(message.error.message)
+          : new Roll20CompatibilityError(
+              "The bound Roll20 tab is now showing a different campaign. The command result is unknown.",
+            ),
+      );
+      return;
+    }
+    if (!message.accepted || !message.isGM) {
+      removePendingRoll20Execution(message.requestId);
+      pending.reject(
+        new Roll20CommandRejectedError(
+          message.error?.name ?? "Roll20CommandRejectedError",
+          message.error?.message ?? "The Roll20 Mod rejected the command.",
+        ),
+      );
+      return;
+    }
+    pending.acknowledged = true;
+    beginRoll20ExecutionTimeout(message.requestId, pending);
     return;
   }
 
+  if (!isRoll20ExecuteResponseMessage(message)) return;
   const pending = pendingRoll20Executions.get(message.requestId);
-  const senderTabId = sender.tab?.id;
   if (!pending || pending.tabId !== senderTabId) {
-    if (typeof senderTabId === "number") {
-      void logUnexpectedRoll20Result(message, senderTabId);
-    }
+    void logUnexpectedRoll20Result(message, senderTabId);
     return;
   }
   pending.debug.group("Roll20 result received", {
     "Tool call ID": pending.toolCallId,
     "Bridge request ID": message.requestId,
     "Tab ID": pending.tabId,
+    "Campaign ID": message.campaignId,
     "Protocol version": message.protocolVersion,
     "Mod version": message.modVersion,
     Outcome: message.outcome,
   });
   removePendingRoll20Execution(message.requestId);
-  if (message.protocolVersion !== ROLL20_PROTOCOL_VERSION) {
+  if (
+    message.protocolVersion !== ROLL20_PROTOCOL_VERSION ||
+    message.campaignId !== pending.expectedCampaignId
+  ) {
     pending.reject(
       new Roll20CompatibilityError(
-        `The Roll20 Mod uses protocol ${message.protocolVersion}, but this extension requires protocol ${ROLL20_PROTOCOL_VERSION}. Update the campaign Mod script.`,
+        message.campaignId !== pending.expectedCampaignId
+          ? "Roll20 returned a result from a different campaign. It was discarded."
+          : `The Roll20 Mod uses protocol ${message.protocolVersion}, but this extension requires protocol ${ROLL20_PROTOCOL_VERSION}. Update the campaign Mod script.`,
       ),
     );
+    return;
+  }
+  if (!pending.acknowledged) {
+    pending.reject(new Error("Roll20 returned a result without acknowledging the command."));
     return;
   }
   pending.resolve(message.outcome);
@@ -649,11 +981,44 @@ chrome.runtime.onMessage.addListener((message: unknown, sender): void => {
 function rejectExecutionsForUnavailableTab(tabId: number, message: string): void {
   for (const job of conversationJobs.values()) {
     if (job.targetTabId === tabId && !job.terminal) {
-      job.targetTabUnavailableReason = message;
+      job.targetTabId = undefined;
+      notifyCampaignStatus({
+        chatId: job.chatId,
+        state: "connecting",
+        ...(job.campaignId ? { campaignId: job.campaignId } : {}),
+        ...(job.campaignName ? { name: job.campaignName } : {}),
+        detail: `${message} Looking for another tab with the same campaign.`,
+      });
+      void (async () => {
+        await removeCampaignRoute(job.chatId);
+        const binding = await getCampaignBinding(job.chatId);
+        const identity = binding
+          ? await locateBoundCampaign(job.chatId, binding, job.debug).catch(
+              () => undefined,
+            )
+          : undefined;
+        notifyCampaignStatus(
+          identity && binding
+            ? {
+                chatId: job.chatId,
+                state: "connected",
+                campaignId: binding.campaignId,
+                name: binding.name,
+              }
+            : {
+                chatId: job.chatId,
+                state: "disconnected",
+                ...(binding ? { campaignId: binding.campaignId } : {}),
+                ...(binding ? { name: binding.name } : {}),
+                detail:
+                  "No open Roll20 GM tab matches this conversation's campaign.",
+              },
+        );
+      })();
     }
   }
   for (const [requestId, pending] of pendingRoll20Executions) {
-    if (pending.tabId !== tabId || !pending.permanentTabBinding) continue;
+    if (pending.tabId !== tabId) continue;
     removePendingRoll20Execution(requestId);
     pending.reject(new Error(message));
   }
@@ -709,21 +1074,6 @@ async function findActiveRoll20Tab(): Promise<chrome.tabs.Tab> {
   return activeTab;
 }
 
-async function findBackgroundRoll20Tab(
-  senderTab: chrome.tabs.Tab | undefined,
-): Promise<chrome.tabs.Tab | undefined> {
-  if (
-    typeof senderTab?.id === "number" &&
-    senderTab.url?.startsWith(ROLL20_EDITOR_URL_PREFIX)
-  ) {
-    return senderTab;
-  }
-
-  const tabs = await chrome.tabs.query({ url: `${ROLL20_EDITOR_URL_PREFIX}*` });
-  const activeTab = tabs.find((tab) => tab.active);
-  return activeTab ?? (tabs.length === 1 ? tabs[0] : undefined);
-}
-
 async function getBoundRoll20Tab(tabId: number): Promise<chrome.tabs.Tab> {
   let tab: chrome.tabs.Tab;
   try {
@@ -769,23 +1119,274 @@ async function sendToRoll20ContentScript(
   }
 }
 
+async function discoverCampaignInTab(
+  tab: chrome.tabs.Tab,
+  debug: DebugLogger,
+): Promise<CampaignIdentity> {
+  if (typeof tab.id !== "number") throw new Error("The Roll20 tab has no ID.");
+  const requestId = crypto.randomUUID();
+  const issuedAt = Date.now();
+  debug.group("Roll20 campaign handshake started", {
+    "Bridge request ID": requestId,
+    "Tab ID": tab.id,
+    "Tab URL": tab.url,
+  });
+
+  const identityPromise = new Promise<CampaignIdentity>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      pendingCampaignDiscoveries.delete(requestId);
+      reject(new Error("The Roll20 Mod did not answer the campaign handshake."));
+    }, ROLL20_ACKNOWLEDGEMENT_TIMEOUT_MS);
+    pendingCampaignDiscoveries.set(requestId, {
+      tabId: tab.id as number,
+      resolve,
+      reject,
+      timeoutId,
+      debug,
+    });
+  });
+
+  try {
+    const acknowledgement = await sendToRoll20ContentScript(
+      tab.id,
+      {
+        type: ROLL20_EXECUTE_REQUEST_TYPE,
+        requestId,
+        kind: "identify",
+        code: "",
+        issuedAt,
+        expiresAt: issuedAt + ROLL20_COMMAND_TTL_MS,
+        extensionVersion: EXTENSION_VERSION,
+        buildId: EXTENSION_BUILD_ID,
+        protocolVersion: ROLL20_PROTOCOL_VERSION,
+      },
+      debug,
+      "campaign-handshake",
+    );
+    if (!isSendAcknowledgement(acknowledgement)) {
+      throw new Roll20CompatibilityError(
+        "The Roll20 page is running an incompatible GM Tools content script. Reload the page.",
+      );
+    }
+    if (
+      acknowledgement.extensionVersion !== EXTENSION_VERSION ||
+      acknowledgement.buildId !== EXTENSION_BUILD_ID ||
+      acknowledgement.protocolVersion !== ROLL20_PROTOCOL_VERSION
+    ) {
+      throw new Roll20CompatibilityError(
+        `The Roll20 page is running GM Tools ${acknowledgement.extensionVersion} build ${acknowledgement.buildId}. Reload the page to use ${EXTENSION_VERSION} build ${EXTENSION_BUILD_ID}.`,
+      );
+    }
+    if (!acknowledgement.ok) {
+      throw new Error(acknowledgement.error ?? "Could not use Roll20 chat.");
+    }
+    return await identityPromise;
+  } catch (error) {
+    const pending = pendingCampaignDiscoveries.get(requestId);
+    if (pending) clearTimeout(pending.timeoutId);
+    pendingCampaignDiscoveries.delete(requestId);
+    throw error;
+  }
+}
+
+function campaignStatusForError(chatId: string, error: unknown): CampaignStatus {
+  const detail = errorMessage(error);
+  return {
+    chatId,
+    state:
+      error instanceof Roll20CompatibilityError ? "incompatible" : "unavailable",
+    detail,
+  };
+}
+
+async function candidateRoll20Tabs(
+  chatId: string,
+  activeOnly: boolean,
+): Promise<chrome.tabs.Tab[]> {
+  const candidates: chrome.tabs.Tab[] = [];
+  const seen = new Set<number>();
+  const add = (tab: chrome.tabs.Tab | undefined): void => {
+    if (
+      typeof tab?.id !== "number" ||
+      seen.has(tab.id) ||
+      !tab.url?.startsWith(ROLL20_EDITOR_URL_PREFIX)
+    ) {
+      return;
+    }
+    seen.add(tab.id);
+    candidates.push(tab);
+  };
+
+  const [activeTab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true,
+  });
+  add(activeTab);
+  if (activeOnly) return candidates;
+
+  const route = await getCampaignRoute(chatId);
+  if (route) {
+    try {
+      add(await chrome.tabs.get(route.tabId));
+    } catch {
+      await removeCampaignRoute(chatId);
+    }
+  }
+  const openRoll20Tabs = await chrome.tabs.query({
+    url: `${ROLL20_EDITOR_URL_PREFIX}*`,
+  });
+  openRoll20Tabs.forEach(add);
+  return candidates;
+}
+
+async function locateBoundCampaign(
+  chatId: string,
+  binding: CampaignBinding,
+  debug: DebugLogger,
+  activeOnly = false,
+): Promise<CampaignIdentity | undefined> {
+  const tabs = await candidateRoll20Tabs(chatId, activeOnly);
+  for (const tab of tabs) {
+    try {
+      const identity = await discoverCampaignInTab(tab, debug);
+      if (identity.isGM && identity.campaignId === binding.campaignId) {
+        await setCampaignRoute(chatId, identity.tabId);
+        const job = conversationJobs.get(chatId);
+        if (job) {
+          job.targetTabId = identity.tabId;
+          job.campaignId = binding.campaignId;
+          job.campaignName = binding.name;
+        }
+        debug.group("Roll20 campaign route selected", {
+          "Campaign ID": binding.campaignId,
+          "Campaign name": binding.name,
+          "Tab ID": identity.tabId,
+        });
+        return identity;
+      }
+      debug.group("Roll20 campaign route skipped", {
+        "Expected campaign ID": binding.campaignId,
+        "Reported campaign ID": identity.campaignId,
+        "Tab ID": identity.tabId,
+        "GM access": identity.isGM,
+      });
+    } catch (error) {
+      debug.group("Roll20 campaign probe failed", {
+        "Campaign ID": binding.campaignId,
+        "Tab ID": tab.id,
+        Error: error,
+      });
+    }
+  }
+  await removeCampaignRoute(chatId);
+  const job = conversationJobs.get(chatId);
+  if (job) job.targetTabId = undefined;
+  return undefined;
+}
+
+async function discoverAndBindCampaign(chatId: string): Promise<CampaignStatus> {
+  const existingAttempt = campaignDiscoveryAttempts.get(chatId);
+  if (existingAttempt) return existingAttempt;
+  const attempt = (async (): Promise<CampaignStatus> => {
+    const existing = await getCampaignBinding(chatId);
+    const debug = await campaignDebugLogger(chatId);
+    if (existing) {
+      const identity = await locateBoundCampaign(
+        chatId,
+        existing,
+        debug,
+      ).catch(() => undefined);
+      if (identity) {
+        return {
+          chatId,
+          state: "connected",
+          campaignId: existing.campaignId,
+          name: existing.name,
+        };
+      }
+      return {
+        chatId,
+        state: "disconnected",
+        campaignId: existing.campaignId,
+        name: existing.name,
+        detail: "No open Roll20 GM tab matches this conversation's campaign.",
+      };
+    }
+
+    notifyCampaignStatus({ chatId, state: "connecting" });
+    let tab: chrome.tabs.Tab;
+    try {
+      tab = await findActiveRoll20Tab();
+    } catch (error) {
+      return { chatId, state: "unbound", detail: errorMessage(error) };
+    }
+    try {
+      const identity = await discoverCampaignInTab(tab, debug);
+      if (!identity.isGM) {
+        return {
+          chatId,
+          state: "not-gm",
+          name: identity.name,
+          detail: "This Roll20 tab is not open as the game master.",
+        };
+      }
+      const binding: CampaignBinding = {
+        campaignId: identity.campaignId,
+        name: identity.name,
+        modVersion: identity.modVersion,
+      };
+      await setCampaignBinding(chatId, binding);
+      await setCampaignRoute(chatId, identity.tabId);
+      return {
+        chatId,
+        state: "connected",
+        campaignId: binding.campaignId,
+        name: binding.name,
+      };
+    } catch (error) {
+      return campaignStatusForError(chatId, error);
+    }
+  })();
+  campaignDiscoveryAttempts.set(chatId, attempt);
+  try {
+    const status = await attempt;
+    notifyCampaignStatus(status);
+    return status;
+  } finally {
+    campaignDiscoveryAttempts.delete(chatId);
+  }
+}
+
 async function executeRoll20(
   code: string,
   abortSignal: AbortSignal,
   debug: DebugLogger,
   chatId: string,
   toolCallId: string,
-  boundTabId?: number,
+  expectedCampaignId: string,
+  boundTabId: number,
+  backgroundEnabled: boolean,
 ): Promise<Roll20ExecutionOutcome> {
   if (!code.trim()) throw new Error("execute_roll20 received empty code.");
   if (code.length > MAX_ROLL20_CODE_LENGTH) {
     throw new Error("execute_roll20 code exceeds the 20,000-character limit.");
   }
 
-  const tab =
-    boundTabId === undefined
-      ? await findActiveRoll20Tab()
-      : await getBoundRoll20Tab(boundTabId);
+  let tab: chrome.tabs.Tab;
+  if (backgroundEnabled) {
+    try {
+      tab = await getBoundRoll20Tab(boundTabId);
+    } catch (error) {
+      throw new Roll20TabUnavailableBeforeDispatchError(errorMessage(error));
+    }
+  } else {
+    tab = await findActiveRoll20Tab();
+  }
+  if (tab.id !== boundTabId) {
+    throw new Error(
+      "Focus the Roll20 tab bound to this conversation before using Roll20 tools.",
+    );
+  }
   const requestId = crypto.randomUUID();
   const dispatchedAt = Date.now();
   debug.group("Roll20 dispatch started", {
@@ -796,6 +1397,7 @@ async function executeRoll20(
     "Extension version": EXTENSION_VERSION,
     "Extension build ID": EXTENSION_BUILD_ID,
     "Protocol version": ROLL20_PROTOCOL_VERSION,
+    "Expected campaign ID": expectedCampaignId,
   });
 
   return new Promise<Roll20ExecutionOutcome>((resolve, reject) => {
@@ -818,22 +1420,14 @@ async function executeRoll20(
       );
     };
     const timeoutId = setTimeout(() => {
-      const timedOutAt = Date.now();
-      rememberRoll20Timeout({
-        requestId,
-        chatId,
-        tabId: tab.id as number,
-        toolCallId,
-        dispatchedAt,
-        timedOutAt,
-        expiresAt: timedOutAt + ROLL20_TOMBSTONE_TTL_MS,
-        debug,
-      });
       rejectPending(
-        new Roll20ExecutionTimeoutError(),
-        "Roll20 execution timed out",
+        new Roll20CommandRejectedError(
+          "ROLL20_MOD_UNAVAILABLE",
+          "The Roll20 Mod did not acknowledge the command.",
+        ),
+        "Roll20 acknowledgement timed out",
       );
-    }, ROLL20_EXECUTION_TIMEOUT_MS);
+    }, ROLL20_ACKNOWLEDGEMENT_TIMEOUT_MS);
 
     pendingRoll20Executions.set(requestId, {
       tabId: tab.id as number,
@@ -843,8 +1437,11 @@ async function executeRoll20(
       abortSignal,
       abortListener,
       debug,
+      chatId,
       toolCallId,
-      permanentTabBinding: boundTabId !== undefined,
+      dispatchedAt,
+      expectedCampaignId,
+      acknowledged: false,
     });
     abortSignal.addEventListener("abort", abortListener, { once: true });
 
@@ -858,7 +1455,11 @@ async function executeRoll20(
       {
         type: ROLL20_EXECUTE_REQUEST_TYPE,
         requestId,
+        kind: "execute",
         code,
+        expectedCampaignId,
+        issuedAt: dispatchedAt,
+        expiresAt: dispatchedAt + ROLL20_COMMAND_TTL_MS,
         extensionVersion: EXTENSION_VERSION,
         buildId: EXTENSION_BUILD_ID,
         protocolVersion: ROLL20_PROTOCOL_VERSION,
@@ -910,10 +1511,21 @@ function queueRoll20Execution(
   debug: DebugLogger,
   chatId: string,
   toolCallId: string,
-  boundTabId?: number,
+  expectedCampaignId: string,
+  boundTabId: number,
+  backgroundEnabled: boolean,
 ): Promise<Roll20ExecutionOutcome> {
   const execution = roll20ExecutionQueue.then(() =>
-    executeRoll20(code, abortSignal, debug, chatId, toolCallId, boundTabId),
+    executeRoll20(
+      code,
+      abortSignal,
+      debug,
+      chatId,
+      toolCallId,
+      expectedCampaignId,
+      boundTabId,
+      backgroundEnabled,
+    ),
   );
   roll20ExecutionQueue = execution.then(
     () => undefined,
@@ -941,6 +1553,60 @@ function userFacingModelError(error: unknown): string {
   return error instanceof Error && error.message
     ? error.message
     : "The model request failed.";
+}
+
+async function ensureJobCampaignBinding(
+  job: ConversationJob,
+  forceRouteDiscovery = false,
+): Promise<CampaignTarget> {
+  let binding = await getCampaignBinding(job.chatId);
+  if (!binding) {
+    const status = await discoverAndBindCampaign(job.chatId);
+    if (status.state !== "connected") {
+      throw new Roll20CommandRejectedError(
+        status.state === "not-gm"
+          ? "ROLL20_GM_ACCESS_REQUIRED"
+          : status.state === "incompatible"
+            ? "ROLL20_BRIDGE_INCOMPATIBLE"
+            : "ROLL20_CAMPAIGN_UNAVAILABLE",
+        status.detail ??
+          "Open this conversation from its Roll20 campaign as the GM, with the GM Tools Mod enabled.",
+      );
+    }
+    binding = await getCampaignBinding(job.chatId);
+  }
+  if (!binding) throw new Error("The Roll20 campaign could not be bound.");
+  let tabId = forceRouteDiscovery ? undefined : job.targetTabId;
+  if (tabId === undefined && !forceRouteDiscovery) {
+    tabId = (await getCampaignRoute(job.chatId))?.tabId;
+  }
+  if (tabId !== undefined) {
+    try {
+      await getBoundRoll20Tab(tabId);
+    } catch {
+      tabId = undefined;
+      await removeCampaignRoute(job.chatId);
+    }
+  }
+  if (tabId === undefined) {
+    const identity = await locateBoundCampaign(
+      job.chatId,
+      binding,
+      job.debug,
+      !job.backgroundEnabled,
+    );
+    if (!identity) {
+      throw new Roll20CommandRejectedError(
+        "ROLL20_TAB_UNAVAILABLE",
+        "No open Roll20 GM tab matches this conversation's campaign.",
+      );
+    }
+    tabId = identity.tabId;
+  }
+  job.targetTabId = tabId;
+  job.campaignId = binding.campaignId;
+  job.campaignName = binding.name;
+  return { ...binding, tabId };
 }
 
 function modelErrorDebugDetails(error: unknown): Record<string, unknown> {
@@ -1023,30 +1689,61 @@ async function streamChat(
         additionalProperties: false,
       }),
       execute: async ({ code }, { abortSignal, toolCallId }) => {
-        const unavailableReason =
-          job.targetTabUnavailableReason ??
-          (job.backgroundEnabled && job.targetTabId === undefined
-            ? "No unambiguous Roll20 campaign tab was available when this conversation started."
-            : undefined);
-        if (unavailableReason) {
-          return {
-            ok: false,
-            error: {
-              code: "ROLL20_TAB_UNAVAILABLE",
-              message: unavailableReason,
-              retryable: false,
-            },
-          };
-        }
         try {
-          return await queueRoll20Execution(
-            code,
-            abortSignal ?? abortController.signal,
-            debug,
-            job.chatId,
-            toolCallId,
-            job.backgroundEnabled ? job.targetTabId : undefined,
-          );
+          const run = (target: CampaignTarget): Promise<Roll20ExecutionOutcome> =>
+            queueRoll20Execution(
+              code,
+              abortSignal ?? abortController.signal,
+              debug,
+              job.chatId,
+              toolCallId,
+              target.campaignId,
+              target.tabId,
+              job.backgroundEnabled,
+            );
+          const initialTarget = await ensureJobCampaignBinding(job);
+          try {
+            return await run(initialTarget);
+          } catch (error) {
+            if (
+              !(error instanceof Roll20CampaignMismatchError) &&
+              !(error instanceof Roll20TabUnavailableBeforeDispatchError)
+            ) {
+              throw error;
+            }
+            debug.group("Recovering Roll20 campaign route", {
+              "Campaign ID": initialTarget.campaignId,
+              "Previous tab ID": initialTarget.tabId,
+              Reason: error,
+            });
+            job.targetTabId = undefined;
+            await removeCampaignRoute(job.chatId);
+            notifyCampaignStatus({
+              chatId: job.chatId,
+              state: "connecting",
+              campaignId: initialTarget.campaignId,
+              name: initialTarget.name,
+              detail: "Looking for the campaign in another Roll20 tab.",
+            });
+            let recoveredTarget: CampaignTarget;
+            try {
+              recoveredTarget = await ensureJobCampaignBinding(job, true);
+            } catch (recoveryError) {
+              if (error instanceof Roll20CampaignMismatchError) {
+                throw new Roll20CampaignMismatchError(
+                  "The routed tab is showing another campaign, and no open Roll20 GM tab matches this conversation's campaign.",
+                );
+              }
+              throw recoveryError;
+            }
+            notifyCampaignStatus({
+              chatId: job.chatId,
+              state: "connected",
+              campaignId: recoveredTarget.campaignId,
+              name: recoveredTarget.name,
+            });
+            return await run(recoveredTarget);
+          }
         } catch (error) {
           if (error instanceof Roll20ExecutionTimeoutError) {
             return {
@@ -1070,12 +1767,32 @@ async function streamChat(
               },
             };
           }
+          if (error instanceof Roll20CommandRejectedError) {
+            return {
+              ok: false,
+              error: {
+                code: error.code,
+                message: error.message,
+                retryable: false,
+              },
+            };
+          }
+          if (error instanceof Roll20CampaignMismatchError) {
+            return {
+              ok: false,
+              error: {
+                code: "ROLL20_CAMPAIGN_MISMATCH",
+                message: error.message,
+                retryable: false,
+              },
+            };
+          }
           let message = errorMessage(error);
           let tabUnavailable =
             message.includes("campaign tab was closed") ||
             message.includes("campaign tab navigated away") ||
             message.includes("No tab with id");
-          if (job.backgroundEnabled && job.targetTabId !== undefined) {
+          if (job.targetTabId !== undefined) {
             try {
               await getBoundRoll20Tab(job.targetTabId);
             } catch (tabError) {
@@ -1083,7 +1800,7 @@ async function streamChat(
               tabUnavailable = true;
             }
           }
-          if (job.backgroundEnabled && tabUnavailable) {
+          if (tabUnavailable) {
             return {
               ok: false,
               error: {
@@ -1319,8 +2036,9 @@ chrome.runtime.onConnect.addListener((port) => {
       const webSearchEnabled = isWebSearchEnabled(
         preferences[WEB_SEARCH_STORAGE_KEY],
       );
-      const targetTab = backgroundEnabled
-        ? await findBackgroundRoll20Tab(port.sender?.tab)
+      const campaignBinding = await getCampaignBinding(message.chatId);
+      const campaignRoute = campaignBinding
+        ? await getCampaignRoute(message.chatId)
         : undefined;
       if (disconnected && !backgroundEnabled) return;
       const abortController = new AbortController();
@@ -1331,7 +2049,13 @@ chrome.runtime.onConnect.addListener((port) => {
         unrestrictedWebFetchEnabled,
         webSearchEnabled,
         maxSteps,
-        ...(typeof targetTab?.id === "number" ? { targetTabId: targetTab.id } : {}),
+        targetTabId: campaignRoute?.tabId,
+        ...(campaignBinding
+          ? {
+              campaignId: campaignBinding.campaignId,
+              campaignName: campaignBinding.name,
+            }
+          : {}),
         abortController,
         chunks: [],
         subscribers: new Map(),
@@ -1347,7 +2071,8 @@ chrome.runtime.onConnect.addListener((port) => {
         "Web search": webSearchEnabled,
         "Maximum steps": maxSteps,
         "Bound Roll20 tab ID": job.targetTabId ?? "none",
-        "Bound Roll20 tab URL": targetTab?.url ?? "none",
+        "Bound Roll20 campaign ID": job.campaignId ?? "none",
+        "Bound Roll20 campaign name": job.campaignName ?? "none",
       });
       activeChatControllers.add(abortController);
 

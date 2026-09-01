@@ -9,6 +9,9 @@ export const AUTH_CONNECT_REQUEST = "GMTOOLS_AUTH_CONNECT" as const;
 export const AUTH_DISCONNECT_REQUEST = "GMTOOLS_AUTH_DISCONNECT" as const;
 export const AUTH_PERSISTENCE_REQUEST = "GMTOOLS_AUTH_PERSISTENCE" as const;
 export const AUTH_STATE_CHANGED = "GMTOOLS_AUTH_STATE_CHANGED" as const;
+export const CAMPAIGN_STATUS_REQUEST = "GMTOOLS_CAMPAIGN_STATUS" as const;
+export const CAMPAIGN_STATUS_CHANGED =
+  "GMTOOLS_CAMPAIGN_STATUS_CHANGED" as const;
 
 export const CHAT_PORT_NAME = "GMTOOLS_OPENROUTER_CHAT" as const;
 export const CHAT_START = "GMTOOLS_CHAT_START" as const;
@@ -46,6 +49,37 @@ export interface AuthStateChangedMessage {
   readonly type: typeof AUTH_STATE_CHANGED;
   readonly status: AuthStatus;
 }
+
+export type CampaignConnectionState =
+  | "unbound"
+  | "connecting"
+  | "connected"
+  | "unavailable"
+  | "not-gm"
+  | "disconnected"
+  | "incompatible";
+
+export interface CampaignStatus {
+  readonly chatId: string;
+  readonly state: CampaignConnectionState;
+  readonly campaignId?: string;
+  readonly name?: string;
+  readonly detail?: string;
+}
+
+export interface CampaignStatusRequest {
+  readonly type: typeof CAMPAIGN_STATUS_REQUEST;
+  readonly chatId: string;
+}
+
+export interface CampaignStatusChangedMessage {
+  readonly type: typeof CAMPAIGN_STATUS_CHANGED;
+  readonly status: CampaignStatus;
+}
+
+export type CampaignStatusResponse =
+  | { readonly ok: true; readonly status: CampaignStatus }
+  | { readonly ok: false; readonly error: string };
 
 export type ChatPortRequest =
   | {
@@ -94,6 +128,54 @@ export type ChatPortResponse =
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isCampaignStatus(value: unknown): value is CampaignStatus {
+  if (!isRecord(value) || typeof value.chatId !== "string") return false;
+  return (
+    (value.state === "unbound" ||
+      value.state === "connecting" ||
+      value.state === "connected" ||
+      value.state === "unavailable" ||
+      value.state === "not-gm" ||
+      value.state === "disconnected" ||
+      value.state === "incompatible") &&
+    (value.campaignId === undefined || typeof value.campaignId === "string") &&
+    (value.name === undefined || typeof value.name === "string") &&
+    (value.detail === undefined || typeof value.detail === "string")
+  );
+}
+
+export function isCampaignStatusRequest(
+  value: unknown,
+): value is CampaignStatusRequest {
+  return (
+    isRecord(value) &&
+    value.type === CAMPAIGN_STATUS_REQUEST &&
+    typeof value.chatId === "string"
+  );
+}
+
+export function isCampaignStatusResponse(
+  value: unknown,
+): value is CampaignStatusResponse {
+  return (
+    isRecord(value) &&
+    typeof value.ok === "boolean" &&
+    (value.ok === true
+      ? isCampaignStatus(value.status)
+      : typeof value.error === "string")
+  );
+}
+
+export function isCampaignStatusChangedMessage(
+  value: unknown,
+): value is CampaignStatusChangedMessage {
+  return (
+    isRecord(value) &&
+    value.type === CAMPAIGN_STATUS_CHANGED &&
+    isCampaignStatus(value.status)
+  );
 }
 
 export function isAuthRequest(value: unknown): value is AuthRequest {

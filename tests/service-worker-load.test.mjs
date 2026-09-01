@@ -158,8 +158,9 @@ test("the generated service worker starts without browser-global errors", async 
       {
         type: "GMTOOLS_ROLL20_EXECUTE_RESPONSE",
         requestId: "deadbeef-1234",
-        protocolVersion: 1,
-        modVersion: "0.1.0",
+        protocolVersion: 2,
+        modVersion: "0.2.0",
+        campaignId: "campaign-test",
         outcome: { ok: true, result: "unexpected" },
       },
       {
@@ -194,8 +195,9 @@ test("the generated service worker starts without browser-global errors", async 
       {
         type: "GMTOOLS_ROLL20_EXECUTE_RESPONSE",
         requestId: "cafebeef-1234",
-        protocolVersion: 1,
-        modVersion: "0.1.0",
+        protocolVersion: 2,
+        modVersion: "0.2.0",
+        campaignId: "campaign-test",
         outcome: { ok: true, result: "eventually finished" },
       },
       {

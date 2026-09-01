@@ -3,10 +3,11 @@
 (() => {
   // src/protocol.ts
   var ROLL20_EXECUTE_COMMAND = "!gmtools-exec";
-  var ROLL20_PROTOCOL_VERSION = 1;
-  var ROLL20_MOD_VERSION = "0.1.0";
+  var ROLL20_PROTOCOL_VERSION = 2;
+  var ROLL20_MOD_VERSION = "0.2.0";
   var REQUEST_ID_PATTERN = /^[a-f0-9-]{8,64}$/i;
   var RESPONSE_PREFIX = "GMTOOLS_EXECUTION_RESPONSE:";
+  var ACKNOWLEDGEMENT_PREFIX = "GMTOOLS_EXECUTION_ACKNOWLEDGED:";
   var BASE64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
   function isRecord(value) {
     return typeof value === "object" && value !== null;
@@ -83,30 +84,70 @@
     if (parts.length !== 4 || parts[0] !== ROLL20_EXECUTE_COMMAND || !/^\d+$/.test((_a = parts[1]) != null ? _a : "") || !isValidRequestId(parts[2])) {
       return null;
     }
-    const code = decodeBase64Url(parts[3]);
-    return code ? {
-      requestId: parts[2],
-      protocolVersion: Number.parseInt(parts[1], 10),
-      code
-    } : null;
+    const decoded = decodeBase64Url(parts[3]);
+    if (!decoded) return null;
+    try {
+      const payload = JSON.parse(decoded);
+      if (!isRecord(payload) || payload.kind !== "identify" && payload.kind !== "execute" || typeof payload.code !== "string" || typeof payload.issuedAt !== "number" || typeof payload.expiresAt !== "number" || payload.expectedCampaignId !== void 0 && typeof payload.expectedCampaignId !== "string" || payload.kind === "execute" && (!payload.code || typeof payload.expectedCampaignId !== "string" || !payload.expectedCampaignId)) {
+        return null;
+      }
+      return {
+        requestId: parts[2],
+        protocolVersion: Number.parseInt(parts[1], 10),
+        kind: payload.kind,
+        code: payload.code,
+        issuedAt: payload.issuedAt,
+        expiresAt: payload.expiresAt,
+        ...payload.expectedCampaignId ? { expectedCampaignId: payload.expectedCampaignId } : {}
+      };
+    } catch (e) {
+      return null;
+    }
   }
-  function formatRoll20ExecuteResponse(requestId, outcome) {
+  function formatRoll20ExecuteResponse(requestId, campaignId, outcome) {
     if (!isValidRequestId(requestId)) {
       throw new Error("Invalid GM Tools request ID.");
     }
     const serialized = JSON.stringify({
       protocolVersion: ROLL20_PROTOCOL_VERSION,
       modVersion: ROLL20_MOD_VERSION,
+      campaignId,
       outcome
     });
     const roundTripped = JSON.parse(serialized);
-    if (!isRecord(roundTripped) || roundTripped.protocolVersion !== ROLL20_PROTOCOL_VERSION || roundTripped.modVersion !== ROLL20_MOD_VERSION || !isRoll20ExecutionOutcome(roundTripped.outcome)) {
+    if (!isRecord(roundTripped) || roundTripped.protocolVersion !== ROLL20_PROTOCOL_VERSION || roundTripped.modVersion !== ROLL20_MOD_VERSION || roundTripped.campaignId !== campaignId || !isRoll20ExecutionOutcome(roundTripped.outcome)) {
       throw new Error("The Roll20 result is not JSON-serializable.");
     }
     return `${RESPONSE_PREFIX}${requestId}:${encodeBase64Url(serialized)}`;
   }
+  function formatRoll20Acknowledgement(requestId, campaignId, isGM, accepted, error) {
+    if (!isValidRequestId(requestId)) {
+      throw new Error("Invalid GM Tools request ID.");
+    }
+    const serialized = JSON.stringify({
+      protocolVersion: ROLL20_PROTOCOL_VERSION,
+      modVersion: ROLL20_MOD_VERSION,
+      campaignId,
+      isGM,
+      accepted,
+      ...error ? { error } : {}
+    });
+    return `${ACKNOWLEDGEMENT_PREFIX}${requestId}:${encodeBase64Url(serialized)}`;
+  }
 
   // src/roll20-mod/GMToolsPoc.ts
+  function getGMToolsState() {
+    const existing = state.GMTools;
+    if (typeof existing === "object" && existing !== null && "campaignId" in existing && typeof existing.campaignId === "string") {
+      return existing;
+    }
+    const next = {
+      ...typeof existing === "object" && existing !== null ? existing : {},
+      campaignId: `campaign-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`
+    };
+    state.GMTools = next;
+    return next;
+  }
   function errorOutcome(error) {
     if (error instanceof Error) {
       return {
@@ -123,23 +164,60 @@
       error: { name: "Error", message: String(error) }
     };
   }
-  function sendOutcome(requestId, outcome) {
+  function whisperRecipient(message) {
+    var _a;
+    if (playerIsGM(message.playerid)) return "gm";
+    const name = ((_a = message.who) != null ? _a : "").replace(/["\\]/g, "").trim();
+    return name ? `"${name}"` : "gm";
+  }
+  function sendAcknowledgement(message, requestId, accepted, error) {
+    const response = formatRoll20Acknowledgement(
+      requestId,
+      getGMToolsState().campaignId,
+      playerIsGM(message.playerid),
+      accepted,
+      error == null ? void 0 : error.error
+    );
+    sendChat(
+      "GM Tools",
+      `/w ${whisperRecipient(message)} ${response}`,
+      null,
+      { noarchive: true }
+    );
+    log(
+      `GM Tools acknowledgement submitted: ${requestId} (${accepted ? "accepted" : "rejected"})`
+    );
+  }
+  function sendOutcome(message, requestId, outcome) {
     let response;
     try {
-      response = formatRoll20ExecuteResponse(requestId, outcome);
+      response = formatRoll20ExecuteResponse(
+        requestId,
+        getGMToolsState().campaignId,
+        outcome
+      );
     } catch (error) {
-      response = formatRoll20ExecuteResponse(requestId, errorOutcome(error));
+      response = formatRoll20ExecuteResponse(
+        requestId,
+        getGMToolsState().campaignId,
+        errorOutcome(error)
+      );
     }
-    sendChat("GM Tools", `/w gm ${response}`, null, { noarchive: true });
+    sendChat(
+      "GM Tools",
+      `/w ${whisperRecipient(message)} ${response}`,
+      null,
+      { noarchive: true }
+    );
     log(`GM Tools response submitted: ${requestId}`);
   }
-  function completeExecution(requestId, outcome) {
+  function completeExecution(message, requestId, outcome) {
     log(
       `GM Tools execution completed: ${requestId} (${outcome.ok ? "success" : "error"})`
     );
-    sendOutcome(requestId, outcome);
+    sendOutcome(message, requestId, outcome);
   }
-  function executeCode(requestId, code) {
+  function executeCode(message, requestId, code) {
     try {
       const evaluate = eval;
       const result = evaluate(`(function () {
@@ -147,28 +225,31 @@ ${code}
 })()`);
       if (typeof result === "object" && result !== null && "then" in result && typeof result.then === "function") {
         void Promise.resolve(result).then(
-          (value) => completeExecution(requestId, {
+          (value) => completeExecution(message, requestId, {
             ok: true,
             result: value != null ? value : null
           }),
-          (error) => completeExecution(requestId, errorOutcome(error))
+          (error) => completeExecution(message, requestId, errorOutcome(error))
         );
         return;
       }
-      completeExecution(requestId, { ok: true, result: result != null ? result : null });
+      completeExecution(message, requestId, {
+        ok: true,
+        result: result != null ? result : null
+      });
     } catch (error) {
-      completeExecution(requestId, errorOutcome(error));
+      completeExecution(message, requestId, errorOutcome(error));
     }
   }
   function handleChatMessage(message) {
-    if (message.type !== "api" || !playerIsGM(message.playerid)) return;
+    if (message.type !== "api") return;
     const command = parseRoll20ExecuteCommand(message.content);
     if (!command) return;
     log(
-      `GM Tools command received: ${command.requestId} (protocol ${command.protocolVersion})`
+      `GM Tools command received: ${command.requestId} (${command.kind}, protocol ${command.protocolVersion})`
     );
     if (command.protocolVersion !== ROLL20_PROTOCOL_VERSION) {
-      sendOutcome(command.requestId, {
+      sendAcknowledgement(message, command.requestId, false, {
         ok: false,
         error: {
           name: "ProtocolVersionError",
@@ -177,9 +258,44 @@ ${code}
       });
       return;
     }
-    executeCode(command.requestId, command.code);
+    if (command.expiresAt < Date.now()) {
+      sendAcknowledgement(message, command.requestId, false, {
+        ok: false,
+        error: {
+          name: "CommandExpiredError",
+          message: "This GM Tools command expired before the sandbox received it."
+        }
+      });
+      return;
+    }
+    const isGM = playerIsGM(message.playerid);
+    if (!isGM) {
+      sendAcknowledgement(message, command.requestId, false, {
+        ok: false,
+        error: {
+          name: "GMAccessRequiredError",
+          message: "GM Tools Roll20 commands require GM access in this campaign."
+        }
+      });
+      return;
+    }
+    const campaignId = getGMToolsState().campaignId;
+    if (command.kind === "execute" && command.expectedCampaignId !== campaignId) {
+      sendAcknowledgement(message, command.requestId, false, {
+        ok: false,
+        error: {
+          name: "CampaignMismatchError",
+          message: "This conversation is bound to a different Roll20 campaign."
+        }
+      });
+      return;
+    }
+    sendAcknowledgement(message, command.requestId, true);
+    if (command.kind === "identify") return;
+    executeCode(message, command.requestId, command.code);
   }
   on("ready", () => {
+    getGMToolsState();
     on("chat:message", handleChatMessage);
     log(
       `GM Tools execution bridge ${ROLL20_MOD_VERSION} (protocol ${ROLL20_PROTOCOL_VERSION}) ready`
