@@ -20,6 +20,7 @@ import {
   parseTokenResponse,
   type OpenRouterKeyInfo,
 } from "./openrouter-auth";
+import { reconstructCompletedConversation } from "./chat-persistence";
 import {
   buildProfileInstructions,
   DEFAULT_PROFILE,
@@ -29,6 +30,7 @@ import {
 } from "./profile-config";
 import {
   getChat,
+  saveChatMessages,
   updateChatCampaign,
   updateChatProfile,
   type ChatNotice,
@@ -2061,8 +2063,30 @@ async function streamChat(
       chunk,
     }));
   }
+  await persistCompletedConversation(job, validation.data);
   finishJob(job, { type: "complete" });
   debug.group("Conversation completed", {});
+}
+
+async function persistCompletedConversation(
+  job: ConversationJob,
+  inputMessages: readonly UIMessage[],
+): Promise<void> {
+  try {
+    const messages = await reconstructCompletedConversation(
+      inputMessages,
+      job.chunks,
+    );
+    if (!messages) return;
+    await saveChatMessages(job.chatId, messages);
+    job.debug.group("Conversation saved", {
+      "Message count": messages.length,
+    });
+  } catch (error) {
+    job.debug.group("Conversation save failed", {
+      Error: modelErrorDebugDetails(error),
+    });
+  }
 }
 
 function broadcastJob(

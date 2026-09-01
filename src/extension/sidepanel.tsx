@@ -831,11 +831,11 @@ function ChatWorkspace(): React.JSX.Element {
   const [chatActivities, setChatActivities] = useState<
     Record<string, ChatActivityStatus>
   >({});
+  const [chatResetRevision, setChatResetRevision] = useState(0);
   const [storedChat, setStoredChat] = useState<{
     readonly chat: ChatRecord;
     readonly messages: UIMessage[];
   } | null>(null);
-  const [chatRevision, setChatRevision] = useState(0);
   const storedChatRef = useRef<typeof storedChat>(null);
 
   const setCurrentChat = useCallback((value: typeof storedChat): void => {
@@ -868,7 +868,7 @@ function ChatWorkspace(): React.JSX.Element {
       setChats((existing) =>
         [chat, ...existing.filter((candidate) => candidate.id !== chat.id)],
       );
-      setChatRevision((revision) => revision + 1);
+      setChatResetRevision((revision) => revision + 1);
     });
   }, [setCurrentChat]);
 
@@ -1016,7 +1016,6 @@ function ChatWorkspace(): React.JSX.Element {
     await chrome.storage.local.set({ [ACTIVE_CHAT_STORAGE_KEY]: chat.id });
     setCurrentChat({ chat, messages });
     setChats(await listChats());
-    setChatRevision((revision) => revision + 1);
   };
 
   const switchChat = (chatId: string): void => {
@@ -1068,7 +1067,7 @@ function ChatWorkspace(): React.JSX.Element {
       chatActivities={chatActivities}
       chats={chats}
       initialMessages={storedChat.messages}
-      key={`${storedChat.chat.id}:${chatRevision}`}
+      key={`${storedChat.chat.id}:${chatResetRevision}`}
       onClearConversation={clearChat}
       onCreateChat={createNewChat}
       onDeleteChat={removeChat}
