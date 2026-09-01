@@ -48,6 +48,9 @@ test("composes base, ruleset, sheet, and user guidance", () => {
   });
 
   assert.match(prompt, /execute_roll20/);
+  assert.match(prompt, /Every execute_roll20 call must include a concise/);
+  assert.match(prompt, /Start the summary with a lowercase letter/);
+  assert.match(prompt, /Distinguish inspection from modification/);
   assert.match(prompt, /Use web_fetch to consult relevant documentation/);
   assert.match(prompt, /If web_fetch cannot access a required domain/);
   assert.match(prompt, /enable Allow web fetching from any domain under Behavior/);

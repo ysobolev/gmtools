@@ -10,7 +10,7 @@ const { outputFiles } = await build({
   write: false,
 });
 const activitySource = outputFiles[0].text;
-const { getChatActivity } = await import(
+const { getChatActivity, getRoll20Receipts } = await import(
   `data:text/javascript;base64,${Buffer.from(activitySource).toString("base64")}`
 );
 
@@ -19,27 +19,72 @@ function assistant(parts) {
 }
 
 test("shows Thinking before the response starts", () => {
-  assert.equal(getChatActivity("submitted", []), "Thinking");
+  assert.deepEqual(getChatActivity("submitted", []), { kind: "Thinking" });
 });
 
-test("shows Working while a tool call is executing", () => {
-  assert.equal(
+test("shows the active sandbox call summary while it is executing", () => {
+  assert.deepEqual(
     getChatActivity("streaming", [
       assistant([
         {
           type: "tool-execute_roll20",
           toolCallId: "tool-1",
           state: "input-available",
-          input: { code: "return 1;" },
+          input: { summary: "Checking Flippy’s hit points", code: "return 1;" },
         },
       ]),
     ]),
-    "Working",
+    { kind: "Working", summary: "Checking Flippy’s hit points" },
+  );
+});
+
+test("shows only the first unresolved sandbox call summary", () => {
+  assert.deepEqual(
+    getChatActivity("streaming", [
+      assistant([
+        {
+          type: "tool-execute_roll20",
+          toolCallId: "tool-1",
+          state: "input-available",
+          input: { summary: "Inspecting Flippy", code: "return 1;" },
+        },
+        {
+          type: "tool-execute_roll20",
+          toolCallId: "tool-2",
+          state: "input-available",
+          input: { summary: "Updating Flippy", code: "return 2;" },
+        },
+      ]),
+    ]),
+    { kind: "Working", summary: "Inspecting Flippy" },
+  );
+});
+
+test("advances to the next summary after the active call finishes", () => {
+  assert.deepEqual(
+    getChatActivity("streaming", [
+      assistant([
+        {
+          type: "tool-execute_roll20",
+          toolCallId: "tool-1",
+          state: "output-available",
+          input: { summary: "Inspecting Flippy", code: "return 1;" },
+          output: { ok: true, result: 1 },
+        },
+        {
+          type: "tool-execute_roll20",
+          toolCallId: "tool-2",
+          state: "input-available",
+          input: { summary: "Updating Flippy", code: "return 2;" },
+        },
+      ]),
+    ]),
+    { kind: "Working", summary: "Updating Flippy" },
   );
 });
 
 test("returns to Thinking after a tool result while awaiting follow-up text", () => {
-  assert.equal(
+  assert.deepEqual(
     getChatActivity("streaming", [
       assistant([
         {
@@ -51,7 +96,7 @@ test("returns to Thinking after a tool result while awaiting follow-up text", ()
         },
       ]),
     ]),
-    "Thinking",
+    { kind: "Thinking" },
   );
 });
 
@@ -75,4 +120,85 @@ test("hides the indicator while follow-up text is streaming", () => {
 
 test("hides the indicator when the conversation is idle", () => {
   assert.equal(getChatActivity("ready", []), null);
+});
+
+test("creates a completed receipt from a successful sandbox call", () => {
+  assert.deepEqual(
+    getRoll20Receipts(
+      assistant([
+        {
+          type: "tool-execute_roll20",
+          toolCallId: "tool-1",
+          state: "output-available",
+          input: { summary: "moving Flippy north", code: "return 1;" },
+          output: { ok: true, result: { top: 70 } },
+        },
+      ]),
+    ),
+    [
+      {
+        toolCallId: "tool-1",
+        summary: "moving Flippy north",
+        status: "completed",
+      },
+    ],
+  );
+});
+
+test("creates failed receipts from bridge and script failures", () => {
+  assert.deepEqual(
+    getRoll20Receipts(
+      assistant([
+        {
+          type: "tool-execute_roll20",
+          toolCallId: "tool-1",
+          state: "output-available",
+          input: { summary: "finding Flippy", code: "return 1;" },
+          output: { ok: false, error: { message: "Timed out" } },
+        },
+        {
+          type: "tool-execute_roll20",
+          toolCallId: "tool-2",
+          state: "output-available",
+          input: { summary: "moving Flippy", code: "return 2;" },
+          output: { ok: true, result: { ok: false, error: "Not found" } },
+        },
+        {
+          type: "tool-execute_roll20",
+          toolCallId: "tool-3",
+          state: "output-error",
+          input: { summary: "reading Flippy", code: "return 3;" },
+          errorText: "Execution failed",
+        },
+      ]),
+    ),
+    [
+      { toolCallId: "tool-1", summary: "finding Flippy", status: "failed" },
+      { toolCallId: "tool-2", summary: "moving Flippy", status: "failed" },
+      { toolCallId: "tool-3", summary: "reading Flippy", status: "failed" },
+    ],
+  );
+});
+
+test("omits active calls and historical calls without summaries", () => {
+  assert.deepEqual(
+    getRoll20Receipts(
+      assistant([
+        {
+          type: "tool-execute_roll20",
+          toolCallId: "active",
+          state: "input-available",
+          input: { summary: "moving Flippy", code: "return 1;" },
+        },
+        {
+          type: "tool-execute_roll20",
+          toolCallId: "historical",
+          state: "output-available",
+          input: { code: "return 2;" },
+          output: { ok: true, result: 2 },
+        },
+      ]),
+    ),
+    [],
+  );
 });

@@ -12,7 +12,7 @@ import {
 import { createRoot } from "react-dom/client";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { getChatActivity } from "./chat-activity";
+import { getChatActivity, getRoll20Receipts } from "./chat-activity";
 import {
   applyDisplayTheme,
   DEFAULT_DISPLAY_THEME,
@@ -347,7 +347,9 @@ function ChatScreen({
           <div className="message-list">
             {messages.map((message) => {
               const text = textFromMessage(message);
-              if (!text) return null;
+              const receipts =
+                message.role === "assistant" ? getRoll20Receipts(message) : [];
+              if (!text && receipts.length === 0) return null;
               return (
                 <article
                   className={`message ${message.role}`}
@@ -356,15 +358,33 @@ function ChatScreen({
                   <p className="message-author">
                     {message.role === "user" ? "You" : "GM Tools"}
                   </p>
+                  {receipts.length > 0 ? (
+                    <ul className="tool-receipts">
+                      {receipts.map((receipt) => (
+                        <li
+                          aria-label={`${receipt.status === "completed" ? "Completed" : "Failed"}: ${receipt.summary}`}
+                          className={`tool-receipt ${receipt.status}`}
+                          key={receipt.toolCallId}
+                        >
+                          <span aria-hidden="true" className="tool-receipt-icon">
+                            {receipt.status === "completed" ? "✓" : "✕"}
+                          </span>
+                          <span>{receipt.summary}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                   {message.role === "assistant" ? (
-                    <div className="message-text message-markdown">
-                      <ReactMarkdown
-                        components={markdownComponents}
-                        remarkPlugins={[remarkGfm]}
-                      >
-                        {text}
-                      </ReactMarkdown>
-                    </div>
+                    text ? (
+                      <div className="message-text message-markdown">
+                        <ReactMarkdown
+                          components={markdownComponents}
+                          remarkPlugins={[remarkGfm]}
+                        >
+                          {text}
+                        </ReactMarkdown>
+                      </div>
+                    ) : null
                   ) : (
                     <div className="message-text">{text}</div>
                   )}
@@ -373,10 +393,13 @@ function ChatScreen({
             })}
             {activity ? (
               <div
-                className={`activity-indicator ${activity.toLowerCase()}`}
+                className={`activity-indicator ${activity.kind.toLowerCase()}`}
                 role="status"
               >
-                <span>{activity}</span>
+                <span>
+                  {activity.kind}
+                  {activity.summary ? `: ${activity.summary}` : ""}
+                </span>
                 <span className="activity-dots" aria-hidden="true">
                   <span /><span /><span />
                 </span>

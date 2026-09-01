@@ -998,16 +998,26 @@ async function streamChat(
     web_fetch: createOpenRouterWebFetchTool(job.unrestrictedWebFetchEnabled),
     execute_roll20: tool({
       description:
-        "Execute JavaScript in the campaign's Roll20 Mod sandbox. The code is a function body with access to Roll20 Mod globals such as findObjs, getObj, createObj, Campaign, sendChat, and state. Include an explicit return statement and return only JSON-serializable data. Returned promises are awaited. If the result says retryable is false, do not retry the command.",
-      inputSchema: jsonSchema<{ readonly code: string }>({
+        "Execute JavaScript in the campaign's Roll20 Mod sandbox. Include a concise user-facing summary of the concrete action. The code is a function body with access to Roll20 Mod globals such as findObjs, getObj, createObj, Campaign, sendChat, and state. Include an explicit return statement and return only JSON-serializable data. Returned promises are awaited. If the result says retryable is false, do not retry the command.",
+      inputSchema: jsonSchema<{
+        readonly summary: string;
+        readonly code: string;
+      }>({
         type: "object",
         properties: {
+          summary: {
+            type: "string",
+            minLength: 1,
+            maxLength: 60,
+            description:
+              "A plain-text status label no longer than 60 characters, such as 'checking Flippy’s hit points' or 'moving Flippy north'. Start with a lowercase letter unless capitalization is required for a proper noun or acronym. Distinguish inspection from modification, name known targets, and do not include code or internal reasoning.",
+          },
           code: {
             type: "string",
             description: "The JavaScript function body to execute in Roll20.",
           },
         },
-        required: ["code"],
+        required: ["summary", "code"],
         additionalProperties: false,
       }),
       execute: async ({ code }, { abortSignal, toolCallId }) => {

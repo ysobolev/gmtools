@@ -481,6 +481,36 @@ h1 {
   font-weight: 600;
 }
 
+.tool-receipts {
+  display: grid;
+  gap: 3px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.tool-receipt {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: #929ba8;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.tool-receipt-icon {
+  flex: 0 0 auto;
+  font-weight: 700;
+}
+
+.tool-receipt.completed .tool-receipt-icon {
+  color: #65a779;
+}
+
+.tool-receipt.failed .tool-receipt-icon {
+  color: #cb5b42;
+}
+
 .activity-dots {
   display: flex;
   gap: 3px;
