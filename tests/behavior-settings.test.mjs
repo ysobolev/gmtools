@@ -28,6 +28,13 @@ test("enables background execution only for an explicit true preference", () => 
   assert.equal(behavior.isBackgroundExecutionEnabled(undefined), false);
 });
 
+test("enables unrestricted web fetch only for an explicit true preference", () => {
+  assert.equal(behavior.isUnrestrictedWebFetchEnabled(true), true);
+  assert.equal(behavior.isUnrestrictedWebFetchEnabled(false), false);
+  assert.equal(behavior.isUnrestrictedWebFetchEnabled("true"), false);
+  assert.equal(behavior.isUnrestrictedWebFetchEnabled(undefined), false);
+});
+
 test("normalizes the maximum steps preference", () => {
   assert.equal(behavior.normalizeMaxSteps(undefined), 16);
   assert.equal(behavior.normalizeMaxSteps(8), 8);

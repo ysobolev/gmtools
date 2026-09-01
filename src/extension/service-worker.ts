@@ -61,8 +61,10 @@ import {
   BACKGROUND_EXECUTION_STORAGE_KEY,
   DEBUG_LOGGING_STORAGE_KEY,
   MAX_STEPS_STORAGE_KEY,
+  UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
   isBackgroundExecutionEnabled,
   isDebugLoggingEnabled,
+  isUnrestrictedWebFetchEnabled,
   normalizeMaxSteps,
 } from "./behavior-settings";
 import { createDebugLogger, type DebugLogger } from "./debug-logger";
@@ -136,6 +138,7 @@ interface ConversationJob {
   readonly chatId: string;
   readonly profileId: string;
   readonly backgroundEnabled: boolean;
+  readonly unrestrictedWebFetchEnabled: boolean;
   readonly maxSteps: number;
   readonly targetTabId?: number;
   readonly abortController: AbortController;
@@ -985,7 +988,7 @@ async function streamChat(
     appUrl: `https://chromewebstore.google.com/detail/${chrome.runtime.id}`,
   });
   const tools = {
-    web_fetch: createOpenRouterWebFetchTool(),
+    web_fetch: createOpenRouterWebFetchTool(job.unrestrictedWebFetchEnabled),
     execute_roll20: tool({
       description:
         "Execute JavaScript in the campaign's Roll20 Mod sandbox. The code is a function body with access to Roll20 Mod globals such as findObjs, getObj, createObj, Campaign, sendChat, and state. Include an explicit return statement and return only JSON-serializable data. Returned promises are awaited. If the result says retryable is false, do not retry the command.",
@@ -1273,6 +1276,7 @@ chrome.runtime.onConnect.addListener((port) => {
         DEBUG_LOGGING_STORAGE_KEY,
         BACKGROUND_EXECUTION_STORAGE_KEY,
         MAX_STEPS_STORAGE_KEY,
+        UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
       ]);
       const backgroundEnabled = isBackgroundExecutionEnabled(
         preferences[BACKGROUND_EXECUTION_STORAGE_KEY],
@@ -1282,6 +1286,9 @@ chrome.runtime.onConnect.addListener((port) => {
         message.chatId,
       );
       const maxSteps = normalizeMaxSteps(preferences[MAX_STEPS_STORAGE_KEY]);
+      const unrestrictedWebFetchEnabled = isUnrestrictedWebFetchEnabled(
+        preferences[UNRESTRICTED_WEB_FETCH_STORAGE_KEY],
+      );
       const targetTab = backgroundEnabled
         ? await findBackgroundRoll20Tab(port.sender?.tab)
         : undefined;
@@ -1291,6 +1298,7 @@ chrome.runtime.onConnect.addListener((port) => {
         chatId: message.chatId,
         profileId: message.profile.id,
         backgroundEnabled,
+        unrestrictedWebFetchEnabled,
         maxSteps,
         ...(typeof targetTab?.id === "number" ? { targetTabId: targetTab.id } : {}),
         abortController,
@@ -1304,6 +1312,7 @@ chrome.runtime.onConnect.addListener((port) => {
       if (!disconnected) attachToJob(job, port, message.requestId);
       debug.group("Conversation context", {
         "Background execution": backgroundEnabled,
+        "Unrestricted web fetch": unrestrictedWebFetchEnabled,
         "Maximum steps": maxSteps,
         "Bound Roll20 tab ID": job.targetTabId ?? "none",
         "Bound Roll20 tab URL": targetTab?.url ?? "none",

@@ -7,8 +7,10 @@ import {
   MAX_MAX_STEPS,
   MAX_STEPS_STORAGE_KEY,
   MIN_MAX_STEPS,
+  UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
   isBackgroundExecutionEnabled,
   isDebugLoggingEnabled,
+  isUnrestrictedWebFetchEnabled,
   normalizeMaxSteps,
 } from "./behavior-settings";
 import {
@@ -546,16 +548,20 @@ function BehaviorSettings({
   backgroundExecutionEnabled,
   debugLoggingEnabled,
   maxSteps,
+  unrestrictedWebFetchEnabled,
   onBackgroundExecutionChange,
   onDebugLoggingChange,
   onMaxStepsChange,
+  onUnrestrictedWebFetchChange,
 }: {
   readonly backgroundExecutionEnabled: boolean;
   readonly debugLoggingEnabled: boolean;
   readonly maxSteps: number;
+  readonly unrestrictedWebFetchEnabled: boolean;
   readonly onBackgroundExecutionChange: (enabled: boolean) => void;
   readonly onDebugLoggingChange: (enabled: boolean) => void;
   readonly onMaxStepsChange: (steps: number) => void;
+  readonly onUnrestrictedWebFetchChange: (enabled: boolean) => void;
 }): React.JSX.Element {
   return (
     <section className="settings-panel simple-panel">
@@ -624,6 +630,25 @@ function BehaviorSettings({
           </span>
         </label>
 
+        <label className="toggle-card behavior-card">
+          <input
+            checked={unrestrictedWebFetchEnabled}
+            onChange={(event) =>
+              onUnrestrictedWebFetchChange(event.target.checked)
+            }
+            type="checkbox"
+          />
+          <span>
+            <strong>Allow web fetching from any domain</strong>
+            <small className="warning-note">
+              Security risk. This allows the model to send any public URL to
+              OpenRouter and Exa for retrieval. Fetched pages may contain
+              malicious instructions, and their URLs or contents may expose
+              sensitive information. Fetches may incur additional charges.
+            </small>
+          </span>
+        </label>
+
         <label className="toggle-card behavior-card unavailable">
           <input checked={false} disabled readOnly type="checkbox" />
           <span>
@@ -645,6 +670,8 @@ function OptionsApp(): React.JSX.Element {
   const [backgroundExecutionEnabled, setBackgroundExecutionEnabled] =
     useState(false);
   const [debugLoggingEnabled, setDebugLoggingEnabled] = useState(false);
+  const [unrestrictedWebFetchEnabled, setUnrestrictedWebFetchEnabled] =
+    useState(false);
   const [maxSteps, setMaxSteps] = useState(DEFAULT_MAX_STEPS);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
@@ -664,6 +691,7 @@ function OptionsApp(): React.JSX.Element {
         DEBUG_LOGGING_STORAGE_KEY,
         BACKGROUND_EXECUTION_STORAGE_KEY,
         MAX_STEPS_STORAGE_KEY,
+        UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
       ])
       .then((stored) => {
         setDebugLoggingEnabled(
@@ -675,6 +703,11 @@ function OptionsApp(): React.JSX.Element {
           ),
         );
         setMaxSteps(normalizeMaxSteps(stored[MAX_STEPS_STORAGE_KEY]));
+        setUnrestrictedWebFetchEnabled(
+          isUnrestrictedWebFetchEnabled(
+            stored[UNRESTRICTED_WEB_FETCH_STORAGE_KEY],
+          ),
+        );
       });
   }, []);
 
@@ -724,6 +757,13 @@ function OptionsApp(): React.JSX.Element {
     const normalized = normalizeMaxSteps(steps);
     setMaxSteps(normalized);
     void chrome.storage.local.set({ [MAX_STEPS_STORAGE_KEY]: normalized });
+  };
+
+  const changeUnrestrictedWebFetch = (enabled: boolean): void => {
+    setUnrestrictedWebFetchEnabled(enabled);
+    void chrome.storage.local.set({
+      [UNRESTRICTED_WEB_FETCH_STORAGE_KEY]: enabled,
+    });
   };
 
   const changePersistence = (enabled: boolean): void => {
@@ -826,6 +866,8 @@ function OptionsApp(): React.JSX.Element {
               onBackgroundExecutionChange={changeBackgroundExecution}
               onDebugLoggingChange={changeDebugLogging}
               onMaxStepsChange={changeMaxSteps}
+              onUnrestrictedWebFetchChange={changeUnrestrictedWebFetch}
+              unrestrictedWebFetchEnabled={unrestrictedWebFetchEnabled}
             />
           </div>
           <div hidden={activeTab !== "authentication"}>

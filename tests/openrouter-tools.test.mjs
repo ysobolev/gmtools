@@ -24,7 +24,7 @@ test("configures OpenRouter web fetch with a strict documentation allowlist", ()
   assert.deepEqual(webFetch.args, {
     parameters: {
       engine: "exa",
-      allowed_domains: ["help.roll20.net", "5e.tools"],
+      allowed_domains: ["help.roll20.net"],
     },
   });
 });
@@ -71,8 +71,16 @@ test("serializes web fetch in OpenRouter's server-tool wire format", async () =>
       type: "openrouter:web_fetch",
       parameters: {
         engine: "exa",
-        allowed_domains: ["help.roll20.net", "5e.tools"],
+        allowed_domains: ["help.roll20.net"],
       },
     },
   ]);
+});
+
+test("omits the domain allowlist when unrestricted fetching is enabled", () => {
+  const webFetch = openrouterTools.createOpenRouterWebFetchTool(true);
+
+  assert.deepEqual(webFetch.args, {
+    parameters: { engine: "exa" },
+  });
 });

@@ -5,7 +5,6 @@ import {
 
 export const WEB_FETCH_ALLOWED_DOMAINS = [
   "help.roll20.net",
-  "5e.tools",
 ] as const;
 
 interface WebFetchResult {
@@ -20,7 +19,7 @@ interface WebFetchResult {
 interface WebFetchToolOptions {
   readonly parameters: {
     readonly engine: "exa";
-    readonly allowed_domains: readonly string[];
+    readonly allowed_domains?: readonly string[];
   };
 }
 
@@ -43,11 +42,13 @@ const webFetchToolFactory = createProviderDefinedToolFactory<
   }),
 });
 
-export function createOpenRouterWebFetchTool() {
+export function createOpenRouterWebFetchTool(allowAnyDomain = false) {
   return webFetchToolFactory({
     parameters: {
       engine: "exa",
-      allowed_domains: [...WEB_FETCH_ALLOWED_DOMAINS],
+      ...(allowAnyDomain
+        ? {}
+        : { allowed_domains: [...WEB_FETCH_ALLOWED_DOMAINS] }),
     },
   });
 }

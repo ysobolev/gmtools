@@ -2,6 +2,8 @@ export const DEBUG_LOGGING_STORAGE_KEY = "gmToolsDebugLoggingEnabled";
 export const BACKGROUND_EXECUTION_STORAGE_KEY =
   "gmToolsBackgroundExecutionEnabled";
 export const MAX_STEPS_STORAGE_KEY = "gmToolsMaximumStepsPerRequest";
+export const UNRESTRICTED_WEB_FETCH_STORAGE_KEY =
+  "gmToolsUnrestrictedWebFetchEnabled";
 export const DEFAULT_MAX_STEPS = 16;
 export const MIN_MAX_STEPS = 1;
 export const MAX_MAX_STEPS = 64;
@@ -11,6 +13,10 @@ export function isDebugLoggingEnabled(value: unknown): boolean {
 }
 
 export function isBackgroundExecutionEnabled(value: unknown): boolean {
+  return value === true;
+}
+
+export function isUnrestrictedWebFetchEnabled(value: unknown): boolean {
   return value === true;
 }
 
