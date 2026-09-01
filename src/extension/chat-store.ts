@@ -1,0 +1,332 @@
+export const CHAT_DATABASE_NAME = "gmToolsChats";
+export const CHAT_DATABASE_VERSION = 1;
+export const ACTIVE_CHAT_STORAGE_KEY = "gmToolsActiveChatId";
+export const DEFAULT_CHAT_TITLE = "New Chat";
+
+const CHATS_STORE = "chats";
+const MESSAGES_STORE = "messages";
+
+export interface ChatNotice {
+  readonly id: string;
+  readonly kind: "profile-fallback";
+  readonly text: string;
+  readonly createdAt: number;
+}
+
+export interface ChatRecord {
+  readonly id: string;
+  readonly title: string;
+  readonly profileId: string;
+  readonly campaignId?: string;
+  readonly campaignName?: string;
+  readonly campaignModVersion?: string;
+  readonly notices: readonly ChatNotice[];
+  readonly createdAt: number;
+  readonly updatedAt: number;
+}
+
+interface ChatMessagesRecord {
+  readonly chatId: string;
+  readonly messages: readonly unknown[];
+  readonly updatedAt: number;
+}
+
+export interface StoredChat {
+  readonly chat: ChatRecord;
+  readonly messages: readonly unknown[];
+}
+
+let databasePromise: Promise<IDBDatabase> | undefined;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isFiniteTimestamp(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function isChatNotice(value: unknown): value is ChatNotice {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    value.kind === "profile-fallback" &&
+    typeof value.text === "string" &&
+    isFiniteTimestamp(value.createdAt)
+  );
+}
+
+export function isChatRecord(value: unknown): value is ChatRecord {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.title === "string" &&
+    value.title.trim().length > 0 &&
+    typeof value.profileId === "string" &&
+    value.profileId.length > 0 &&
+    (value.campaignId === undefined || typeof value.campaignId === "string") &&
+    (value.campaignName === undefined ||
+      typeof value.campaignName === "string") &&
+    (value.campaignModVersion === undefined ||
+      typeof value.campaignModVersion === "string") &&
+    Array.isArray(value.notices) &&
+    value.notices.every(isChatNotice) &&
+    isFiniteTimestamp(value.createdAt) &&
+    isFiniteTimestamp(value.updatedAt)
+  );
+}
+
+function isChatMessagesRecord(value: unknown): value is ChatMessagesRecord {
+  return (
+    isRecord(value) &&
+    typeof value.chatId === "string" &&
+    Array.isArray(value.messages) &&
+    isFiniteTimestamp(value.updatedAt)
+  );
+}
+
+export function createChatRecord(
+  profileId: string,
+  options: {
+    readonly id?: string;
+    readonly now?: number;
+    readonly title?: string;
+  } = {},
+): ChatRecord {
+  const now = options.now ?? Date.now();
+  return {
+    id: options.id ?? crypto.randomUUID(),
+    title: options.title?.trim() || DEFAULT_CHAT_TITLE,
+    profileId,
+    notices: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function requestResult<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () =>
+      reject(request.error ?? new Error("IndexedDB request failed."));
+  });
+}
+
+function transactionComplete(transaction: IDBTransaction): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () =>
+      reject(transaction.error ?? new Error("IndexedDB transaction failed."));
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("IndexedDB transaction aborted."));
+  });
+}
+
+function openDatabase(): Promise<IDBDatabase> {
+  if (databasePromise) return databasePromise;
+  databasePromise = new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(CHAT_DATABASE_NAME, CHAT_DATABASE_VERSION);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(CHATS_STORE)) {
+        const chats = database.createObjectStore(CHATS_STORE, { keyPath: "id" });
+        chats.createIndex("updatedAt", "updatedAt");
+      }
+      if (!database.objectStoreNames.contains(MESSAGES_STORE)) {
+        database.createObjectStore(MESSAGES_STORE, { keyPath: "chatId" });
+      }
+    };
+    request.onsuccess = () => {
+      const database = request.result;
+      database.onversionchange = () => {
+        database.close();
+        databasePromise = undefined;
+      };
+      resolve(database);
+    };
+    request.onerror = () => {
+      databasePromise = undefined;
+      reject(request.error ?? new Error("Could not open chat storage."));
+    };
+    request.onblocked = () => {
+      databasePromise = undefined;
+      reject(new Error("Chat storage upgrade is blocked by another page."));
+    };
+  });
+  return databasePromise;
+}
+
+export async function putChat(chat: ChatRecord): Promise<void> {
+  const database = await openDatabase();
+  const transaction = database.transaction(CHATS_STORE, "readwrite");
+  transaction.objectStore(CHATS_STORE).put(chat);
+  await transactionComplete(transaction);
+}
+
+export async function getChat(chatId: string): Promise<ChatRecord | undefined> {
+  const database = await openDatabase();
+  const transaction = database.transaction(CHATS_STORE, "readonly");
+  const value: unknown = await requestResult(
+    transaction.objectStore(CHATS_STORE).get(chatId),
+  );
+  await transactionComplete(transaction);
+  return isChatRecord(value) ? value : undefined;
+}
+
+export async function listChats(): Promise<ChatRecord[]> {
+  const database = await openDatabase();
+  const transaction = database.transaction(CHATS_STORE, "readonly");
+  const values: unknown[] = await requestResult(
+    transaction.objectStore(CHATS_STORE).getAll(),
+  );
+  await transactionComplete(transaction);
+  return values
+    .filter(isChatRecord)
+    .sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+export async function createChat(profileId: string): Promise<StoredChat> {
+  const database = await openDatabase();
+  const chat = createChatRecord(profileId);
+  const messages: ChatMessagesRecord = {
+    chatId: chat.id,
+    messages: [],
+    updatedAt: chat.updatedAt,
+  };
+  const transaction = database.transaction(
+    [CHATS_STORE, MESSAGES_STORE],
+    "readwrite",
+  );
+  transaction.objectStore(CHATS_STORE).add(chat);
+  transaction.objectStore(MESSAGES_STORE).add(messages);
+  await transactionComplete(transaction);
+  return { chat, messages: [] };
+}
+
+export async function getStoredChat(
+  chatId: string,
+): Promise<StoredChat | undefined> {
+  const database = await openDatabase();
+  const transaction = database.transaction(
+    [CHATS_STORE, MESSAGES_STORE],
+    "readonly",
+  );
+  const chatValue: unknown = await requestResult(
+    transaction.objectStore(CHATS_STORE).get(chatId),
+  );
+  const messagesValue: unknown = await requestResult(
+    transaction.objectStore(MESSAGES_STORE).get(chatId),
+  );
+  await transactionComplete(transaction);
+  if (!isChatRecord(chatValue)) return undefined;
+  return {
+    chat: chatValue,
+    messages: isChatMessagesRecord(messagesValue)
+      ? messagesValue.messages
+      : [],
+  };
+}
+
+export async function saveChatMessages(
+  chatId: string,
+  messages: readonly unknown[],
+): Promise<void> {
+  const database = await openDatabase();
+  const transaction = database.transaction(
+    [CHATS_STORE, MESSAGES_STORE],
+    "readwrite",
+  );
+  const chats = transaction.objectStore(CHATS_STORE);
+  const chatValue: unknown = await requestResult(chats.get(chatId));
+  if (!isChatRecord(chatValue)) {
+    transaction.abort();
+    throw new Error("The chat no longer exists.");
+  }
+  const updatedAt = Date.now();
+  chats.put({ ...chatValue, updatedAt } satisfies ChatRecord);
+  transaction.objectStore(MESSAGES_STORE).put({
+    chatId,
+    messages: [...messages],
+    updatedAt,
+  } satisfies ChatMessagesRecord);
+  await transactionComplete(transaction);
+}
+
+export async function clearChatContent(chatId: string): Promise<ChatRecord> {
+  const database = await openDatabase();
+  const transaction = database.transaction(
+    [CHATS_STORE, MESSAGES_STORE],
+    "readwrite",
+  );
+  const chats = transaction.objectStore(CHATS_STORE);
+  const chatValue: unknown = await requestResult(chats.get(chatId));
+  if (!isChatRecord(chatValue)) {
+    transaction.abort();
+    throw new Error("The chat no longer exists.");
+  }
+  const updated: ChatRecord = {
+    id: chatValue.id,
+    title: DEFAULT_CHAT_TITLE,
+    profileId: chatValue.profileId,
+    notices: [],
+    createdAt: chatValue.createdAt,
+    updatedAt: Date.now(),
+  };
+  chats.put(updated);
+  transaction.objectStore(MESSAGES_STORE).put({
+    chatId,
+    messages: [],
+    updatedAt: updated.updatedAt,
+  } satisfies ChatMessagesRecord);
+  await transactionComplete(transaction);
+  return updated;
+}
+
+export async function updateChatProfile(
+  chatId: string,
+  profileId: string,
+  notice?: ChatNotice,
+): Promise<ChatRecord> {
+  const chat = await getChat(chatId);
+  if (!chat) throw new Error("The chat no longer exists.");
+  const updated: ChatRecord = {
+    ...chat,
+    profileId,
+    notices: notice ? [...chat.notices, notice] : chat.notices,
+    updatedAt: Date.now(),
+  };
+  await putChat(updated);
+  return updated;
+}
+
+export async function updateChatCampaign(
+  chatId: string,
+  campaign:
+    | {
+        readonly campaignId: string;
+        readonly campaignName: string;
+        readonly campaignModVersion: string;
+      }
+    | undefined,
+): Promise<void> {
+  const chat = await getChat(chatId);
+  if (!chat) return;
+  const updated: ChatRecord = campaign
+    ? {
+        ...chat,
+        campaignId: campaign.campaignId,
+        campaignName: campaign.campaignName,
+        campaignModVersion: campaign.campaignModVersion,
+        updatedAt: Date.now(),
+      }
+    : {
+        id: chat.id,
+        title: chat.title,
+        profileId: chat.profileId,
+        notices: chat.notices,
+        createdAt: chat.createdAt,
+        updatedAt: Date.now(),
+      };
+  await putChat(updated);
+}

@@ -19,6 +19,18 @@ test("provides a valid default profile when storage is empty", () => {
   assert.equal(profiles.isAssistantProfile(profiles.DEFAULT_PROFILE), true);
 });
 
+test("keeps the General profile available when stored profiles omit it", () => {
+  const custom = {
+    ...profiles.DEFAULT_PROFILE,
+    id: "custom-profile",
+    name: "Custom",
+  };
+  assert.deepEqual(profiles.normalizeProfiles([custom]), [
+    profiles.DEFAULT_PROFILE,
+    custom,
+  ]);
+});
+
 test("rejects unknown models and incompatible game-sheet combinations", () => {
   assert.equal(
     profiles.isAssistantProfile({

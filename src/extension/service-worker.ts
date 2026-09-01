@@ -22,8 +22,17 @@ import {
 } from "./openrouter-auth";
 import {
   buildProfileInstructions,
+  DEFAULT_PROFILE,
+  normalizeProfiles,
+  PROFILES_STORAGE_KEY,
   type AssistantProfile,
 } from "./profile-config";
+import {
+  getChat,
+  updateChatCampaign,
+  updateChatProfile,
+  type ChatNotice,
+} from "./chat-store";
 import {
   AUTH_CONNECT_REQUEST,
   AUTH_DISCONNECT_REQUEST,
@@ -600,7 +609,28 @@ async function getCampaignBindings(): Promise<Record<string, CampaignBinding>> {
 async function getCampaignBinding(
   chatId: string,
 ): Promise<CampaignBinding | undefined> {
-  return (await getCampaignBindings())[chatId];
+  const sessionBinding = (await getCampaignBindings())[chatId];
+  if (sessionBinding) return sessionBinding;
+  const chat = await getChat(chatId).catch(() => undefined);
+  if (
+    !chat?.campaignId ||
+    !chat.campaignName ||
+    !chat.campaignModVersion
+  ) {
+    return undefined;
+  }
+  const binding: CampaignBinding = {
+    campaignId: chat.campaignId,
+    name: chat.campaignName,
+    modVersion: chat.campaignModVersion,
+  };
+  await chrome.storage.session.set({
+    [CAMPAIGN_BINDINGS_STORAGE_KEY]: {
+      ...(await getCampaignBindings()),
+      [chatId]: binding,
+    },
+  });
+  return binding;
 }
 
 async function setCampaignBinding(
@@ -608,17 +638,27 @@ async function setCampaignBinding(
   binding: CampaignBinding,
 ): Promise<void> {
   const bindings = await getCampaignBindings();
-  if (bindings[chatId]) return;
-  await chrome.storage.session.set({
-    [CAMPAIGN_BINDINGS_STORAGE_KEY]: { ...bindings, [chatId]: binding },
-  });
+  if (!bindings[chatId]) {
+    await chrome.storage.session.set({
+      [CAMPAIGN_BINDINGS_STORAGE_KEY]: { ...bindings, [chatId]: binding },
+    });
+  }
+  await updateChatCampaign(chatId, {
+    campaignId: binding.campaignId,
+    campaignName: binding.name,
+    campaignModVersion: binding.modVersion,
+  }).catch(() => undefined);
 }
 
 async function removeCampaignBinding(chatId: string): Promise<void> {
   const bindings = await getCampaignBindings();
-  if (!(chatId in bindings)) return;
-  delete bindings[chatId];
-  await chrome.storage.session.set({ [CAMPAIGN_BINDINGS_STORAGE_KEY]: bindings });
+  if (chatId in bindings) {
+    delete bindings[chatId];
+    await chrome.storage.session.set({
+      [CAMPAIGN_BINDINGS_STORAGE_KEY]: bindings,
+    });
+  }
+  await updateChatCampaign(chatId, undefined).catch(() => undefined);
   await removeCampaignRoute(chatId);
 }
 
@@ -1641,6 +1681,31 @@ function postToPort(port: chrome.runtime.Port, message: ChatPortResponse): boole
   }
 }
 
+async function resolveChatProfile(
+  chatId: string,
+  requestedProfileId: string,
+): Promise<AssistantProfile> {
+  const stored = await chrome.storage.local.get(PROFILES_STORAGE_KEY);
+  const profiles = normalizeProfiles(stored[PROFILES_STORAGE_KEY]);
+  const profile = profiles.find(
+    (candidate) => candidate.id === requestedProfileId,
+  );
+  if (profile) return profile;
+
+  const general =
+    profiles.find((candidate) => candidate.id === DEFAULT_PROFILE.id) ??
+    DEFAULT_PROFILE;
+  const notice: ChatNotice = {
+    id: crypto.randomUUID(),
+    kind: "profile-fallback",
+    text:
+      "The previous profile is no longer available. This chat now uses General.",
+    createdAt: Date.now(),
+  };
+  await updateChatProfile(chatId, general.id, notice).catch(() => undefined);
+  return general;
+}
+
 async function streamChat(
   job: ConversationJob,
   untrustedMessages: unknown,
@@ -2022,6 +2087,10 @@ chrome.runtime.onConnect.addListener((port) => {
     conversationStartPending = true;
 
     void (async () => {
+      const profile = await resolveChatProfile(
+        message.chatId,
+        message.profileId,
+      );
       const preferences = await chrome.storage.local.get([
         DEBUG_LOGGING_STORAGE_KEY,
         BACKGROUND_EXECUTION_STORAGE_KEY,
@@ -2051,7 +2120,7 @@ chrome.runtime.onConnect.addListener((port) => {
       const abortController = new AbortController();
       const job: ConversationJob = {
         chatId: message.chatId,
-        profileId: message.profile.id,
+        profileId: profile.id,
         backgroundEnabled,
         unrestrictedWebFetchEnabled,
         webSearchEnabled,
@@ -2083,7 +2152,7 @@ chrome.runtime.onConnect.addListener((port) => {
       });
       activeChatControllers.add(abortController);
 
-      void keepServiceWorkerAlive(streamChat(job, message.messages, message.profile))
+      void keepServiceWorkerAlive(streamChat(job, message.messages, profile))
         .catch((error: unknown) => {
           finishJob(
             job,

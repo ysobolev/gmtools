@@ -51,6 +51,26 @@ test("requires persistence state in authentication responses", () => {
 test("validates chat requests with stable conversation IDs", () => {
   assert.equal(
     protocol.isChatPortRequest({
+      type: protocol.CHAT_START,
+      requestId: "request-1",
+      chatId: "chat-1",
+      messages: [],
+      profileId: "general-gm",
+    }),
+    true,
+  );
+  assert.equal(
+    protocol.isChatPortRequest({
+      type: protocol.CHAT_START,
+      requestId: "request-1",
+      chatId: "chat-1",
+      messages: [],
+      profile: {},
+    }),
+    false,
+  );
+  assert.equal(
+    protocol.isChatPortRequest({
       type: protocol.CHAT_RESUME,
       requestId: "request-1",
       chatId: "chat-1",

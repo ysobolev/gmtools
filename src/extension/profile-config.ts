@@ -208,7 +208,13 @@ export function normalizeProfiles(value: unknown): AssistantProfile[] {
     seen.add(profile.id);
     return true;
   });
-  return profiles.length > 0 ? profiles.slice(0, 50) : [DEFAULT_PROFILE];
+  const general =
+    profiles.find((profile) => profile.id === DEFAULT_PROFILE.id) ??
+    DEFAULT_PROFILE;
+  return [
+    general,
+    ...profiles.filter((profile) => profile.id !== DEFAULT_PROFILE.id),
+  ].slice(0, 50);
 }
 
 export function getModelDefinition(modelId: ModelId): ModelDefinition {

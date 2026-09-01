@@ -204,7 +204,11 @@ function ProfilesSettings(): React.JSX.Element {
   };
 
   const deleteProfile = (): void => {
-    if (mode.kind !== "edit" || profiles.length <= 1) return;
+    if (
+      mode.kind !== "edit" ||
+      mode.profileId === DEFAULT_PROFILE.id ||
+      profiles.length <= 1
+    ) return;
     const nextProfiles = profiles.filter(
       (profile) => profile.id !== mode.profileId,
     );
@@ -382,8 +386,15 @@ function ProfilesSettings(): React.JSX.Element {
               {!isNew ? (
                 <button
                   className="danger-button"
-                  disabled={profiles.length <= 1}
+                  disabled={
+                    profiles.length <= 1 || mode.profileId === DEFAULT_PROFILE.id
+                  }
                   onClick={deleteProfile}
+                  title={
+                    mode.profileId === DEFAULT_PROFILE.id
+                      ? "The General profile cannot be deleted."
+                      : undefined
+                  }
                   type="button"
                 >
                   Delete profile

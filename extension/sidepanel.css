@@ -332,6 +332,18 @@ h1 {
   scrollbar-color: #343b48 transparent;
 }
 
+.chat-notice {
+  margin: 10px 16px 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: 8px;
+  background: rgba(234, 179, 8, 0.1);
+  color: #aaa3a0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-align: center;
+}
+
 .empty-state {
   display: grid;
   min-height: 100%;
@@ -761,6 +773,12 @@ h1 {
 :root[data-theme="light"] .empty-state p,
 :root[data-theme="light"] .composer-meta {
   color: #747178;
+}
+
+:root[data-theme="light"] .chat-notice {
+  border-color: rgb(180 130 20 / 35%);
+  background: rgb(234 179 8 / 10%);
+  color: #6f6658;
 }
 
 :root[data-theme="light"] .login-card {

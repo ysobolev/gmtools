@@ -1,8 +1,4 @@
 import type { UIMessage, UIMessageChunk } from "ai";
-import {
-  isAssistantProfile,
-  type AssistantProfile,
-} from "./profile-config";
 
 export const AUTH_STATUS_REQUEST = "GMTOOLS_AUTH_STATUS" as const;
 export const AUTH_CONNECT_REQUEST = "GMTOOLS_AUTH_CONNECT" as const;
@@ -87,7 +83,7 @@ export type ChatPortRequest =
       readonly requestId: string;
       readonly chatId: string;
       readonly messages: UIMessage[];
-      readonly profile: AssistantProfile;
+      readonly profileId: string;
     }
   | {
       readonly type: typeof CHAT_RESUME;
@@ -223,7 +219,8 @@ export function isChatPortRequest(value: unknown): value is ChatPortRequest {
   return (
     value.type === CHAT_START &&
     Array.isArray(value.messages) &&
-    isAssistantProfile(value.profile)
+    typeof value.profileId === "string" &&
+    value.profileId.length > 0
   );
 }
 

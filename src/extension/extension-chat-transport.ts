@@ -1,5 +1,4 @@
 import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
-import type { AssistantProfile } from "./profile-config";
 import {
   CHAT_ABORT,
   CHAT_COMPLETE,
@@ -13,7 +12,7 @@ import {
 } from "./openrouter-protocol";
 
 export class ExtensionChatTransport implements ChatTransport<UIMessage> {
-  constructor(private readonly profile: AssistantProfile) {}
+  constructor(private readonly profileId: string) {}
 
   async sendMessages({
     chatId,
@@ -31,7 +30,7 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
           requestId,
           chatId,
           messages,
-          profile: this.profile,
+          profileId: this.profileId,
         }),
     );
   }
