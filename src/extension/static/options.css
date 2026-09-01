@@ -265,7 +265,6 @@ p {
   white-space: nowrap;
 }
 
-.active-badge,
 .mode-badge,
 .unsaved-badge {
   width: fit-content;
@@ -274,13 +273,6 @@ p {
   font-weight: 800;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-}
-
-.active-badge {
-  flex: none;
-  padding: 3px 6px;
-  background: rgb(96 174 125 / 15%);
-  color: #83c99b;
 }
 
 .sidebar-note {

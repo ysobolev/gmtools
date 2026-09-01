@@ -23,10 +23,13 @@ import {
 import { getChatActivity, getRoll20Receipts } from "./chat-activity";
 import {
   ACTIVE_CHAT_STORAGE_KEY,
+  MAX_CHAT_TITLE_LENGTH,
   clearChatContent,
   createChat,
+  deleteChat,
   getStoredChat,
   listChats,
+  renameChat,
   saveChatMessages,
   updateChatProfile,
   type ChatNotice,
@@ -41,7 +44,6 @@ import {
 } from "./display-settings";
 import { ExtensionChatTransport } from "./extension-chat-transport";
 import {
-  ACTIVE_PROFILE_STORAGE_KEY,
   DEFAULT_PROFILE,
   getModelDefinition,
   normalizeProfiles,
@@ -242,18 +244,30 @@ function LoadingScreen(): React.JSX.Element {
 function ChatScreen({
   activeProfile,
   chat,
+  chats,
   initialMessages,
   onClearConversation,
+  onCreateChat,
+  onDeleteChat,
   onManageProfiles,
+  onOpenChats,
+  onRenameChat,
   onSelectProfile,
+  onSwitchChat,
   profiles,
 }: {
   readonly activeProfile: AssistantProfile;
   readonly chat: ChatRecord;
+  readonly chats: readonly ChatRecord[];
   readonly initialMessages: UIMessage[];
   readonly onClearConversation: () => void;
+  readonly onCreateChat: () => void;
+  readonly onDeleteChat: (chatId: string) => void;
   readonly onManageProfiles: () => void;
+  readonly onOpenChats: () => void;
+  readonly onRenameChat: (title: string) => void;
   readonly onSelectProfile: (profileId: string) => void;
+  readonly onSwitchChat: (chatId: string) => void;
   readonly profiles: readonly AssistantProfile[];
 }): React.JSX.Element {
   const chatId = chat.id;
@@ -278,6 +292,12 @@ function ChatScreen({
     resume: true,
   });
   const [input, setInput] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(chat.title);
+  const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(
+    null,
+  );
   const [campaignStatus, setCampaignStatus] = useState<CampaignStatus>({
     chatId,
     state: "connecting",
@@ -289,6 +309,9 @@ function ChatScreen({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const busy = status === "submitted" || status === "streaming";
   const activity = getChatActivity(status, messages);
+  const deleteCandidate = chats.find(
+    (candidate) => candidate.id === deleteCandidateId,
+  );
 
   const persistMessages = useCallback((nextMessages: UIMessage[]) => {
     persistenceQueueRef.current = persistenceQueueRef.current
@@ -370,6 +393,11 @@ function ChatScreen({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
   }, [input]);
 
+  useEffect(() => {
+    setTitleDraft(chat.title);
+    setEditingTitle(false);
+  }, [chat.id, chat.title]);
+
   const submit = useCallback(() => {
     const text = input.trim();
     if (!text || busy) return;
@@ -408,15 +436,133 @@ function ChatScreen({
     onSelectProfile(profileId);
   };
 
+  const toggleChatMenu = (): void => {
+    setMenuOpen((open) => {
+      if (!open) onOpenChats();
+      return !open;
+    });
+    setDeleteCandidateId(null);
+  };
+
+  const switchChat = (nextChatId: string): void => {
+    if (nextChatId !== chatId) onSwitchChat(nextChatId);
+    setMenuOpen(false);
+    setDeleteCandidateId(null);
+  };
+
+  const beginRename = (): void => {
+    setTitleDraft(chat.title);
+    setEditingTitle(true);
+  };
+
+  const submitRename = (): void => {
+    const title = titleDraft.trim();
+    if (!title) return;
+    if (title !== chat.title) onRenameChat(title);
+    setEditingTitle(false);
+  };
+
+  const handleTitleKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submitRename();
+    } else if (event.key === "Escape") {
+      setTitleDraft(chat.title);
+      setEditingTitle(false);
+    }
+  };
+
   return (
     <main className="chat-shell">
+      {menuOpen ? (
+        <>
+          <button
+            aria-label="Close chats"
+            className="chat-drawer-backdrop"
+            onClick={toggleChatMenu}
+            type="button"
+          />
+          <aside className="chat-drawer" aria-label="Chats">
+            <div className="chat-drawer-heading">
+              <h2>Chats</h2>
+              <button
+                className="new-chat-button"
+                onClick={() => {
+                  onCreateChat();
+                  setMenuOpen(false);
+                }}
+                type="button"
+              >
+                <span aria-hidden="true">+</span> New
+              </button>
+            </div>
+            <div className="chat-drawer-list">
+              {chats.map((candidate) => (
+                <div
+                  className={
+                    candidate.id === chatId
+                      ? "chat-drawer-item selected"
+                      : "chat-drawer-item"
+                  }
+                  key={candidate.id}
+                >
+                  <button
+                    className="chat-drawer-select"
+                    onClick={() => switchChat(candidate.id)}
+                    type="button"
+                  >
+                    <strong>{candidate.title}</strong>
+                    <span>{candidate.campaignName ?? "No campaign bound"}</span>
+                  </button>
+                  <button
+                    aria-label={`Delete ${candidate.title}`}
+                    className="chat-drawer-delete"
+                    onClick={() => setDeleteCandidateId(candidate.id)}
+                    title="Delete chat"
+                    type="button"
+                  >
+                    <span aria-hidden="true">×</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+            {deleteCandidate ? (
+              <div
+                aria-label="Confirm chat deletion"
+                className="chat-delete-confirm"
+                role="alertdialog"
+              >
+                <p>Delete “{deleteCandidate.title}”?</p>
+                <div>
+                  <button
+                    onClick={() => setDeleteCandidateId(null)}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="danger"
+                    onClick={() => {
+                      onDeleteChat(deleteCandidate.id);
+                      setDeleteCandidateId(null);
+                    }}
+                    type="button"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </aside>
+        </>
+      ) : null}
       <header className="chat-header">
         <div className="chat-title-row">
           <button
             aria-label="Open chats"
             className="chat-menu-button"
-            disabled
-            title="Multiple chats are coming soon"
+            onClick={toggleChatMenu}
+            title="Open chats"
             type="button"
           >
             <span aria-hidden="true">☰</span>
@@ -437,20 +583,50 @@ function ChatScreen({
           </button>
         </div>
         <div className="chat-context-row">
-          <span className="chat-name">
-            <span className="chat-name-text">{chat.title}</span>
-            <button
-              aria-label="Edit chat title"
-              className="chat-name-edit"
-              disabled
-              title="Chat titles are coming soon"
-              type="button"
-            >
-              <span aria-hidden="true">✎</span>
-            </button>
-          </span>
+          {editingTitle ? (
+            <span className="chat-name chat-name-editor">
+              <input
+                aria-label="Chat title"
+                autoFocus
+                maxLength={MAX_CHAT_TITLE_LENGTH}
+                onChange={(event) => setTitleDraft(event.target.value)}
+                onKeyDown={handleTitleKeyDown}
+                value={titleDraft}
+              />
+              <button
+                aria-label="Save chat title"
+                className="chat-name-edit"
+                disabled={!titleDraft.trim()}
+                onClick={submitRename}
+                type="button"
+              >
+                <span aria-hidden="true">✓</span>
+              </button>
+              <button
+                aria-label="Cancel editing chat title"
+                className="chat-name-edit"
+                onClick={() => setEditingTitle(false)}
+                type="button"
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </span>
+          ) : (
+            <span className="chat-name">
+              <span className="chat-name-text">{chat.title}</span>
+              <button
+                aria-label="Edit chat title"
+                className="chat-name-edit"
+                onClick={beginRename}
+                title="Edit chat title"
+                type="button"
+              >
+                <span aria-hidden="true">✎</span>
+              </button>
+            </span>
+          )}
           <select
-            aria-label="Active assistant profile"
+            aria-label="Assistant profile for this chat"
             onChange={(event) => selectProfile(event.target.value)}
             value={activeProfile.id}
           >
@@ -623,6 +799,7 @@ function ChatScreen({
 
 function ChatWorkspace(): React.JSX.Element {
   const [profiles, setProfiles] = useState<AssistantProfile[] | null>(null);
+  const [chats, setChats] = useState<ChatRecord[]>([]);
   const [storedChat, setStoredChat] = useState<{
     readonly chat: ChatRecord;
     readonly messages: UIMessage[];
@@ -657,6 +834,9 @@ function ChatWorkspace(): React.JSX.Element {
     if (!current) return;
     void clearChatContent(current.chat.id).then((chat) => {
       setCurrentChat({ chat, messages: [] });
+      setChats((existing) =>
+        [chat, ...existing.filter((candidate) => candidate.id !== chat.id)],
+      );
       setChatRevision((revision) => revision + 1);
     });
   }, [setCurrentChat]);
@@ -666,26 +846,20 @@ function ChatWorkspace(): React.JSX.Element {
     const initialize = async (): Promise<void> => {
       const stored = await chrome.storage.local.get([
         PROFILES_STORAGE_KEY,
-        ACTIVE_PROFILE_STORAGE_KEY,
         ACTIVE_CHAT_STORAGE_KEY,
       ]);
       const loadedProfiles = normalizeProfiles(stored[PROFILES_STORAGE_KEY]);
-      const storedActiveId = stored[ACTIVE_PROFILE_STORAGE_KEY];
-      const defaultProfileId =
-        typeof storedActiveId === "string" &&
-        loadedProfiles.some((profile) => profile.id === storedActiveId)
-          ? storedActiveId
-          : DEFAULT_PROFILE.id;
       const activeChatId = stored[ACTIVE_CHAT_STORAGE_KEY];
+      const existingChats = await listChats();
       let loaded =
         typeof activeChatId === "string"
           ? await getStoredChat(activeChatId)
           : undefined;
       if (!loaded) {
-        const existing = (await listChats())[0];
+        const existing = existingChats[0];
         loaded = existing
           ? await getStoredChat(existing.id)
-          : await createChat(defaultProfileId);
+          : await createChat(DEFAULT_PROFILE.id);
       }
       if (!loaded) throw new Error("Could not load the active chat.");
       const chat = await fallbackMissingProfile(loaded.chat, loadedProfiles);
@@ -697,6 +871,7 @@ function ChatWorkspace(): React.JSX.Element {
       await chrome.storage.local.set({ [ACTIVE_CHAT_STORAGE_KEY]: chat.id });
       if (cancelled) return;
       setProfiles(loadedProfiles);
+      setChats(await listChats());
       setCurrentChat({ chat, messages });
     };
 
@@ -712,7 +887,17 @@ function ChatWorkspace(): React.JSX.Element {
       const current = storedChatRef.current;
       if (!current) return;
       void fallbackMissingProfile(current.chat, loadedProfiles).then((chat) => {
-        if (!cancelled) setCurrentChat({ ...current, chat });
+        if (
+          !cancelled &&
+          storedChatRef.current?.chat.id === current.chat.id
+        ) {
+          setCurrentChat({ ...storedChatRef.current, chat });
+          setChats((existing) =>
+            existing.map((candidate) =>
+              candidate.id === chat.id ? chat : candidate,
+            ),
+          );
+        }
       });
     };
 
@@ -741,20 +926,89 @@ function ChatWorkspace(): React.JSX.Element {
       return;
     }
     void updateChatProfile(storedChat.chat.id, profileId).then((chat) => {
-      setCurrentChat({ ...storedChat, chat });
+      if (storedChatRef.current?.chat.id === chat.id) {
+        setCurrentChat({ ...storedChatRef.current, chat });
+      }
+      setChats((existing) =>
+        existing.map((candidate) =>
+          candidate.id === chat.id ? chat : candidate,
+        ),
+      );
     });
-    void chrome.storage.local.set({ [ACTIVE_PROFILE_STORAGE_KEY]: profileId });
+  };
+
+  const activateStoredChat = async (
+    loaded: NonNullable<Awaited<ReturnType<typeof getStoredChat>>>,
+  ): Promise<void> => {
+    const chat = await fallbackMissingProfile(loaded.chat, profiles);
+    const validation = await safeValidateUIMessages<UIMessage>({
+      messages: loaded.messages,
+    });
+    const messages = validation.success ? validation.data : [];
+    if (!validation.success) await saveChatMessages(chat.id, messages);
+    await chrome.storage.local.set({ [ACTIVE_CHAT_STORAGE_KEY]: chat.id });
+    setCurrentChat({ chat, messages });
+    setChats(await listChats());
+    setChatRevision((revision) => revision + 1);
+  };
+
+  const switchChat = (chatId: string): void => {
+    if (chatId === storedChat.chat.id) return;
+    void getStoredChat(chatId).then((loaded) => {
+      if (loaded) return activateStoredChat(loaded);
+    });
+  };
+
+  const createNewChat = (): void => {
+    void createChat(storedChat.chat.profileId).then(activateStoredChat);
+  };
+
+  const renameCurrentChat = (title: string): void => {
+    void renameChat(storedChat.chat.id, title).then((chat) => {
+      if (storedChatRef.current?.chat.id === chat.id) {
+        setCurrentChat({ ...storedChatRef.current, chat });
+      }
+      setChats((existing) =>
+        [chat, ...existing.filter((candidate) => candidate.id !== chat.id)],
+      );
+    });
+  };
+
+  const removeChat = (chatId: string): void => {
+    sendChatControl(CHAT_CLEAR, chatId);
+    void deleteChat(chatId).then(async () => {
+      let remaining = await listChats();
+      if (chatId !== storedChat.chat.id) {
+        setChats(remaining);
+        return;
+      }
+      let next = remaining[0]
+        ? await getStoredChat(remaining[0].id)
+        : undefined;
+      if (!next) {
+        next = await createChat(storedChat.chat.profileId);
+        remaining = [next.chat];
+      }
+      setChats(remaining);
+      await activateStoredChat(next);
+    });
   };
 
   return (
     <ChatScreen
       activeProfile={activeProfile}
       chat={storedChat.chat}
+      chats={chats}
       initialMessages={storedChat.messages}
       key={`${storedChat.chat.id}:${chatRevision}`}
       onClearConversation={clearChat}
+      onCreateChat={createNewChat}
+      onDeleteChat={removeChat}
       onManageProfiles={() => void chrome.runtime.openOptionsPage()}
+      onOpenChats={() => void listChats().then(setChats)}
+      onRenameChat={renameCurrentChat}
       onSelectProfile={selectProfile}
+      onSwitchChat={switchChat}
       profiles={profiles}
     />
   );

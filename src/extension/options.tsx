@@ -32,7 +32,6 @@ import {
   type AuthStatus,
 } from "./openrouter-protocol";
 import {
-  ACTIVE_PROFILE_STORAGE_KEY,
   createProfile,
   DEFAULT_PROFILE,
   getModelDefinition,
@@ -79,7 +78,6 @@ function profilesEqual(
 
 function ProfilesSettings(): React.JSX.Element {
   const [profiles, setProfiles] = useState<AssistantProfile[] | null>(null);
-  const [activeProfileId, setActiveProfileId] = useState("");
   const [mode, setMode] = useState<EditorMode>({
     kind: "edit",
     profileId: DEFAULT_PROFILE.id,
@@ -90,48 +88,24 @@ function ProfilesSettings(): React.JSX.Element {
   useEffect(() => {
     let cancelled = false;
     void chrome.storage.local
-      .get([PROFILES_STORAGE_KEY, ACTIVE_PROFILE_STORAGE_KEY])
+      .get(PROFILES_STORAGE_KEY)
       .then((stored) => {
         if (cancelled) return;
         const loadedProfiles = normalizeProfiles(stored[PROFILES_STORAGE_KEY]);
-        const storedActiveId = stored[ACTIVE_PROFILE_STORAGE_KEY];
-        const activeId =
-          typeof storedActiveId === "string" &&
-          loadedProfiles.some((profile) => profile.id === storedActiveId)
-            ? storedActiveId
-            : loadedProfiles[0]!.id;
-        const activeProfile =
-          loadedProfiles.find((profile) => profile.id === activeId) ??
-          loadedProfiles[0]!;
+        const firstProfile = loadedProfiles[0]!;
         setProfiles(loadedProfiles);
-        setActiveProfileId(activeId);
-        setMode({ kind: "edit", profileId: activeProfile.id });
-        setDraft(activeProfile);
+        setMode({ kind: "edit", profileId: firstProfile.id });
+        setDraft(firstProfile);
         void chrome.storage.local.set({
           [PROFILES_STORAGE_KEY]: loadedProfiles,
-          [ACTIVE_PROFILE_STORAGE_KEY]: activeId,
         });
       })
       .catch(() => {
         if (cancelled) return;
         setProfiles([DEFAULT_PROFILE]);
-        setActiveProfileId(DEFAULT_PROFILE.id);
       });
-
-    const handleStorageChange = (
-      changes: Record<string, chrome.storage.StorageChange>,
-      areaName: string,
-    ): void => {
-      if (areaName !== "local") return;
-      const activeChange = changes[ACTIVE_PROFILE_STORAGE_KEY];
-      if (typeof activeChange?.newValue === "string") {
-        setActiveProfileId(activeChange.newValue);
-      }
-    };
-    chrome.storage.onChanged.addListener(handleStorageChange);
     return () => {
       cancelled = true;
-      chrome.storage.onChanged.removeListener(handleStorageChange);
     };
   }, []);
 
@@ -196,10 +170,7 @@ function ProfilesSettings(): React.JSX.Element {
   };
 
   const cancelChanges = (): void => {
-    const profile =
-      savedProfile ??
-      profiles.find((candidate) => candidate.id === activeProfileId) ??
-      profiles[0]!;
+    const profile = savedProfile ?? profiles[0]!;
     selectProfile(profile);
   };
 
@@ -213,17 +184,11 @@ function ProfilesSettings(): React.JSX.Element {
       (profile) => profile.id !== mode.profileId,
     );
     if (nextProfiles.length === profiles.length) return;
-    const nextActiveId =
-      mode.profileId === activeProfileId
-        ? nextProfiles[0]!.id
-        : activeProfileId;
     setProfiles(nextProfiles);
-    setActiveProfileId(nextActiveId);
     selectProfile(nextProfiles[0]!);
     setSavedMessage("Profile deleted.");
     void chrome.storage.local.set({
       [PROFILES_STORAGE_KEY]: nextProfiles,
-      [ACTIVE_PROFILE_STORAGE_KEY]: nextActiveId,
     });
   };
 
@@ -255,9 +220,6 @@ function ProfilesSettings(): React.JSX.Element {
             >
               <span className="profile-item-topline">
                 <strong>{profile.name}</strong>
-                {profile.id === activeProfileId ? (
-                  <span className="active-badge">Active</span>
-                ) : null}
               </span>
               <span>{getRulesetDefinition(profile.rulesetId).label}</span>
               <span>{getModelDefinition(profile.modelId).label}</span>
@@ -265,7 +227,8 @@ function ProfilesSettings(): React.JSX.Element {
           ))}
         </nav>
         <p className="sidebar-note">
-          Choose the active profile from the GM Tools for VTT side panel.
+          Choose a profile independently for each chat in the GM Tools side
+          panel.
         </p>
       </aside>
 

@@ -30,6 +30,25 @@ test("creates a durable chat record with stable metadata", () => {
   assert.equal(chats.isChatRecord(chat), true);
 });
 
+test("normalizes chat titles for storage", () => {
+  assert.equal(
+    chats.createChatRecord("general-gm", {
+      id: "chat-1",
+      now: 1234,
+      title: "  Session planning  ",
+    }).title,
+    "Session planning",
+  );
+  assert.equal(
+    chats.createChatRecord("general-gm", {
+      id: "chat-2",
+      now: 1234,
+      title: "x".repeat(chats.MAX_CHAT_TITLE_LENGTH + 10),
+    }).title.length,
+    chats.MAX_CHAT_TITLE_LENGTH,
+  );
+});
+
 test("rejects malformed durable chat records", () => {
   const chat = chats.createChatRecord("general-gm", {
     id: "chat-1",

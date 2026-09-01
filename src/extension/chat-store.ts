@@ -2,6 +2,7 @@ export const CHAT_DATABASE_NAME = "gmToolsChats";
 export const CHAT_DATABASE_VERSION = 1;
 export const ACTIVE_CHAT_STORAGE_KEY = "gmToolsActiveChatId";
 export const DEFAULT_CHAT_TITLE = "New Chat";
+export const MAX_CHAT_TITLE_LENGTH = 120;
 
 const CHATS_STORE = "chats";
 const MESSAGES_STORE = "messages";
@@ -97,7 +98,9 @@ export function createChatRecord(
   const now = options.now ?? Date.now();
   return {
     id: options.id ?? crypto.randomUUID(),
-    title: options.title?.trim() || DEFAULT_CHAT_TITLE,
+    title:
+      options.title?.trim().slice(0, MAX_CHAT_TITLE_LENGTH) ||
+      DEFAULT_CHAT_TITLE,
     profileId,
     notices: [],
     createdAt: now,
@@ -267,7 +270,7 @@ export async function clearChatContent(chatId: string): Promise<ChatRecord> {
   }
   const updated: ChatRecord = {
     id: chatValue.id,
-    title: DEFAULT_CHAT_TITLE,
+    title: chatValue.title,
     profileId: chatValue.profileId,
     notices: [],
     createdAt: chatValue.createdAt,
@@ -281,6 +284,34 @@ export async function clearChatContent(chatId: string): Promise<ChatRecord> {
   } satisfies ChatMessagesRecord);
   await transactionComplete(transaction);
   return updated;
+}
+
+export async function renameChat(
+  chatId: string,
+  title: string,
+): Promise<ChatRecord> {
+  const normalizedTitle = title.trim().slice(0, MAX_CHAT_TITLE_LENGTH);
+  if (!normalizedTitle) throw new Error("Chat titles cannot be empty.");
+  const chat = await getChat(chatId);
+  if (!chat) throw new Error("The chat no longer exists.");
+  const updated: ChatRecord = {
+    ...chat,
+    title: normalizedTitle,
+    updatedAt: Date.now(),
+  };
+  await putChat(updated);
+  return updated;
+}
+
+export async function deleteChat(chatId: string): Promise<void> {
+  const database = await openDatabase();
+  const transaction = database.transaction(
+    [CHATS_STORE, MESSAGES_STORE],
+    "readwrite",
+  );
+  transaction.objectStore(CHATS_STORE).delete(chatId);
+  transaction.objectStore(MESSAGES_STORE).delete(chatId);
+  await transactionComplete(transaction);
 }
 
 export async function updateChatProfile(
