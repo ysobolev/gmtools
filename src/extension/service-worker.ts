@@ -33,6 +33,7 @@ import {
   updateChatProfile,
   type ChatNotice,
 } from "./chat-store";
+import { KeyedExecutionQueue } from "./keyed-execution-queue";
 import {
   AUTH_CONNECT_REQUEST,
   AUTH_DISCONNECT_REQUEST,
@@ -40,6 +41,7 @@ import {
   AUTH_STATE_CHANGED,
   CAMPAIGN_STATUS_CHANGED,
   CAMPAIGN_STATUS_REQUEST,
+  CHAT_ACTIVITY_CHANGED,
   CHAT_ABORT,
   CHAT_CLEAR,
   CHAT_CHUNK,
@@ -52,12 +54,15 @@ import {
   CHAT_START,
   isAuthRequest,
   isCampaignStatusRequest,
+  isChatActivitiesRequest,
   isChatControlRequest,
   isChatPortRequest,
   type AuthRequest,
   type AuthResponse,
   type AuthStatus,
   type CampaignStatus,
+  type ChatActivityState,
+  type ChatActivityStatus,
   type ChatPortResponse,
 } from "./openrouter-protocol";
 import {
@@ -111,7 +116,7 @@ const ROLL20_TOMBSTONE_TTL_MS = 15 * 60_000;
 const SERVICE_WORKER_KEEPALIVE_INTERVAL_MS = 20_000;
 const MAX_ROLL20_CODE_LENGTH = 20_000;
 const activeChatControllers = new Set<AbortController>();
-let roll20ExecutionQueue: Promise<void> = Promise.resolve();
+const roll20ExecutionQueues = new KeyedExecutionQueue();
 
 interface PendingRoll20Execution {
   readonly tabId: number;
@@ -241,11 +246,12 @@ interface ConversationJob {
   readonly chunks: UIMessageChunk[];
   readonly subscribers: Map<chrome.runtime.Port, string>;
   readonly debug: DebugLogger;
+  activity: ChatActivityStatus;
   terminal?: ConversationTerminal;
 }
 
 const conversationJobs = new Map<string, ConversationJob>();
-let conversationStartPending = false;
+const pendingConversationStarts = new Map<string, AbortController>();
 
 interface StoredAuth {
   readonly openRouterApiKey?: unknown;
@@ -369,6 +375,9 @@ async function notifyAuthState(status: AuthStatus): Promise<void> {
 
 async function clearAuth(): Promise<void> {
   for (const controller of activeChatControllers) controller.abort();
+  for (const controller of pendingConversationStarts.values()) {
+    controller.abort();
+  }
   await authRestoration;
   await Promise.all([
     chrome.storage.session.remove([...AUTH_STORAGE_KEYS]),
@@ -520,6 +529,20 @@ chrome.runtime.onMessage.addListener(
 );
 
 chrome.runtime.onMessage.addListener(
+  (message: unknown, sender, sendResponse): void => {
+    if (!isChatActivitiesRequest(message) || !isTrustedExtensionSender(sender)) {
+      return;
+    }
+    sendResponse({
+      ok: true,
+      activities: [...conversationJobs.values()]
+        .map((job) => job.activity)
+        .filter((activity) => activity.state !== "idle"),
+    });
+  },
+);
+
+chrome.runtime.onMessage.addListener(
   (message: unknown, sender, sendResponse): boolean | undefined => {
     if (!isCampaignStatusRequest(message) || !isTrustedExtensionSender(sender)) {
       return;
@@ -544,7 +567,10 @@ chrome.runtime.onMessage.addListener(
       return;
     }
     if (message.type === CHAT_CLEAR) {
+      if (job) setJobActivity(job, "idle");
       job?.abortController.abort();
+      pendingConversationStarts.get(message.chatId)?.abort();
+      pendingConversationStarts.delete(message.chatId);
       conversationJobs.delete(message.chatId);
       void removeCampaignBinding(message.chatId);
     } else if (message.type === CHAT_COMMIT && job?.terminal) {
@@ -1624,7 +1650,7 @@ function queueRoll20Execution(
   boundTabId: number,
   backgroundEnabled: boolean,
 ): Promise<Roll20ExecutionOutcome> {
-  const execution = roll20ExecutionQueue.then(() =>
+  return roll20ExecutionQueues.run(expectedCampaignId, () =>
     executeRoll20(
       code,
       abortSignal,
@@ -1636,11 +1662,6 @@ function queueRoll20Execution(
       backgroundEnabled,
     ),
   );
-  roll20ExecutionQueue = execution.then(
-    () => undefined,
-    () => undefined,
-  );
-  return execution;
 }
 
 function findStatusCode(error: unknown): number | undefined {
@@ -1963,6 +1984,7 @@ async function streamChat(
     stopWhen: isStepCount(job.maxSteps),
     abortSignal: abortController.signal,
     onLanguageModelCallStart: (event) => {
+      setJobActivity(job, "thinking");
       debug.group("→ Model", {
         "Call ID": event.callId,
         Provider: event.provider,
@@ -1983,6 +2005,15 @@ async function streamChat(
       });
     },
     onToolExecutionStart: (event) => {
+      const input = event.toolCall.input;
+      const summary =
+        typeof input === "object" &&
+        input !== null &&
+        "summary" in input &&
+        typeof input.summary === "string"
+          ? input.summary.trim().slice(0, 120)
+          : undefined;
+      setJobActivity(job, "working", summary || undefined);
       debug.group(`Tool call · ${event.toolCall.toolName}`, {
         "Call ID": event.callId,
         "Tool call ID": event.toolCall.toolCallId,
@@ -1990,6 +2021,7 @@ async function streamChat(
       });
     },
     onToolExecutionEnd: (event) => {
+      setJobActivity(job, "thinking");
       debug.group(`Tool response · ${event.toolCall.toolName}`, {
         "Call ID": event.callId,
         "Tool call ID": event.toolCall.toolCallId,
@@ -2043,16 +2075,42 @@ function broadcastJob(
   }
 }
 
+function setJobActivity(
+  job: ConversationJob,
+  state: ChatActivityState,
+  summary?: string,
+): void {
+  if (conversationJobs.get(job.chatId) !== job) return;
+  const activity: ChatActivityStatus = {
+    chatId: job.chatId,
+    state,
+    ...(summary ? { summary } : {}),
+  };
+  if (
+    job.activity.state === activity.state &&
+    job.activity.summary === activity.summary
+  ) {
+    return;
+  }
+  job.activity = activity;
+  void chrome.runtime
+    .sendMessage({ type: CHAT_ACTIVITY_CHANGED, activity })
+    .catch(() => undefined);
+}
+
 function finishJob(job: ConversationJob, terminal: ConversationTerminal): void {
   if (job.terminal) return;
   job.terminal = terminal;
+  setJobActivity(job, "idle");
   broadcastJob(job, (requestId) =>
     terminal.type === "complete"
       ? { type: CHAT_COMPLETE, requestId }
       : { type: CHAT_ERROR, requestId, error: terminal.error },
   );
   if (!job.backgroundEnabled && job.subscribers.size === 0) {
-    conversationJobs.delete(job.chatId);
+    if (conversationJobs.get(job.chatId) === job) {
+      conversationJobs.delete(job.chatId);
+    }
   }
 }
 
@@ -2102,6 +2160,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
   let attachedJob: ConversationJob | null = null;
   let attachedRequestId: string | null = null;
+  let startingChatId: string | null = null;
   let disconnected = false;
 
   port.onMessage.addListener((message: unknown) => {
@@ -2113,6 +2172,11 @@ chrome.runtime.onConnect.addListener((port) => {
         message.chatId === attachedJob?.chatId
       ) {
         attachedJob.abortController.abort();
+      } else if (
+        message.requestId === attachedRequestId &&
+        message.chatId === startingChatId
+      ) {
+        pendingConversationStarts.get(message.chatId)?.abort();
       }
       return;
     }
@@ -2134,18 +2198,21 @@ chrome.runtime.onConnect.addListener((port) => {
       return;
     }
 
-    const runningJob = [...conversationJobs.values()].find(
-      (job) => !job.terminal,
-    );
-    if (runningJob || conversationStartPending) {
+    const existingJob = conversationJobs.get(message.chatId);
+    if (existingJob || pendingConversationStarts.has(message.chatId)) {
       postToPort(port, {
         type: CHAT_ERROR,
         requestId: message.requestId,
-        error: "Another conversation is already running.",
+        error: existingJob?.terminal
+          ? "This conversation has a completed response waiting to be restored."
+          : "This conversation is already running.",
       });
       return;
     }
-    conversationStartPending = true;
+    const abortController = new AbortController();
+    pendingConversationStarts.set(message.chatId, abortController);
+    startingChatId = message.chatId;
+    attachedRequestId = message.requestId;
 
     void (async () => {
       const profile = await resolveChatProfile(
@@ -2177,8 +2244,8 @@ chrome.runtime.onConnect.addListener((port) => {
       const campaignRoute = campaignBinding
         ? await getCampaignRoute(campaignBinding.campaignId)
         : undefined;
+      if (abortController.signal.aborted) return;
       if (disconnected && !backgroundEnabled) return;
-      const abortController = new AbortController();
       const job: ConversationJob = {
         chatId: message.chatId,
         profileId: profile.id,
@@ -2197,11 +2264,14 @@ chrome.runtime.onConnect.addListener((port) => {
         chunks: [],
         subscribers: new Map(),
         debug,
+        activity: { chatId: message.chatId, state: "idle" },
       };
       conversationJobs.set(job.chatId, job);
       attachedJob = job;
+      startingChatId = null;
       attachedRequestId = message.requestId;
       if (!disconnected) attachToJob(job, port, message.requestId);
+      setJobActivity(job, "thinking");
       debug.group("Conversation context", {
         "Background execution": backgroundEnabled,
         "Unrestricted web fetch": unrestrictedWebFetchEnabled,
@@ -2232,7 +2302,10 @@ chrome.runtime.onConnect.addListener((port) => {
         error: userFacingModelError(error),
       });
     }).finally(() => {
-      conversationStartPending = false;
+      if (pendingConversationStarts.get(message.chatId) === abortController) {
+        pendingConversationStarts.delete(message.chatId);
+      }
+      if (startingChatId === message.chatId) startingChatId = null;
     });
   });
 

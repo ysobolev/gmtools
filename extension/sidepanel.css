@@ -307,6 +307,49 @@ h1 {
   font-size: 10px;
 }
 
+.chat-drawer-meta {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chat-drawer-meta > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-drawer-activity {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: #c19a8d !important;
+  font-weight: 700;
+}
+
+.chat-drawer-activity > span {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: #db765d;
+  animation: drawer-activity-pulse 1.1s ease-in-out infinite;
+}
+
+.chat-drawer-activity.working > span {
+  background: #d3a04c;
+}
+
+@keyframes drawer-activity-pulse {
+  50% {
+    opacity: 0.35;
+    transform: scale(0.72);
+  }
+}
+
 .chat-drawer-delete {
   width: 26px;
   height: 26px;

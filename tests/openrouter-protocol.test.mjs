@@ -107,6 +107,39 @@ test("validates chat lifecycle control messages", () => {
   );
 });
 
+test("validates chat activity snapshots and updates", () => {
+  assert.equal(
+    protocol.isChatActivitiesRequest({
+      type: protocol.CHAT_ACTIVITIES_REQUEST,
+    }),
+    true,
+  );
+  assert.equal(
+    protocol.isChatActivitiesResponse({
+      ok: true,
+      activities: [
+        { chatId: "chat-1", state: "thinking" },
+        { chatId: "chat-2", state: "working", summary: "moving Flippy" },
+      ],
+    }),
+    true,
+  );
+  assert.equal(
+    protocol.isChatActivityChangedMessage({
+      type: protocol.CHAT_ACTIVITY_CHANGED,
+      activity: { chatId: "chat-1", state: "idle" },
+    }),
+    true,
+  );
+  assert.equal(
+    protocol.isChatActivitiesResponse({
+      ok: true,
+      activities: [{ chatId: "chat-1", state: "unknown" }],
+    }),
+    false,
+  );
+});
+
 test("validates campaign status messages", () => {
   const status = {
     chatId: "chat-1",

@@ -55,15 +55,19 @@ import {
   AUTH_STATE_CHANGED,
   AUTH_STATUS_REQUEST,
   CAMPAIGN_STATUS_REQUEST,
+  CHAT_ACTIVITIES_REQUEST,
   CHAT_CLEAR,
   CHAT_COMMIT,
   isAuthResponse,
   isAuthStateChangedMessage,
   isCampaignStatusChangedMessage,
   isCampaignStatusResponse,
+  isChatActivitiesResponse,
+  isChatActivityChangedMessage,
   type AuthRequest,
   type AuthStatus,
   type CampaignStatus,
+  type ChatActivityStatus,
 } from "./openrouter-protocol";
 
 function sendChatControl(
@@ -244,6 +248,7 @@ function LoadingScreen(): React.JSX.Element {
 function ChatScreen({
   activeProfile,
   chat,
+  chatActivities,
   chats,
   initialMessages,
   onClearConversation,
@@ -258,6 +263,7 @@ function ChatScreen({
 }: {
   readonly activeProfile: AssistantProfile;
   readonly chat: ChatRecord;
+  readonly chatActivities: Readonly<Record<string, ChatActivityStatus>>;
   readonly chats: readonly ChatRecord[];
   readonly initialMessages: UIMessage[];
   readonly onClearConversation: () => void;
@@ -497,34 +503,52 @@ function ChatScreen({
               </button>
             </div>
             <div className="chat-drawer-list">
-              {chats.map((candidate) => (
-                <div
-                  className={
-                    candidate.id === chatId
-                      ? "chat-drawer-item selected"
-                      : "chat-drawer-item"
-                  }
-                  key={candidate.id}
-                >
-                  <button
-                    className="chat-drawer-select"
-                    onClick={() => switchChat(candidate.id)}
-                    type="button"
+              {chats.map((candidate) => {
+                const drawerActivity = chatActivities[candidate.id];
+                return (
+                  <div
+                    className={
+                      candidate.id === chatId
+                        ? "chat-drawer-item selected"
+                        : "chat-drawer-item"
+                    }
+                    key={candidate.id}
                   >
-                    <strong>{candidate.title}</strong>
-                    <span>{candidate.campaignName ?? "No campaign bound"}</span>
-                  </button>
-                  <button
-                    aria-label={`Delete ${candidate.title}`}
-                    className="chat-drawer-delete"
-                    onClick={() => setDeleteCandidateId(candidate.id)}
-                    title="Delete chat"
-                    type="button"
-                  >
-                    <span aria-hidden="true">×</span>
-                  </button>
-                </div>
-              ))}
+                    <button
+                      className="chat-drawer-select"
+                      onClick={() => switchChat(candidate.id)}
+                      type="button"
+                    >
+                      <strong>{candidate.title}</strong>
+                      <span className="chat-drawer-meta">
+                        <span>
+                          {candidate.campaignName ?? "No campaign bound"}
+                        </span>
+                        {drawerActivity ? (
+                          <span
+                            className={`chat-drawer-activity ${drawerActivity.state}`}
+                            title={drawerActivity.summary}
+                          >
+                            <span aria-hidden="true" />
+                            {drawerActivity.state === "working"
+                              ? "Working"
+                              : "Thinking"}
+                          </span>
+                        ) : null}
+                      </span>
+                    </button>
+                    <button
+                      aria-label={`Delete ${candidate.title}`}
+                      className="chat-drawer-delete"
+                      onClick={() => setDeleteCandidateId(candidate.id)}
+                      title="Delete chat"
+                      type="button"
+                    >
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  </div>
+                );
+              })}
             </div>
             {deleteCandidate ? (
               <div
@@ -800,6 +824,9 @@ function ChatScreen({
 function ChatWorkspace(): React.JSX.Element {
   const [profiles, setProfiles] = useState<AssistantProfile[] | null>(null);
   const [chats, setChats] = useState<ChatRecord[]>([]);
+  const [chatActivities, setChatActivities] = useState<
+    Record<string, ChatActivityStatus>
+  >({});
   const [storedChat, setStoredChat] = useState<{
     readonly chat: ChatRecord;
     readonly messages: UIMessage[];
@@ -913,6 +940,42 @@ function ChatWorkspace(): React.JSX.Element {
     };
   }, [fallbackMissingProfile, setCurrentChat]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const handleActivity = (message: unknown): void => {
+      if (!isChatActivityChangedMessage(message)) return;
+      setChatActivities((current) => {
+        const next = { ...current };
+        if (message.activity.state === "idle") {
+          delete next[message.activity.chatId];
+        } else {
+          next[message.activity.chatId] = message.activity;
+        }
+        return next;
+      });
+    };
+    chrome.runtime.onMessage.addListener(handleActivity);
+    void chrome.runtime
+      .sendMessage({ type: CHAT_ACTIVITIES_REQUEST })
+      .then((response: unknown) => {
+        if (cancelled || !isChatActivitiesResponse(response) || !response.ok) {
+          return;
+        }
+        setChatActivities(
+          Object.fromEntries(
+            response.activities
+              .filter((activity) => activity.state !== "idle")
+              .map((activity) => [activity.chatId, activity]),
+          ),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      chrome.runtime.onMessage.removeListener(handleActivity);
+    };
+  }, []);
+
   if (!profiles || !storedChat) return <LoadingScreen />;
   const activeProfile =
     profiles.find((profile) => profile.id === storedChat.chat.profileId) ??
@@ -998,6 +1061,7 @@ function ChatWorkspace(): React.JSX.Element {
     <ChatScreen
       activeProfile={activeProfile}
       chat={storedChat.chat}
+      chatActivities={chatActivities}
       chats={chats}
       initialMessages={storedChat.messages}
       key={`${storedChat.chat.id}:${chatRevision}`}

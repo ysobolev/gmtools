@@ -19,6 +19,8 @@ export const CHAT_CLEAR = "GMTOOLS_CHAT_CLEAR" as const;
 export const CHAT_CHUNK = "GMTOOLS_CHAT_CHUNK" as const;
 export const CHAT_COMPLETE = "GMTOOLS_CHAT_COMPLETE" as const;
 export const CHAT_ERROR = "GMTOOLS_CHAT_ERROR" as const;
+export const CHAT_ACTIVITIES_REQUEST = "GMTOOLS_CHAT_ACTIVITIES" as const;
+export const CHAT_ACTIVITY_CHANGED = "GMTOOLS_CHAT_ACTIVITY_CHANGED" as const;
 
 export interface AuthStatus {
   readonly connected: boolean;
@@ -106,6 +108,23 @@ export interface ChatControlResponse {
   readonly available?: boolean;
 }
 
+export type ChatActivityState = "idle" | "thinking" | "working";
+
+export interface ChatActivityStatus {
+  readonly chatId: string;
+  readonly state: ChatActivityState;
+  readonly summary?: string;
+}
+
+export interface ChatActivityChangedMessage {
+  readonly type: typeof CHAT_ACTIVITY_CHANGED;
+  readonly activity: ChatActivityStatus;
+}
+
+export type ChatActivitiesResponse =
+  | { readonly ok: true; readonly activities: readonly ChatActivityStatus[] }
+  | { readonly ok: false; readonly error: string };
+
 export type ChatPortResponse =
   | {
       readonly type: typeof CHAT_CHUNK;
@@ -124,6 +143,44 @@ export type ChatPortResponse =
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isChatActivityStatus(value: unknown): value is ChatActivityStatus {
+  return (
+    isRecord(value) &&
+    typeof value.chatId === "string" &&
+    (value.state === "idle" ||
+      value.state === "thinking" ||
+      value.state === "working") &&
+    (value.summary === undefined || typeof value.summary === "string")
+  );
+}
+
+export function isChatActivitiesRequest(value: unknown): boolean {
+  return isRecord(value) && value.type === CHAT_ACTIVITIES_REQUEST;
+}
+
+export function isChatActivitiesResponse(
+  value: unknown,
+): value is ChatActivitiesResponse {
+  return (
+    isRecord(value) &&
+    typeof value.ok === "boolean" &&
+    (value.ok
+      ? Array.isArray(value.activities) &&
+        value.activities.every(isChatActivityStatus)
+      : typeof value.error === "string")
+  );
+}
+
+export function isChatActivityChangedMessage(
+  value: unknown,
+): value is ChatActivityChangedMessage {
+  return (
+    isRecord(value) &&
+    value.type === CHAT_ACTIVITY_CHANGED &&
+    isChatActivityStatus(value.activity)
+  );
 }
 
 function isCampaignStatus(value: unknown): value is CampaignStatus {

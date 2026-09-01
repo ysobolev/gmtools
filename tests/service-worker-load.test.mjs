@@ -117,6 +117,18 @@ test("the generated service worker starts without browser-global errors", async 
     origin: "chrome-extension://extension-id",
     tab: { id: 42 },
   };
+  const activitiesResponse = await new Promise((resolve) => {
+    for (const listener of listeners.get("message")) {
+      listener(
+        { type: "GMTOOLS_CHAT_ACTIVITIES" },
+        optionsSender,
+        resolve,
+      );
+    }
+  });
+  assert.equal(activitiesResponse.ok, true);
+  assert.equal(activitiesResponse.activities.length, 0);
+
   const statusResponse = await new Promise((resolve) => {
     for (const listener of listeners.get("message")) {
       listener({ type: "GMTOOLS_AUTH_STATUS" }, optionsSender, resolve);
