@@ -21,6 +21,7 @@ import {
   type OpenRouterKeyInfo,
 } from "./openrouter-auth";
 import { reconstructCompletedConversation } from "./chat-persistence";
+import { getChatStreamError } from "./chat-stream-outcome";
 import {
   buildProfileInstructions,
   DEFAULT_PROFILE,
@@ -1831,6 +1832,7 @@ async function streamChat(
     messages: untrustedMessages,
   });
   if (!validation.success) throw new Error("The chat history is invalid.");
+  await persistConversationInput(job, validation.data);
 
   const stored = await readStoredAuth();
   if (typeof stored.openRouterApiKey !== "string") {
@@ -2096,9 +2098,31 @@ async function streamChat(
       chunk,
     }));
   }
+  const streamError = getChatStreamError(job.chunks);
+  if (streamError) {
+    finishJob(job, { type: "error", error: streamError });
+    debug.group("Conversation failed", { Error: streamError });
+    return;
+  }
   await persistCompletedConversation(job, validation.data);
   finishJob(job, { type: "complete" });
   debug.group("Conversation completed", {});
+}
+
+async function persistConversationInput(
+  job: ConversationJob,
+  inputMessages: readonly UIMessage[],
+): Promise<void> {
+  try {
+    await saveChatMessages(job.chatId, inputMessages);
+    job.debug.group("Conversation input saved", {
+      "Message count": inputMessages.length,
+    });
+  } catch (error) {
+    job.debug.group("Conversation input save failed", {
+      Error: modelErrorDebugDetails(error),
+    });
+  }
 }
 
 async function persistCompletedConversation(
@@ -2256,7 +2280,16 @@ chrome.runtime.onConnect.addListener((port) => {
       return;
     }
 
-    const existingJob = conversationJobs.get(message.chatId);
+    let existingJob = conversationJobs.get(message.chatId);
+    if (
+      existingJob?.terminal &&
+      (existingJob.terminal.type === "error" ||
+        getChatStreamError(existingJob.chunks))
+    ) {
+      setJobActivity(existingJob, "idle");
+      conversationJobs.delete(message.chatId);
+      existingJob = undefined;
+    }
     if (existingJob || pendingConversationStarts.has(message.chatId)) {
       postToPort(port, {
         type: CHAT_ERROR,
