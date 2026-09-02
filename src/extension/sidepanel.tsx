@@ -38,7 +38,6 @@ import {
   getStoredChat,
   listChats,
   renameChat,
-  saveChatMessages,
   saveChatImage,
   updateChatProfile,
   type ChatNotice,
@@ -460,7 +459,6 @@ function ChatScreen({
   >(null);
   const activeTurnRef = useRef(false);
   const safeMessagesRef = useRef(initialMessages);
-  const persistenceQueueRef = useRef<Promise<void>>(Promise.resolve());
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const busy = status === "submitted" || status === "streaming";
@@ -478,13 +476,6 @@ function ChatScreen({
     () => groupChatsByCampaign(chats),
     [chats],
   );
-
-  const persistMessages = useCallback((nextMessages: UIMessage[]) => {
-    persistenceQueueRef.current = persistenceQueueRef.current
-      .catch(() => undefined)
-      .then(() => saveChatMessages(chatId, nextMessages));
-    return persistenceQueueRef.current;
-  }, [chatId]);
 
   useEffect(() => {
     let active = true;
@@ -573,7 +564,6 @@ function ChatScreen({
     if (status === "submitted") {
       activeTurnRef.current = true;
       safeMessagesRef.current = messages;
-      void persistMessages(messages);
       return;
     }
     if (status === "streaming") {
@@ -583,10 +573,9 @@ function ChatScreen({
     if (status === "ready" && activeTurnRef.current) {
       activeTurnRef.current = false;
       safeMessagesRef.current = messages;
-      void persistMessages(messages)
-        .then(() => sendChatControl(CHAT_COMMIT, chatId));
+      sendChatControl(CHAT_COMMIT, chatId);
     }
-  }, [chatId, messages, persistMessages, status]);
+  }, [chatId, messages, status]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: busy ? "auto" : "smooth" });
@@ -1304,7 +1293,6 @@ function ChatWorkspace(): React.JSX.Element {
         messages: loaded.messages,
       });
       const messages = validation.success ? validation.data : [];
-      if (!validation.success) await saveChatMessages(chat.id, messages);
       await chrome.storage.local.set({ [ACTIVE_CHAT_STORAGE_KEY]: chat.id });
       if (cancelled) return;
       setProfiles(loadedProfiles);
@@ -1418,7 +1406,6 @@ function ChatWorkspace(): React.JSX.Element {
       messages: loaded.messages,
     });
     const messages = validation.success ? validation.data : [];
-    if (!validation.success) await saveChatMessages(chat.id, messages);
     await chrome.storage.local.set({ [ACTIVE_CHAT_STORAGE_KEY]: chat.id });
     setCurrentChat({ chat, messages });
     setChats(await listChats());
