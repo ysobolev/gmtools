@@ -381,11 +381,26 @@ h1 {
 }
 
 .chat-delete-confirm {
-  margin: 8px;
+  position: absolute;
+  z-index: 11;
+  top: clamp(72px, 18vh, 150px);
+  left: 50%;
+  width: min(270px, calc(100% - 32px));
   padding: 11px;
   border: 1px solid rgb(205 91 70 / 42%);
   border-radius: 9px;
   background: #1b171b;
+  box-shadow: 0 14px 36px rgb(0 0 0 / 42%);
+  transform: translateX(-50%);
+}
+
+.chat-delete-modal-backdrop {
+  position: absolute;
+  z-index: 10;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: rgb(0 0 0 / 24%);
 }
 
 .chat-delete-confirm p {

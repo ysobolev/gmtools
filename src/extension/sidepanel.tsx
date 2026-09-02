@@ -678,7 +678,15 @@ function ChatScreen({
                 </section>
               ))}
             </div>
-            {deleteCandidate ? (
+          </aside>
+          {deleteCandidate ? (
+            <>
+              <button
+                aria-label="Cancel chat deletion"
+                className="chat-delete-modal-backdrop"
+                onClick={() => setDeleteCandidateId(null)}
+                type="button"
+              />
               <div
                 aria-label="Confirm chat deletion"
                 className="chat-delete-confirm"
@@ -704,8 +712,8 @@ function ChatScreen({
                   </button>
                 </div>
               </div>
-            ) : null}
-          </aside>
+            </>
+          ) : null}
         </>
       ) : null}
       <header className="chat-header">
