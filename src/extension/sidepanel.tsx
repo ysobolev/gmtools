@@ -2,6 +2,7 @@ import { useChat } from "@ai-sdk/react";
 import { safeValidateUIMessages, type UIMessage } from "ai";
 import {
   FormEvent,
+  ClipboardEvent,
   DragEvent,
   KeyboardEvent,
   useCallback,
@@ -32,14 +33,25 @@ import {
   clearChatContent,
   createChat,
   deleteChat,
+  deleteChatImage,
+  getChatImage,
   getStoredChat,
   listChats,
   renameChat,
   saveChatMessages,
+  saveChatImage,
   updateChatProfile,
   type ChatNotice,
   type ChatRecord,
 } from "./chat-store";
+import {
+  MAX_PENDING_IMAGES,
+  MAX_UPLOADED_IMAGE_BYTES,
+  createUploadedImagePart,
+  isSupportedUploadedImageType,
+  isUploadedImagePart,
+  type UploadedImageReference,
+} from "./chat-images";
 import {
   applyDisplayTheme,
   DEFAULT_DISPLAY_THEME,
@@ -161,6 +173,52 @@ function GeneratedImage({
       src={image.url}
       title={draggable ? "Drag into Roll20 to upload" : undefined}
     />
+  );
+}
+
+function UploadedImagePreview({
+  chatId,
+  image,
+  onRemove,
+}: {
+  readonly chatId: string;
+  readonly image: UploadedImageReference;
+  readonly onRemove?: () => void;
+}): React.JSX.Element {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | undefined;
+    void getChatImage(chatId, image.imageId).then((stored) => {
+      if (!active || !stored) return;
+      objectUrl = URL.createObjectURL(stored.blob);
+      setUrl(objectUrl);
+    });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [chatId, image.imageId]);
+
+  return (
+    <figure className="uploaded-image-preview">
+      {url ? (
+        <img alt={image.filename} src={url} />
+      ) : (
+        <span aria-hidden="true">…</span>
+      )}
+      <figcaption title={image.filename}>{image.filename}</figcaption>
+      {onRemove ? (
+        <button
+          aria-label={`Remove ${image.filename}`}
+          onClick={onRemove}
+          type="button"
+        >
+          ×
+        </button>
+      ) : null}
+    </figure>
   );
 }
 
@@ -378,6 +436,12 @@ function ChatScreen({
     resume: true,
   });
   const [input, setInput] = useState("");
+  const [pendingImages, setPendingImages] = useState<UploadedImageReference[]>(
+    [],
+  );
+  const pendingImagesRef = useRef<UploadedImageReference[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [draggingImages, setDraggingImages] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(chat.title);
@@ -540,13 +604,91 @@ function ChatScreen({
     setEditingTitle(false);
   }, [chat.id, chat.title]);
 
+  const addImageFiles = useCallback(async (files: readonly File[]) => {
+    if (busy || files.length === 0) return;
+    setAttachmentError(null);
+    const available = MAX_PENDING_IMAGES - pendingImages.length;
+    if (available <= 0) {
+      setAttachmentError(
+        `You can attach up to ${MAX_PENDING_IMAGES} images per message.`,
+      );
+      return;
+    }
+    const accepted: File[] = [];
+    for (const file of files) {
+      if (!isSupportedUploadedImageType(file.type)) {
+        setAttachmentError("Only PNG, JPEG, GIF, and WebP images are supported.");
+        continue;
+      }
+      if (file.size > MAX_UPLOADED_IMAGE_BYTES) {
+        setAttachmentError(
+          `Images must be ${MAX_UPLOADED_IMAGE_BYTES / 1024 / 1024} MB or smaller.`,
+        );
+        continue;
+      }
+      if (accepted.length < available) accepted.push(file);
+    }
+    if (files.length > available) {
+      setAttachmentError(
+        `You can attach up to ${MAX_PENDING_IMAGES} images per message.`,
+      );
+    }
+    try {
+      const stored = await Promise.all(
+        accepted.map((file) => saveChatImage(chatId, file)),
+      );
+      const references = stored.map((image) => ({
+        imageId: image.id,
+        filename: image.filename,
+        mediaType: image.mediaType,
+        size: image.size,
+      }));
+      setPendingImages((existing) => {
+        const next = [...existing, ...references];
+        pendingImagesRef.current = next;
+        return next;
+      });
+    } catch (uploadError) {
+      setAttachmentError(
+        uploadError instanceof Error
+          ? uploadError.message
+          : "Could not store the image.",
+      );
+    }
+  }, [busy, chatId, pendingImages.length]);
+
+  const removePendingImage = useCallback((imageId: string): void => {
+    setPendingImages((existing) => {
+      const next = existing.filter((image) => image.imageId !== imageId);
+      pendingImagesRef.current = next;
+      return next;
+    });
+    void deleteChatImage(chatId, imageId);
+  }, [chatId]);
+
   const submit = useCallback(() => {
     const text = input.trim();
-    if (!text || busy) return;
+    if ((!text && pendingImages.length === 0) || busy) return;
     clearError();
     setInput("");
-    void sendMessage({ text });
-  }, [busy, clearError, input, sendMessage]);
+    setAttachmentError(null);
+    const images = pendingImages;
+    pendingImagesRef.current = [];
+    setPendingImages([]);
+    void sendMessage({
+      parts: [
+        ...images.map(createUploadedImagePart),
+        ...(text ? [{ type: "text" as const, text }] : []),
+      ],
+    });
+  }, [busy, clearError, input, pendingImages, sendMessage]);
+
+  useEffect(() => () => {
+    for (const image of pendingImagesRef.current) {
+      void deleteChatImage(chatId, image.imageId);
+    }
+    pendingImagesRef.current = [];
+  }, [chatId]);
 
   const handleSubmit = (event: FormEvent): void => {
     event.preventDefault();
@@ -558,6 +700,24 @@ function ChatScreen({
       event.preventDefault();
       submit();
     }
+  };
+
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
+    const images = [...event.clipboardData.files].filter((file) =>
+      file.type.startsWith("image/"),
+    );
+    if (images.length === 0) return;
+    event.preventDefault();
+    void addImageFiles(images);
+  };
+
+  const handleDrop = (event: DragEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    setDraggingImages(false);
+    const images = [...event.dataTransfer.files].filter((file) =>
+      file.type.startsWith("image/"),
+    );
+    if (images.length > 0) void addImageFiles(images);
   };
 
   const clearConversation = (): void => {
@@ -873,6 +1033,12 @@ function ChatScreen({
                 message.role === "assistant"
                   ? getDisplayableAssistantImages(message.parts)
                   : [];
+              const uploadedImages =
+                message.role === "user"
+                  ? message.parts
+                      .filter(isUploadedImagePart)
+                      .map((part) => part.data)
+                  : [];
               const embeddedImageCount = Math.min(
                 images.length,
                 countMarkdownImageReferences(text),
@@ -889,7 +1055,8 @@ function ChatScreen({
               if (
                 !text &&
                 assistantBlocks.length === 0 &&
-                images.length === 0
+                images.length === 0 &&
+                uploadedImages.length === 0
               ) {
                 return null;
               }
@@ -935,7 +1102,20 @@ function ChatScreen({
                       );
                     })
                   ) : (
-                    <div className="message-text">{text}</div>
+                    <>
+                      {uploadedImages.length > 0 ? (
+                        <div className="uploaded-image-grid message-images">
+                          {uploadedImages.map((image) => (
+                            <UploadedImagePreview
+                              chatId={chatId}
+                              image={image}
+                              key={image.imageId}
+                            />
+                          ))}
+                        </div>
+                      ) : null}
+                      {text ? <div className="message-text">{text}</div> : null}
+                    </>
                   )}
                   {visibleTrailingImages.map((image, index) => (
                     <GeneratedImage
@@ -974,12 +1154,44 @@ function ChatScreen({
             </button>
           </div>
         ) : null}
-        <form className="composer" onSubmit={handleSubmit}>
+        {attachmentError ? (
+          <div className="attachment-error" role="alert">
+            {attachmentError}
+          </div>
+        ) : null}
+        {pendingImages.length > 0 ? (
+          <div className="uploaded-image-grid pending-images">
+            {pendingImages.map((image) => (
+              <UploadedImagePreview
+                chatId={chatId}
+                image={image}
+                key={image.imageId}
+                onRemove={() => removePendingImage(image.imageId)}
+              />
+            ))}
+          </div>
+        ) : null}
+        <form
+          className={draggingImages ? "composer image-dragging" : "composer"}
+          onDragEnter={(event) => {
+            event.preventDefault();
+            if (!busy) setDraggingImages(true);
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              setDraggingImages(false);
+            }
+          }}
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={handleDrop}
+          onSubmit={handleSubmit}
+        >
           <textarea
             aria-label="Message GM Tools"
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask your GM assistant…"
+            onPaste={handlePaste}
+            placeholder="Ask, paste, or drop an image…"
             ref={textareaRef}
             rows={1}
             value={input}
@@ -997,7 +1209,7 @@ function ChatScreen({
             <button
               aria-label="Send message"
               className="send-button"
-              disabled={!input.trim()}
+              disabled={!input.trim() && pendingImages.length === 0}
               type="submit"
             >
               ↑

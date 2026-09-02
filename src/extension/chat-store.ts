@@ -1,11 +1,22 @@
 export const CHAT_DATABASE_NAME = "gmToolsChats";
-export const CHAT_DATABASE_VERSION = 1;
+export const CHAT_DATABASE_VERSION = 2;
 export const ACTIVE_CHAT_STORAGE_KEY = "gmToolsActiveChatId";
 export const DEFAULT_CHAT_TITLE = "New Chat";
 export const MAX_CHAT_TITLE_LENGTH = 120;
 
 const CHATS_STORE = "chats";
 const MESSAGES_STORE = "messages";
+const IMAGES_STORE = "images";
+
+export interface StoredChatImage {
+  readonly id: string;
+  readonly chatId: string;
+  readonly filename: string;
+  readonly mediaType: string;
+  readonly size: number;
+  readonly blob: Blob;
+  readonly createdAt: number;
+}
 
 export interface ChatNotice {
   readonly id: string;
@@ -139,6 +150,12 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!database.objectStoreNames.contains(MESSAGES_STORE)) {
         database.createObjectStore(MESSAGES_STORE, { keyPath: "chatId" });
       }
+      if (!database.objectStoreNames.contains(IMAGES_STORE)) {
+        const images = database.createObjectStore(IMAGES_STORE, {
+          keyPath: "id",
+        });
+        images.createIndex("chatId", "chatId");
+      }
     };
     request.onsuccess = () => {
       const database = request.result;
@@ -259,7 +276,7 @@ export async function saveChatMessages(
 export async function clearChatContent(chatId: string): Promise<ChatRecord> {
   const database = await openDatabase();
   const transaction = database.transaction(
-    [CHATS_STORE, MESSAGES_STORE],
+    [CHATS_STORE, MESSAGES_STORE, IMAGES_STORE],
     "readwrite",
   );
   const chats = transaction.objectStore(CHATS_STORE);
@@ -279,6 +296,14 @@ export async function clearChatContent(chatId: string): Promise<ChatRecord> {
     messages: [],
     updatedAt: updated.updatedAt,
   } satisfies ChatMessagesRecord);
+  transaction.objectStore(IMAGES_STORE).index("chatId").openKeyCursor(
+    IDBKeyRange.only(chatId),
+  ).onsuccess = (event) => {
+    const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
+    if (!cursor) return;
+    transaction.objectStore(IMAGES_STORE).delete(cursor.primaryKey);
+    cursor.continue();
+  };
   await transactionComplete(transaction);
   return updated;
 }
@@ -303,11 +328,78 @@ export async function renameChat(
 export async function deleteChat(chatId: string): Promise<void> {
   const database = await openDatabase();
   const transaction = database.transaction(
-    [CHATS_STORE, MESSAGES_STORE],
+    [CHATS_STORE, MESSAGES_STORE, IMAGES_STORE],
     "readwrite",
   );
   transaction.objectStore(CHATS_STORE).delete(chatId);
   transaction.objectStore(MESSAGES_STORE).delete(chatId);
+  transaction.objectStore(IMAGES_STORE).index("chatId").openKeyCursor(
+    IDBKeyRange.only(chatId),
+  ).onsuccess = (event) => {
+    const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
+    if (!cursor) return;
+    transaction.objectStore(IMAGES_STORE).delete(cursor.primaryKey);
+    cursor.continue();
+  };
+  await transactionComplete(transaction);
+}
+
+export async function saveChatImage(
+  chatId: string,
+  file: File,
+): Promise<StoredChatImage> {
+  const database = await openDatabase();
+  const transaction = database.transaction(
+    [CHATS_STORE, IMAGES_STORE],
+    "readwrite",
+  );
+  const chatValue: unknown = await requestResult(
+    transaction.objectStore(CHATS_STORE).get(chatId),
+  );
+  if (!isChatRecord(chatValue)) {
+    transaction.abort();
+    throw new Error("The chat no longer exists.");
+  }
+  const image: StoredChatImage = {
+    id: crypto.randomUUID(),
+    chatId,
+    filename: file.name.trim() || "pasted-image",
+    mediaType: file.type,
+    size: file.size,
+    blob: file,
+    createdAt: Date.now(),
+  };
+  transaction.objectStore(IMAGES_STORE).add(image);
+  await transactionComplete(transaction);
+  return image;
+}
+
+export async function getChatImage(
+  chatId: string,
+  imageId: string,
+): Promise<StoredChatImage | undefined> {
+  const database = await openDatabase();
+  const transaction = database.transaction(IMAGES_STORE, "readonly");
+  const value: unknown = await requestResult(
+    transaction.objectStore(IMAGES_STORE).get(imageId),
+  );
+  await transactionComplete(transaction);
+  if (typeof value !== "object" || value === null) return undefined;
+  const image = value as Partial<StoredChatImage>;
+  return image.chatId === chatId && image.blob instanceof Blob
+    ? (image as StoredChatImage)
+    : undefined;
+}
+
+export async function deleteChatImage(
+  chatId: string,
+  imageId: string,
+): Promise<void> {
+  const image = await getChatImage(chatId, imageId);
+  if (!image) return;
+  const database = await openDatabase();
+  const transaction = database.transaction(IMAGES_STORE, "readwrite");
+  transaction.objectStore(IMAGES_STORE).delete(imageId);
   await transactionComplete(transaction);
 }
 

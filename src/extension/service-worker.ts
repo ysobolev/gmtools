@@ -31,11 +31,16 @@ import {
 } from "./profile-config";
 import {
   getChat,
+  getChatImage,
   saveChatMessages,
   updateChatCampaign,
   updateChatProfile,
   type ChatNotice,
 } from "./chat-store";
+import {
+  isUploadedImagePart,
+  uploadedImagePrompt,
+} from "./chat-images";
 import { KeyedExecutionQueue } from "./keyed-execution-queue";
 import {
   AUTH_CONNECT_REQUEST,
@@ -1841,6 +1846,59 @@ async function streamChat(
   });
   const tools = {
     image_generation: createOpenRouterImageGenerationTool(),
+    inspect_image: tool({
+      description:
+        "Load one user-attached image for visual inspection. Call this only when seeing the image would help answer the request. Use an imageId supplied in an attached-image notice; never invent an ID.",
+      inputSchema: jsonSchema<{ readonly imageId: string }>({
+        type: "object",
+        properties: {
+          imageId: {
+            type: "string",
+            minLength: 1,
+            description: "The exact imageId from an attached-image notice.",
+          },
+        },
+        required: ["imageId"],
+        additionalProperties: false,
+      }),
+      execute: async ({ imageId }) => {
+        const image = await getChatImage(job.chatId, imageId);
+        if (!image) throw new Error("The attached image is no longer available.");
+        return {
+          imageId: image.id,
+          filename: image.filename,
+          mediaType: image.mediaType,
+          size: image.size,
+        };
+      },
+      toModelOutput: async ({ output }) => {
+        const image = await getChatImage(job.chatId, output.imageId);
+        if (!image) {
+          return {
+            type: "error-text" as const,
+            value: "The attached image is no longer available.",
+          };
+        }
+        return {
+          type: "content" as const,
+          value: [
+            {
+              type: "text" as const,
+              text: `User-attached image: ${image.filename}`,
+            },
+            {
+              type: "file" as const,
+              data: {
+                type: "data" as const,
+                data: new Uint8Array(await image.blob.arrayBuffer()),
+              },
+              mediaType: image.mediaType,
+              filename: image.filename,
+            },
+          ],
+        };
+      },
+    }),
     web_search: createOpenRouterWebSearchTool(),
     web_fetch: createOpenRouterWebFetchTool(job.unrestrictedWebFetchEnabled),
     execute_roll20: tool({
@@ -1995,6 +2053,7 @@ async function streamChat(
   };
   const activeTools: Array<keyof typeof tools> = [
     "image_generation",
+    "inspect_image",
     "web_fetch",
   ];
   if (job.campaignId) activeTools.push("execute_roll20");
@@ -2004,7 +2063,12 @@ async function streamChat(
     system: buildProfileInstructions(profile, {
       roll20Available: Boolean(job.campaignId),
     }),
-    messages: await convertToModelMessages(validation.data),
+    messages: await convertToModelMessages(validation.data, {
+      convertDataPart: (part) =>
+        isUploadedImagePart(part)
+          ? { type: "text", text: uploadedImagePrompt(part.data) }
+          : undefined,
+    }),
     tools,
     activeTools,
     stopWhen: isStepCount(job.maxSteps),
