@@ -82,12 +82,10 @@ import {
 } from "../protocol";
 import { EXTENSION_BUILD_ID, EXTENSION_VERSION } from "../build-info";
 import {
-  BACKGROUND_EXECUTION_STORAGE_KEY,
   DEBUG_LOGGING_STORAGE_KEY,
   MAX_STEPS_STORAGE_KEY,
   UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
   WEB_SEARCH_STORAGE_KEY,
-  isBackgroundExecutionEnabled,
   isDebugLoggingEnabled,
   isUnrestrictedWebFetchEnabled,
   isWebSearchEnabled,
@@ -244,7 +242,6 @@ type ConversationTerminal =
 interface ConversationJob {
   readonly chatId: string;
   readonly profileId: string;
-  readonly backgroundEnabled: boolean;
   readonly unrestrictedWebFetchEnabled: boolean;
   readonly webSearchEnabled: boolean;
   readonly maxSteps: number;
@@ -578,7 +575,7 @@ chrome.runtime.onMessage.addListener(
     }
     const job = conversationJobs.get(message.chatId);
     if (message.type === CHAT_RESUME_QUERY) {
-      sendResponse({ ok: true, available: job?.backgroundEnabled === true });
+      sendResponse({ ok: true, available: job !== undefined });
       return;
     }
     if (message.type === CHAT_CLEAR) {
@@ -1545,7 +1542,6 @@ async function executeRoll20(
   toolCallId: string,
   expectedCampaignId: string,
   boundTabId: number,
-  backgroundEnabled: boolean,
 ): Promise<Roll20ExecutionOutcome> {
   if (!code.trim()) throw new Error("execute_roll20 received empty code.");
   if (code.length > MAX_ROLL20_CODE_LENGTH) {
@@ -1553,14 +1549,10 @@ async function executeRoll20(
   }
 
   let tab: chrome.tabs.Tab;
-  if (backgroundEnabled) {
-    try {
-      tab = await getBoundRoll20Tab(boundTabId);
-    } catch (error) {
-      throw new Roll20TabUnavailableBeforeDispatchError(errorMessage(error));
-    }
-  } else {
-    tab = await findActiveRoll20Tab();
+  try {
+    tab = await getBoundRoll20Tab(boundTabId);
+  } catch (error) {
+    throw new Roll20TabUnavailableBeforeDispatchError(errorMessage(error));
   }
   if (tab.id !== boundTabId) {
     throw new Error(
@@ -1693,7 +1685,6 @@ function queueRoll20Execution(
   toolCallId: string,
   expectedCampaignId: string,
   boundTabId: number,
-  backgroundEnabled: boolean,
 ): Promise<Roll20ExecutionOutcome> {
   return roll20ExecutionQueues.run(expectedCampaignId, () =>
     executeRoll20(
@@ -1704,7 +1695,6 @@ function queueRoll20Execution(
       toolCallId,
       expectedCampaignId,
       boundTabId,
-      backgroundEnabled,
     ),
   );
 }
@@ -1889,7 +1879,6 @@ async function streamChat(
               toolCallId,
               target.campaignId,
               target.tabId,
-              job.backgroundEnabled,
             );
           const initialTarget = await ensureJobCampaignBinding(job);
           try {
@@ -2194,11 +2183,6 @@ function finishJob(job: ConversationJob, terminal: ConversationTerminal): void {
       ? { type: CHAT_COMPLETE, requestId }
       : { type: CHAT_ERROR, requestId, error: terminal.error },
   );
-  if (!job.backgroundEnabled && job.subscribers.size === 0) {
-    if (conversationJobs.get(job.chatId) === job) {
-      conversationJobs.delete(job.chatId);
-    }
-  }
 }
 
 function discardAbortedJob(job: ConversationJob): void {
@@ -2278,7 +2262,7 @@ chrome.runtime.onConnect.addListener((port) => {
     if (attachedJob) return;
     if (message.type === CHAT_RESUME) {
       const job = conversationJobs.get(message.chatId);
-      if (!job?.backgroundEnabled) {
+      if (!job) {
         postToPort(port, {
           type: CHAT_ERROR,
           requestId: message.requestId,
@@ -2324,14 +2308,10 @@ chrome.runtime.onConnect.addListener((port) => {
       );
       const preferences = await chrome.storage.local.get([
         DEBUG_LOGGING_STORAGE_KEY,
-        BACKGROUND_EXECUTION_STORAGE_KEY,
         MAX_STEPS_STORAGE_KEY,
         UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
         WEB_SEARCH_STORAGE_KEY,
       ]);
-      const backgroundEnabled = isBackgroundExecutionEnabled(
-        preferences[BACKGROUND_EXECUTION_STORAGE_KEY],
-      );
       const debug = createDebugLogger(
         isDebugLoggingEnabled(preferences[DEBUG_LOGGING_STORAGE_KEY]),
         message.chatId,
@@ -2348,11 +2328,9 @@ chrome.runtime.onConnect.addListener((port) => {
         ? await getCampaignRoute(campaignBinding.campaignId)
         : undefined;
       if (abortController.signal.aborted) return;
-      if (disconnected && !backgroundEnabled) return;
       const job: ConversationJob = {
         chatId: message.chatId,
         profileId: profile.id,
-        backgroundEnabled,
         unrestrictedWebFetchEnabled,
         webSearchEnabled,
         maxSteps,
@@ -2376,7 +2354,6 @@ chrome.runtime.onConnect.addListener((port) => {
       if (!disconnected) attachToJob(job, port, message.requestId);
       setJobActivity(job, "thinking");
       debug.group("Conversation context", {
-        "Background execution": backgroundEnabled,
         "Unrestricted web fetch": unrestrictedWebFetchEnabled,
         "Web search": webSearchEnabled,
         "Maximum steps": maxSteps,
@@ -2419,9 +2396,6 @@ chrome.runtime.onConnect.addListener((port) => {
     const job = attachedJob;
     if (!job) return;
     job.subscribers.delete(port);
-    job.debug.group("Conversation detached", {
-      "Background execution": job.backgroundEnabled,
-    });
-    if (!job.backgroundEnabled && !job.terminal) job.abortController.abort();
+    job.debug.group("Conversation detached", {});
   });
 });

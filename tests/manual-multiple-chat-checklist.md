@@ -1,7 +1,7 @@
 # Multiple-chat robustness checklist
 
-Run these checks with console debugging enabled. Unless a check says otherwise,
-enable background execution and use chats with saved campaign bindings.
+Run these checks with console debugging enabled and chats with saved campaign
+bindings.
 
 ## Conversation lifecycle
 

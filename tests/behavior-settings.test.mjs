@@ -21,13 +21,6 @@ test("enables debug logging only for an explicit true preference", () => {
   assert.equal(behavior.isDebugLoggingEnabled(undefined), false);
 });
 
-test("enables background execution only for an explicit true preference", () => {
-  assert.equal(behavior.isBackgroundExecutionEnabled(true), true);
-  assert.equal(behavior.isBackgroundExecutionEnabled(false), false);
-  assert.equal(behavior.isBackgroundExecutionEnabled("true"), false);
-  assert.equal(behavior.isBackgroundExecutionEnabled(undefined), false);
-});
-
 test("enables unrestricted web fetch only for an explicit true preference", () => {
   assert.equal(behavior.isUnrestrictedWebFetchEnabled(true), true);
   assert.equal(behavior.isUnrestrictedWebFetchEnabled(false), false);

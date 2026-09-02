@@ -1,7 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  BACKGROUND_EXECUTION_STORAGE_KEY,
   DEFAULT_MAX_STEPS,
   DEBUG_LOGGING_STORAGE_KEY,
   MAX_MAX_STEPS,
@@ -9,7 +8,6 @@ import {
   MIN_MAX_STEPS,
   UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
   WEB_SEARCH_STORAGE_KEY,
-  isBackgroundExecutionEnabled,
   isDebugLoggingEnabled,
   isUnrestrictedWebFetchEnabled,
   isWebSearchEnabled,
@@ -521,23 +519,19 @@ function AuthenticationSettings({
 }
 
 function BehaviorSettings({
-  backgroundExecutionEnabled,
   debugLoggingEnabled,
   maxSteps,
   unrestrictedWebFetchEnabled,
   webSearchEnabled,
-  onBackgroundExecutionChange,
   onDebugLoggingChange,
   onMaxStepsChange,
   onUnrestrictedWebFetchChange,
   onWebSearchChange,
 }: {
-  readonly backgroundExecutionEnabled: boolean;
   readonly debugLoggingEnabled: boolean;
   readonly maxSteps: number;
   readonly unrestrictedWebFetchEnabled: boolean;
   readonly webSearchEnabled: boolean;
-  readonly onBackgroundExecutionChange: (enabled: boolean) => void;
   readonly onDebugLoggingChange: (enabled: boolean) => void;
   readonly onMaxStepsChange: (steps: number) => void;
   readonly onUnrestrictedWebFetchChange: (enabled: boolean) => void;
@@ -594,24 +588,6 @@ function BehaviorSettings({
 
         <label className="toggle-card behavior-card">
           <input
-            checked={backgroundExecutionEnabled}
-            onChange={(event) =>
-              onBackgroundExecutionChange(event.target.checked)
-            }
-            type="checkbox"
-          />
-          <span>
-            <strong>Continue running tasks in the background</strong>
-            <small>
-              Keeps the active conversation and its Roll20 tool calls running
-              when the side panel is closed. Reopening the panel reconnects to
-              the task.
-            </small>
-          </span>
-        </label>
-
-        <label className="toggle-card behavior-card">
-          <input
             checked={unrestrictedWebFetchEnabled}
             onChange={(event) =>
               onUnrestrictedWebFetchChange(event.target.checked)
@@ -654,8 +630,6 @@ function BehaviorSettings({
 function OptionsApp(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<SettingsTab>("profiles");
   const [theme, setTheme] = useState<DisplayTheme>(DEFAULT_DISPLAY_THEME);
-  const [backgroundExecutionEnabled, setBackgroundExecutionEnabled] =
-    useState(false);
   const [debugLoggingEnabled, setDebugLoggingEnabled] = useState(false);
   const [unrestrictedWebFetchEnabled, setUnrestrictedWebFetchEnabled] =
     useState(false);
@@ -677,7 +651,6 @@ function OptionsApp(): React.JSX.Element {
     void chrome.storage.local
       .get([
         DEBUG_LOGGING_STORAGE_KEY,
-        BACKGROUND_EXECUTION_STORAGE_KEY,
         MAX_STEPS_STORAGE_KEY,
         UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
         WEB_SEARCH_STORAGE_KEY,
@@ -685,11 +658,6 @@ function OptionsApp(): React.JSX.Element {
       .then((stored) => {
         setDebugLoggingEnabled(
           isDebugLoggingEnabled(stored[DEBUG_LOGGING_STORAGE_KEY]),
-        );
-        setBackgroundExecutionEnabled(
-          isBackgroundExecutionEnabled(
-            stored[BACKGROUND_EXECUTION_STORAGE_KEY],
-          ),
         );
         setMaxSteps(normalizeMaxSteps(stored[MAX_STEPS_STORAGE_KEY]));
         setUnrestrictedWebFetchEnabled(
@@ -734,13 +702,6 @@ function OptionsApp(): React.JSX.Element {
   const changeDebugLogging = (enabled: boolean): void => {
     setDebugLoggingEnabled(enabled);
     void chrome.storage.local.set({ [DEBUG_LOGGING_STORAGE_KEY]: enabled });
-  };
-
-  const changeBackgroundExecution = (enabled: boolean): void => {
-    setBackgroundExecutionEnabled(enabled);
-    void chrome.storage.local.set({
-      [BACKGROUND_EXECUTION_STORAGE_KEY]: enabled,
-    });
   };
 
   const changeMaxSteps = (steps: number): void => {
@@ -855,10 +816,8 @@ function OptionsApp(): React.JSX.Element {
           </div>
           <div hidden={activeTab !== "behavior"}>
             <BehaviorSettings
-              backgroundExecutionEnabled={backgroundExecutionEnabled}
               debugLoggingEnabled={debugLoggingEnabled}
               maxSteps={maxSteps}
-              onBackgroundExecutionChange={changeBackgroundExecution}
               onDebugLoggingChange={changeDebugLogging}
               onMaxStepsChange={changeMaxSteps}
               onUnrestrictedWebFetchChange={changeUnrestrictedWebFetch}
