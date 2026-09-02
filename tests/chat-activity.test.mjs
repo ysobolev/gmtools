@@ -10,7 +10,12 @@ const { outputFiles } = await build({
   write: false,
 });
 const activitySource = outputFiles[0].text;
-const { getChatActivity, getRoll20Receipts } = await import(
+const {
+  getAssistantContentBlocks,
+  getChatActivity,
+  getRoll20Receipts,
+  hasActiveRoll20Status,
+} = await import(
   `data:text/javascript;base64,${Buffer.from(activitySource).toString("base64")}`
 );
 
@@ -218,4 +223,73 @@ test("omits active calls and historical calls without summaries", () => {
     ),
     [],
   );
+});
+
+test("preserves text and Roll20 status ordering", () => {
+  assert.deepEqual(
+    getAssistantContentBlocks(
+      assistant([
+        { type: "text", text: "First, I’ll inspect the sheet." },
+        {
+          type: "tool-execute_roll20",
+          toolCallId: "tool-1",
+          state: "output-available",
+          input: { summary: "inspecting Flippy", code: "return 1;" },
+          output: { ok: true, result: 1 },
+        },
+        { type: "text", text: "Now I’ll apply the change." },
+        {
+          type: "tool-execute_roll20",
+          toolCallId: "tool-2",
+          state: "output-error",
+          input: { summary: "updating Flippy", code: "return 2;" },
+          errorText: "Failed",
+        },
+        { type: "text", text: "The second step failed." },
+      ]),
+    ),
+    [
+      { type: "text", text: "First, I’ll inspect the sheet." },
+      {
+        type: "roll20-status",
+        receipt: {
+          toolCallId: "tool-1",
+          summary: "inspecting Flippy",
+          status: "completed",
+        },
+      },
+      { type: "text", text: "Now I’ll apply the change." },
+      {
+        type: "roll20-status",
+        receipt: {
+          toolCallId: "tool-2",
+          summary: "updating Flippy",
+          status: "failed",
+        },
+      },
+      { type: "text", text: "The second step failed." },
+    ],
+  );
+});
+
+test("places an active Roll20 call inline with a working status", () => {
+  const message = assistant([
+    { type: "text", text: "I’ll check that now." },
+    {
+      type: "tool-execute_roll20",
+      toolCallId: "tool-1",
+      state: "input-available",
+      input: { summary: "checking Flippy", code: "return 1;" },
+    },
+  ]);
+
+  assert.deepEqual(getAssistantContentBlocks(message).at(-1), {
+    type: "roll20-status",
+    receipt: {
+      toolCallId: "tool-1",
+      summary: "checking Flippy",
+      status: "working",
+    },
+  });
+  assert.equal(hasActiveRoll20Status(message), true);
 });

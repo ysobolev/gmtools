@@ -8,8 +8,12 @@ export interface ChatActivity {
 export interface Roll20Receipt {
   readonly toolCallId: string;
   readonly summary: string;
-  readonly status: "completed" | "failed";
+  readonly status: "working" | "completed" | "failed";
 }
+
+export type AssistantContentBlock =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "roll20-status"; readonly receipt: Roll20Receipt };
 
 function getToolSummary(part: unknown): string | undefined {
   if (typeof part !== "object" || part === null) return undefined;
@@ -33,25 +37,79 @@ function explicitlyReportsFailure(value: unknown): boolean {
   );
 }
 
+function getRoll20Status(
+  part: UIMessage["parts"][number],
+): Roll20Receipt | undefined {
+  if (!isToolUIPart(part) || part.type !== "tool-execute_roll20") {
+    return undefined;
+  }
+  const summary = getToolSummary(part);
+  if (
+    part.state === "input-streaming" ||
+    part.state === "input-available" ||
+    part.state === "approval-requested" ||
+    part.state === "approval-responded"
+  ) {
+    return {
+      toolCallId: part.toolCallId,
+      summary: summary ?? "working in Roll20",
+      status: "working",
+    };
+  }
+  if (!summary) return undefined;
+  if (part.state === "output-available") {
+    return {
+      toolCallId: part.toolCallId,
+      summary,
+      status: explicitlyReportsFailure(part.output) ? "failed" : "completed",
+    };
+  }
+  if (
+    part.state === "output-error" ||
+    part.state === "output-denied"
+  ) {
+    return { toolCallId: part.toolCallId, summary, status: "failed" };
+  }
+  return undefined;
+}
+
+export function getAssistantContentBlocks(
+  message: UIMessage,
+): AssistantContentBlock[] {
+  const blocks: AssistantContentBlock[] = [];
+  for (const part of message.parts) {
+    if (part.type === "text") {
+      if (!part.text) continue;
+      const previous = blocks.at(-1);
+      if (previous?.type === "text") {
+        blocks[blocks.length - 1] = {
+          type: "text",
+          text: previous.text + part.text,
+        };
+      } else {
+        blocks.push({ type: "text", text: part.text });
+      }
+      continue;
+    }
+    const receipt = getRoll20Status(part);
+    if (receipt) blocks.push({ type: "roll20-status", receipt });
+  }
+  return blocks;
+}
+
+export function hasActiveRoll20Status(message: UIMessage): boolean {
+  return getAssistantContentBlocks(message).some(
+    (block) =>
+      block.type === "roll20-status" && block.receipt.status === "working",
+  );
+}
+
 export function getRoll20Receipts(message: UIMessage): Roll20Receipt[] {
   const receipts: Roll20Receipt[] = [];
   for (const part of message.parts) {
     if (!isToolUIPart(part) || part.type !== "tool-execute_roll20") continue;
-    const summary = getToolSummary(part);
-    if (!summary) continue;
-    if (part.state === "output-available") {
-      receipts.push({
-        toolCallId: part.toolCallId,
-        summary,
-        status: explicitlyReportsFailure(part.output) ? "failed" : "completed",
-      });
-    } else if (part.state === "output-error" || part.state === "output-denied") {
-      receipts.push({
-        toolCallId: part.toolCallId,
-        summary,
-        status: "failed",
-      });
-    }
+    const receipt = getRoll20Status(part);
+    if (receipt && receipt.status !== "working") receipts.push(receipt);
   }
   return receipts;
 }

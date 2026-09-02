@@ -20,7 +20,12 @@ import {
   getDisplayableAssistantImages,
   isOpenRouterImageUrl,
 } from "./assistant-images";
-import { getChatActivity, getRoll20Receipts } from "./chat-activity";
+import {
+  getAssistantContentBlocks,
+  getChatActivity,
+  hasActiveRoll20Status,
+  type Roll20Receipt,
+} from "./chat-activity";
 import {
   ACTIVE_CHAT_STORAGE_KEY,
   MAX_CHAT_TITLE_LENGTH,
@@ -144,6 +149,36 @@ function GeneratedImage({
       src={image.url}
       title={draggable ? "Drag into Roll20 to upload" : undefined}
     />
+  );
+}
+
+function Roll20Status({
+  receipt,
+}: {
+  readonly receipt: Roll20Receipt;
+}): React.JSX.Element {
+  const label =
+    receipt.status === "working"
+      ? "Working"
+      : receipt.status === "completed"
+        ? "Completed"
+        : "Failed";
+  return (
+    <ul className="tool-receipts inline">
+      <li
+        aria-label={`${label}: ${receipt.summary}`}
+        className={`tool-receipt ${receipt.status}`}
+      >
+        <span aria-hidden="true" className="tool-receipt-icon">
+          {receipt.status === "working"
+            ? "…"
+            : receipt.status === "completed"
+              ? "✓"
+              : "✕"}
+        </span>
+        <span>{receipt.summary}</span>
+      </li>
+    </ul>
   );
 }
 
@@ -354,6 +389,12 @@ function ChatScreen({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const busy = status === "submitted" || status === "streaming";
   const activity = getChatActivity(status, messages);
+  const latestAssistantMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  const inlineRoll20Working = latestAssistantMessage
+    ? hasActiveRoll20Status(latestAssistantMessage)
+    : false;
   const deleteCandidate = chats.find(
     (candidate) => candidate.id === deleteCandidateId,
   );
@@ -799,8 +840,10 @@ function ChatScreen({
           <div className="message-list">
             {messages.map((message, messageIndex) => {
               const text = textFromMessage(message);
-              const receipts =
-                message.role === "assistant" ? getRoll20Receipts(message) : [];
+              const assistantBlocks =
+                message.role === "assistant"
+                  ? getAssistantContentBlocks(message)
+                  : [];
               const images =
                 message.role === "assistant"
                   ? getDisplayableAssistantImages(message.parts)
@@ -817,7 +860,12 @@ function ChatScreen({
                 messageIndex === messages.length - 1
                   ? []
                   : trailingImages;
-              if (!text && receipts.length === 0 && images.length === 0) {
+              let embeddedImageCursor = 0;
+              if (
+                !text &&
+                assistantBlocks.length === 0 &&
+                images.length === 0
+              ) {
                 return null;
               }
               return (
@@ -828,33 +876,39 @@ function ChatScreen({
                   <p className="message-author">
                     {message.role === "user" ? "You" : "GM Tools"}
                   </p>
-                  {receipts.length > 0 ? (
-                    <ul className="tool-receipts">
-                      {receipts.map((receipt) => (
-                        <li
-                          aria-label={`${receipt.status === "completed" ? "Completed" : "Failed"}: ${receipt.summary}`}
-                          className={`tool-receipt ${receipt.status}`}
-                          key={receipt.toolCallId}
-                        >
-                          <span aria-hidden="true" className="tool-receipt-icon">
-                            {receipt.status === "completed" ? "✓" : "✕"}
-                          </span>
-                          <span>{receipt.summary}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
                   {message.role === "assistant" ? (
-                    text ? (
-                      <div className="message-text message-markdown">
-                        <ReactMarkdown
-                          components={createMarkdownComponents(embeddedImages)}
-                          remarkPlugins={[remarkGfm]}
+                    assistantBlocks.map((block, blockIndex) => {
+                      if (block.type === "roll20-status") {
+                        return (
+                          <Roll20Status
+                            key={block.receipt.toolCallId}
+                            receipt={block.receipt}
+                          />
+                        );
+                      }
+                      const imageCount = Math.min(
+                        countMarkdownImageReferences(block.text),
+                        embeddedImages.length - embeddedImageCursor,
+                      );
+                      const blockImages = embeddedImages.slice(
+                        embeddedImageCursor,
+                        embeddedImageCursor + imageCount,
+                      );
+                      embeddedImageCursor += imageCount;
+                      return (
+                        <div
+                          className="message-text message-markdown"
+                          key={`text:${blockIndex}`}
                         >
-                          {text}
-                        </ReactMarkdown>
-                      </div>
-                    ) : null
+                          <ReactMarkdown
+                            components={createMarkdownComponents(blockImages)}
+                            remarkPlugins={[remarkGfm]}
+                          >
+                            {block.text}
+                          </ReactMarkdown>
+                        </div>
+                      );
+                    })
                   ) : (
                     <div className="message-text">{text}</div>
                   )}
@@ -867,7 +921,7 @@ function ChatScreen({
                 </article>
               );
             })}
-            {activity ? (
+            {activity && !inlineRoll20Working ? (
               <div
                 className={`activity-indicator ${activity.kind.toLowerCase()}`}
                 role="status"
