@@ -76,6 +76,35 @@ function sendChatControl(
 ): void {
   void chrome.runtime.sendMessage({ type, chatId }).catch(() => undefined);
 }
+
+interface CampaignChatGroup {
+  readonly key: string;
+  readonly name: string;
+  readonly chats: ChatRecord[];
+}
+
+function groupChatsByCampaign(
+  chats: readonly ChatRecord[],
+): CampaignChatGroup[] {
+  const groups = new Map<string, CampaignChatGroup>();
+  for (const chat of chats) {
+    const key = chat.campaignId ?? "unbound";
+    const existing = groups.get(key);
+    if (existing) {
+      existing.chats.push(chat);
+      continue;
+    }
+    groups.set(key, {
+      key,
+      name: chat.campaignId
+        ? chat.campaignName ?? "Unknown campaign"
+        : "No campaign",
+      chats: [chat],
+    });
+  }
+  return [...groups.values()];
+}
+
 function GeneratedImage({
   alt,
   image,
@@ -318,6 +347,10 @@ function ChatScreen({
   const deleteCandidate = chats.find(
     (candidate) => candidate.id === deleteCandidateId,
   );
+  const campaignChatGroups = useMemo(
+    () => groupChatsByCampaign(chats),
+    [chats],
+  );
 
   const persistMessages = useCallback((nextMessages: UIMessage[]) => {
     persistenceQueueRef.current = persistenceQueueRef.current
@@ -503,33 +536,32 @@ function ChatScreen({
               </button>
             </div>
             <div className="chat-drawer-list">
-              {chats.map((candidate) => {
-                const drawerActivity = chatActivities[candidate.id];
-                return (
-                  <div
-                    className={
-                      candidate.id === chatId
-                        ? "chat-drawer-item selected"
-                        : "chat-drawer-item"
-                    }
-                    key={candidate.id}
-                  >
-                    <button
-                      className="chat-drawer-select"
-                      onClick={() => switchChat(candidate.id)}
-                      type="button"
-                    >
-                      <strong>{candidate.title}</strong>
-                      <span className="chat-drawer-meta">
-                        <span>
-                          {candidate.campaignName ?? "No campaign bound"}
-                        </span>
-                        {drawerActivity &&
-                        (drawerActivity.state !== "unread" ||
-                          candidate.id !== chatId) ? (
-                          <span
-                            className={`chat-drawer-activity ${drawerActivity.state}`}
-                            title={drawerActivity.summary}
+              {campaignChatGroups.map((group) => (
+                <section className="chat-drawer-group" key={group.key}>
+                  <h3 title={group.name}>{group.name}</h3>
+                  {group.chats.map((candidate) => {
+                    const drawerActivity = chatActivities[candidate.id];
+                    return (
+                      <div
+                        className={
+                          candidate.id === chatId
+                            ? "chat-drawer-item selected"
+                            : "chat-drawer-item"
+                        }
+                        key={candidate.id}
+                      >
+                        <button
+                          className="chat-drawer-select"
+                          onClick={() => switchChat(candidate.id)}
+                          type="button"
+                        >
+                          <strong>{candidate.title}</strong>
+                          {drawerActivity &&
+                          (drawerActivity.state !== "unread" ||
+                            candidate.id !== chatId) ? (
+                            <span
+                              className={`chat-drawer-activity ${drawerActivity.state}`}
+                              title={drawerActivity.summary}
                           >
                             <span aria-hidden="true" />
                             {drawerActivity.state === "working"
@@ -537,22 +569,23 @@ function ChatScreen({
                               : drawerActivity.state === "unread"
                                 ? "New response"
                                 : "Thinking"}
-                          </span>
-                        ) : null}
-                      </span>
-                    </button>
-                    <button
-                      aria-label={`Delete ${candidate.title}`}
-                      className="chat-drawer-delete"
-                      onClick={() => setDeleteCandidateId(candidate.id)}
-                      title="Delete chat"
-                      type="button"
-                    >
-                      <span aria-hidden="true">×</span>
-                    </button>
-                  </div>
-                );
-              })}
+                            </span>
+                          ) : null}
+                        </button>
+                        <button
+                          aria-label={`Delete ${candidate.title}`}
+                          className="chat-drawer-delete"
+                          onClick={() => setDeleteCandidateId(candidate.id)}
+                          title="Delete chat"
+                          type="button"
+                        >
+                          <span aria-hidden="true">×</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </section>
+              ))}
             </div>
             {deleteCandidate ? (
               <div
