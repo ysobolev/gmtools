@@ -101,7 +101,7 @@ function groupChatsByCampaign(
 ): CampaignChatGroup[] {
   const groups = new Map<string, CampaignChatGroup>();
   for (const chat of chats) {
-    const key = chat.campaignId ?? "unbound";
+    const key = chat.campaignId ? `campaign:${chat.campaignId}` : "unbound";
     const existing = groups.get(key);
     if (existing) {
       existing.chats.push(chat);
@@ -115,7 +115,13 @@ function groupChatsByCampaign(
       chats: [chat],
     });
   }
-  return [...groups.values()];
+  return [...groups.values()].sort((left, right) => {
+    if (left.key === "unbound") return -1;
+    if (right.key === "unbound") return 1;
+    return left.name.localeCompare(right.name, undefined, {
+      sensitivity: "base",
+    });
+  });
 }
 
 function GeneratedImage({
@@ -454,7 +460,7 @@ function ChatScreen({
   const campaignLabel =
     campaignStatus.campaignId && campaignStatus.name
       ? campaignStatus.name
-      : "No campaign bound";
+      : "No campaign attached";
   const campaignBound = Boolean(
     campaignStatus.campaignId && campaignStatus.name,
   );
@@ -698,7 +704,12 @@ function ChatScreen({
                 className="chat-delete-confirm"
                 role="alertdialog"
               >
-                <p>Delete “{deleteCandidate.title}”?</p>
+                <p
+                  title={`Delete “${deleteCandidate.title}” from “${deleteCandidate.campaignName ?? "No campaign"}”?`}
+                >
+                  Delete “{deleteCandidate.title}” from “
+                  {deleteCandidate.campaignName ?? "No campaign"}”?
+                </p>
                 <div>
                   <button
                     onClick={() => setDeleteCandidateId(null)}
