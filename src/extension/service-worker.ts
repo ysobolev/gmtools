@@ -2098,6 +2098,11 @@ async function streamChat(
       chunk,
     }));
   }
+  if (abortController.signal.aborted) {
+    discardAbortedJob(job);
+    debug.group("Conversation stopped", {});
+    return;
+  }
   const streamError = getChatStreamError(job.chunks);
   if (streamError) {
     finishJob(job, { type: "error", error: streamError });
@@ -2193,6 +2198,13 @@ function finishJob(job: ConversationJob, terminal: ConversationTerminal): void {
     if (conversationJobs.get(job.chatId) === job) {
       conversationJobs.delete(job.chatId);
     }
+  }
+}
+
+function discardAbortedJob(job: ConversationJob): void {
+  setJobActivity(job, "idle");
+  if (conversationJobs.get(job.chatId) === job) {
+    conversationJobs.delete(job.chatId);
   }
 }
 
@@ -2376,12 +2388,14 @@ chrome.runtime.onConnect.addListener((port) => {
 
       void keepServiceWorkerAlive(streamChat(job, message.messages, profile))
         .catch((error: unknown) => {
-          finishJob(
-            job,
-            abortController.signal.aborted
-              ? { type: "complete" }
-              : { type: "error", error: userFacingModelError(error) },
-          );
+          if (abortController.signal.aborted) {
+            discardAbortedJob(job);
+          } else {
+            finishJob(job, {
+              type: "error",
+              error: userFacingModelError(error),
+            });
+          }
         })
         .finally(() => {
           activeChatControllers.delete(abortController);

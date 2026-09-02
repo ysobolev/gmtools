@@ -84,6 +84,12 @@ function sendChatControl(
   void chrome.runtime.sendMessage({ type, chatId }).catch(() => undefined);
 }
 
+async function acknowledgeCompletedChat(chatId: string): Promise<void> {
+  await chrome.runtime
+    .sendMessage({ type: CHAT_COMMIT, chatId })
+    .catch(() => undefined);
+}
+
 interface CampaignChatGroup {
   readonly key: string;
   readonly name: string;
@@ -1068,6 +1074,8 @@ function ChatWorkspace(): React.JSX.Element {
           : await createChat(DEFAULT_PROFILE.id);
       }
       if (!loaded) throw new Error("Could not load the active chat.");
+      await acknowledgeCompletedChat(loaded.chat.id);
+      loaded = (await getStoredChat(loaded.chat.id)) ?? loaded;
       const chat = await fallbackMissingProfile(loaded.chat, loadedProfiles);
       const validation = await safeValidateUIMessages<UIMessage>({
         messages: loaded.messages,
@@ -1195,9 +1203,11 @@ function ChatWorkspace(): React.JSX.Element {
 
   const switchChat = (chatId: string): void => {
     if (chatId === storedChat.chat.id) return;
-    void getStoredChat(chatId).then((loaded) => {
-      if (loaded) return activateStoredChat(loaded);
-    });
+    void (async () => {
+      await acknowledgeCompletedChat(chatId);
+      const loaded = await getStoredChat(chatId);
+      if (loaded) await activateStoredChat(loaded);
+    })();
   };
 
   const createNewChat = (): void => {
