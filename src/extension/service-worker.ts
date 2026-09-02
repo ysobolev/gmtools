@@ -584,7 +584,6 @@ chrome.runtime.onMessage.addListener(
       pendingConversationStarts.get(message.chatId)?.abort();
       pendingConversationStarts.delete(message.chatId);
       conversationJobs.delete(message.chatId);
-      void removeCampaignBinding(message.chatId);
     } else if (message.type === CHAT_COMMIT && job?.terminal) {
       setJobActivity(job, "idle");
       conversationJobs.delete(message.chatId);

@@ -97,7 +97,7 @@ export const SHEET_ADAPTERS: readonly SheetAdapterDefinition[] = [
 
 export const DEFAULT_PROFILE: AssistantProfile = {
   id: "general-gm",
-  name: "General GM",
+  name: "General",
   rulesetId: "custom",
   sheetAdapterId: "generic",
   modelId: "openai/gpt-5.2",

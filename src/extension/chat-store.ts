@@ -269,11 +269,8 @@ export async function clearChatContent(chatId: string): Promise<ChatRecord> {
     throw new Error("The chat no longer exists.");
   }
   const updated: ChatRecord = {
-    id: chatValue.id,
-    title: chatValue.title,
-    profileId: chatValue.profileId,
+    ...chatValue,
     notices: [],
-    createdAt: chatValue.createdAt,
     updatedAt: Date.now(),
   };
   chats.put(updated);
