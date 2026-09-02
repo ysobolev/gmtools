@@ -140,3 +140,24 @@ test("counts Markdown image positions", () => {
     0,
   );
 });
+
+test("includes restored image pointers in assistant image rendering", () => {
+  const displayable = {
+    mediaType: "image/png",
+    url: "data:image/png;base64,AQID",
+  };
+  const stored = {
+    imageId: "generated:assistant-1:0",
+    filename: "elf.png",
+    mediaType: "image/png",
+    size: 3,
+  };
+
+  assert.deepEqual(
+    assistantImages.combineAssistantImages([displayable], [stored]),
+    [
+      { kind: "displayable", image: displayable },
+      { kind: "stored", image: stored },
+    ],
+  );
+});

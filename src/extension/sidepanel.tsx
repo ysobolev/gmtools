@@ -15,7 +15,9 @@ import { createRoot } from "react-dom/client";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  combineAssistantImages,
   countMarkdownImageReferences,
+  type AssistantImage,
   type DisplayableAssistantImage,
   getGeneratedImageDragPayload,
   getDisplayableAssistantImages,
@@ -256,6 +258,22 @@ function StoredImagePreview({
   );
 }
 
+function AssistantImageView({
+  alt,
+  chatId,
+  image,
+}: {
+  readonly alt?: string | undefined;
+  readonly chatId: string;
+  readonly image: AssistantImage;
+}): React.JSX.Element {
+  return image.kind === "displayable" ? (
+    <GeneratedImage alt={alt} image={image.image} />
+  ) : (
+    <StoredImagePreview chatId={chatId} fullSize image={image.image} />
+  );
+}
+
 function Roll20Status({
   receipt,
 }: {
@@ -287,7 +305,8 @@ function Roll20Status({
 }
 
 function createMarkdownComponents(
-  generatedImages: readonly DisplayableAssistantImage[] = [],
+  chatId: string,
+  generatedImages: readonly AssistantImage[] = [],
 ): Components {
   let generatedImageIndex = 0;
   return {
@@ -309,7 +328,11 @@ function createMarkdownComponents(
       const generatedImage = generatedImages[generatedImageIndex];
       generatedImageIndex += 1;
       return generatedImage ? (
-        <GeneratedImage alt={alt ?? undefined} image={generatedImage} />
+        <AssistantImageView
+          alt={alt ?? undefined}
+          chatId={chatId}
+          image={generatedImage}
+        />
       ) : (
         <span className="image-placeholder">[Image: {alt ?? "image"}]</span>
       );
@@ -1060,12 +1083,19 @@ function ChatScreen({
                       .filter(isGeneratedImagePart)
                       .map((part) => part.data)
                   : [];
+              const assistantImages = combineAssistantImages(
+                images,
+                generatedImageReferences,
+              );
               const embeddedImageCount = Math.min(
-                images.length,
+                assistantImages.length,
                 countMarkdownImageReferences(text),
               );
-              const embeddedImages = images.slice(0, embeddedImageCount);
-              const trailingImages = images.slice(embeddedImageCount);
+              const embeddedImages = assistantImages.slice(
+                0,
+                embeddedImageCount,
+              );
+              const trailingImages = assistantImages.slice(embeddedImageCount);
               const visibleTrailingImages =
                 status === "streaming" &&
                 message.role === "assistant" &&
@@ -1115,7 +1145,10 @@ function ChatScreen({
                           key={`text:${blockIndex}`}
                         >
                           <ReactMarkdown
-                            components={createMarkdownComponents(blockImages)}
+                            components={createMarkdownComponents(
+                              chatId,
+                              blockImages,
+                            )}
                             remarkPlugins={[remarkGfm]}
                           >
                             {block.text}
@@ -1140,23 +1173,16 @@ function ChatScreen({
                     </>
                   )}
                   {visibleTrailingImages.map((image, index) => (
-                    <GeneratedImage
+                    <AssistantImageView
+                      chatId={chatId}
                       image={image}
-                      key={`${image.url.slice(0, 80)}:${index}`}
+                      key={
+                        image.kind === "displayable"
+                          ? `${image.image.url.slice(0, 80)}:${index}`
+                          : image.image.imageId
+                      }
                     />
                   ))}
-                  {generatedImageReferences.length > 0 ? (
-                    <div className="uploaded-image-grid message-images">
-                      {generatedImageReferences.map((image) => (
-                        <StoredImagePreview
-                          chatId={chatId}
-                          fullSize
-                          image={image}
-                          key={image.imageId}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
                 </article>
               );
             })}

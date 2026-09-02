@@ -38,6 +38,29 @@ export interface DisplayableAssistantImage {
   readonly url: string;
 }
 
+export type AssistantImage =
+  | {
+      readonly kind: "displayable";
+      readonly image: DisplayableAssistantImage;
+    }
+  | {
+      readonly kind: "stored";
+      readonly image: UploadedImageReference;
+    };
+
+export function combineAssistantImages(
+  displayable: readonly DisplayableAssistantImage[],
+  stored: readonly UploadedImageReference[],
+): AssistantImage[] {
+  return [
+    ...displayable.map((image) => ({
+      kind: "displayable" as const,
+      image,
+    })),
+    ...stored.map((image) => ({ kind: "stored" as const, image })),
+  ];
+}
+
 export function getDisplayableAssistantImages(
   parts: readonly unknown[],
 ): DisplayableAssistantImage[] {
@@ -103,3 +126,4 @@ export function getGeneratedImageDragPayload(
 export function countMarkdownImageReferences(markdown: string): number {
   return [...markdown.matchAll(/!\[[^\]\n]*\]\((?:\\.|[^)\n])*\)/g)].length;
 }
+import type { UploadedImageReference } from "./chat-images";
