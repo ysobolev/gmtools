@@ -153,7 +153,7 @@
   }
 
   // src/build-info.ts
-  var EXTENSION_BUILD_ID = "3a7ed7be020f";
+  var EXTENSION_BUILD_ID = "ea03832b3790";
   var EXTENSION_VERSION = "0.2.0";
 
   // src/extension/content-script.ts

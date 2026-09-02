@@ -438,6 +438,89 @@ function LoadingScreen(): React.JSX.Element {
   );
 }
 
+function ChatNameEditor({
+  onRename,
+  title,
+}: {
+  readonly onRename: (title: string) => void;
+  readonly title: string;
+}): React.JSX.Element {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+
+  useEffect(() => {
+    setDraft(title);
+    setEditing(false);
+  }, [title]);
+
+  const submit = (): void => {
+    const normalized = draft.trim();
+    if (!normalized) return;
+    if (normalized !== title) onRename(normalized);
+    setEditing(false);
+  };
+
+  const cancel = (): void => {
+    setDraft(title);
+    setEditing(false);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submit();
+    } else if (event.key === "Escape") {
+      cancel();
+    }
+  };
+
+  return editing ? (
+    <span className="chat-name chat-name-editor">
+      <input
+        aria-label="Chat title"
+        autoFocus
+        maxLength={MAX_CHAT_TITLE_LENGTH}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={handleKeyDown}
+        value={draft}
+      />
+      <button
+        aria-label="Save chat title"
+        className="chat-name-edit"
+        disabled={!draft.trim()}
+        onClick={submit}
+        type="button"
+      >
+        <span aria-hidden="true">✓</span>
+      </button>
+      <button
+        aria-label="Cancel editing chat title"
+        className="chat-name-edit"
+        onClick={cancel}
+        type="button"
+      >
+        <span aria-hidden="true">×</span>
+      </button>
+    </span>
+  ) : (
+    <span className="chat-name">
+      <span className="chat-name-text">{title}</span>
+      <button
+        aria-label="Edit chat title"
+        className="chat-name-edit"
+        onClick={() => {
+          setDraft(title);
+          setEditing(true);
+        }}
+        title="Edit chat title"
+        type="button"
+      >
+        <span aria-hidden="true">✎</span>
+      </button>
+    </span>
+  );
+}
+
 function ChatScreen({
   activeProfile,
   chat,
@@ -498,8 +581,6 @@ function ChatScreen({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [draggingImages, setDraggingImages] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [titleDraft, setTitleDraft] = useState(chat.title);
   const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(
     null,
   );
@@ -644,11 +725,6 @@ function ChatScreen({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
   }, [input]);
 
-  useEffect(() => {
-    setTitleDraft(chat.title);
-    setEditingTitle(false);
-  }, [chat.id, chat.title]);
-
   const addImageFiles = useCallback(async (files: readonly File[]) => {
     if (busy || files.length === 0) return;
     setAttachmentError(null);
@@ -788,28 +864,6 @@ function ChatScreen({
     if (nextChatId !== chatId) onSwitchChat(nextChatId);
     setMenuOpen(false);
     setDeleteCandidateId(null);
-  };
-
-  const beginRename = (): void => {
-    setTitleDraft(chat.title);
-    setEditingTitle(true);
-  };
-
-  const submitRename = (): void => {
-    const title = titleDraft.trim();
-    if (!title) return;
-    if (title !== chat.title) onRenameChat(title);
-    setEditingTitle(false);
-  };
-
-  const handleTitleKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      submitRename();
-    } else if (event.key === "Escape") {
-      setTitleDraft(chat.title);
-      setEditingTitle(false);
-    }
   };
 
   return (
@@ -988,48 +1042,7 @@ function ChatScreen({
           </p>
         ) : null}
         <div className="chat-context-row">
-          {editingTitle ? (
-            <span className="chat-name chat-name-editor">
-              <input
-                aria-label="Chat title"
-                autoFocus
-                maxLength={MAX_CHAT_TITLE_LENGTH}
-                onChange={(event) => setTitleDraft(event.target.value)}
-                onKeyDown={handleTitleKeyDown}
-                value={titleDraft}
-              />
-              <button
-                aria-label="Save chat title"
-                className="chat-name-edit"
-                disabled={!titleDraft.trim()}
-                onClick={submitRename}
-                type="button"
-              >
-                <span aria-hidden="true">✓</span>
-              </button>
-              <button
-                aria-label="Cancel editing chat title"
-                className="chat-name-edit"
-                onClick={() => setEditingTitle(false)}
-                type="button"
-              >
-                <span aria-hidden="true">×</span>
-              </button>
-            </span>
-          ) : (
-            <span className="chat-name">
-              <span className="chat-name-text">{chat.title}</span>
-              <button
-                aria-label="Edit chat title"
-                className="chat-name-edit"
-                onClick={beginRename}
-                title="Edit chat title"
-                type="button"
-              >
-                <span aria-hidden="true">✎</span>
-              </button>
-            </span>
-          )}
+          <ChatNameEditor onRename={onRenameChat} title={chat.title} />
           <select
             aria-label="Assistant profile for this chat"
             onChange={(event) => selectProfile(event.target.value)}
