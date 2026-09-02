@@ -273,41 +273,6 @@ export async function saveChatMessages(
   await transactionComplete(transaction);
 }
 
-export async function clearChatContent(chatId: string): Promise<ChatRecord> {
-  const database = await openDatabase();
-  const transaction = database.transaction(
-    [CHATS_STORE, MESSAGES_STORE, IMAGES_STORE],
-    "readwrite",
-  );
-  const chats = transaction.objectStore(CHATS_STORE);
-  const chatValue: unknown = await requestResult(chats.get(chatId));
-  if (!isChatRecord(chatValue)) {
-    transaction.abort();
-    throw new Error("The chat no longer exists.");
-  }
-  const updated: ChatRecord = {
-    ...chatValue,
-    notices: [],
-    updatedAt: Date.now(),
-  };
-  chats.put(updated);
-  transaction.objectStore(MESSAGES_STORE).put({
-    chatId,
-    messages: [],
-    updatedAt: updated.updatedAt,
-  } satisfies ChatMessagesRecord);
-  transaction.objectStore(IMAGES_STORE).index("chatId").openKeyCursor(
-    IDBKeyRange.only(chatId),
-  ).onsuccess = (event) => {
-    const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
-    if (!cursor) return;
-    transaction.objectStore(IMAGES_STORE).delete(cursor.primaryKey);
-    cursor.continue();
-  };
-  await transactionComplete(transaction);
-  return updated;
-}
-
 export async function renameChat(
   chatId: string,
   title: string,

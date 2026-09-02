@@ -30,7 +30,6 @@ import {
 import {
   ACTIVE_CHAT_STORAGE_KEY,
   MAX_CHAT_TITLE_LENGTH,
-  clearChatContent,
   createChat,
   deleteChat,
   deleteChatImage,
@@ -422,7 +421,6 @@ function ChatScreen({
   chatActivities,
   chats,
   initialMessages,
-  onClearConversation,
   onCampaignBindingChanged,
   onCreateChat,
   onDeleteChat,
@@ -438,7 +436,6 @@ function ChatScreen({
   readonly chatActivities: Readonly<Record<string, ChatActivityStatus>>;
   readonly chats: readonly ChatRecord[];
   readonly initialMessages: UIMessage[];
-  readonly onClearConversation: () => void;
   readonly onCampaignBindingChanged: () => Promise<void>;
   readonly onCreateChat: () => void;
   readonly onDeleteChat: (chatId: string) => void;
@@ -743,13 +740,6 @@ function ChatScreen({
       file.type.startsWith("image/"),
     );
     if (images.length > 0) void addImageFiles(images);
-  };
-
-  const clearConversation = (): void => {
-    stop();
-    clearError();
-    sendChatControl(CHAT_CLEAR, chatId);
-    onClearConversation();
   };
 
   const stopGeneration = (): void => {
@@ -1264,9 +1254,6 @@ function ChatScreen({
           <span>
             {getModelDefinition(activeProfile.modelId).label} via OpenRouter
           </span>
-          <button type="button" onClick={clearConversation}>
-            Clear chat
-          </button>
         </div>
       </footer>
     </main>
@@ -1307,18 +1294,6 @@ function ChatWorkspace(): React.JSX.Element {
     };
     return updateChatProfile(chat.id, DEFAULT_PROFILE.id, notice);
   }, []);
-
-  const clearChat = useCallback((): void => {
-    const current = storedChatRef.current;
-    if (!current) return;
-    void clearChatContent(current.chat.id).then((chat) => {
-      setCurrentChat({ chat, messages: [] });
-      setChats((existing) =>
-        [chat, ...existing.filter((candidate) => candidate.id !== chat.id)],
-      );
-      setChatResetRevision((revision) => revision + 1);
-    });
-  }, [setCurrentChat]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1528,7 +1503,6 @@ function ChatWorkspace(): React.JSX.Element {
       initialMessages={storedChat.messages}
       key={`${storedChat.chat.id}:${chatResetRevision}`}
       onCampaignBindingChanged={refreshCurrentChatBinding}
-      onClearConversation={clearChat}
       onCreateChat={createNewChat}
       onDeleteChat={removeChat}
       onManageProfiles={() => void chrome.runtime.openOptionsPage()}

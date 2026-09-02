@@ -597,7 +597,6 @@ h1 {
   font-size: 11px;
 }
 
-.composer-meta button,
 .chat-error button {
   border: 0;
   background: none;
@@ -1100,18 +1099,11 @@ h1 {
 
 .composer-meta {
   display: flex;
-  justify-content: space-between;
   padding: 7px 3px 0;
   color: #727b88;
   font-size: 10px;
 }
 
-.composer-meta button {
-  padding: 0;
-  color: #8f98a5;
-}
-
-.composer-meta button:hover,
 .chat-error button:hover {
   color: #f2b39f;
 }
@@ -1310,10 +1302,6 @@ h1 {
 
 :root[data-theme="light"] .composer textarea::placeholder {
   color: #908c92;
-}
-
-:root[data-theme="light"] .composer-meta button {
-  color: #6f6b72;
 }
 
 @media (max-width: 330px) {
