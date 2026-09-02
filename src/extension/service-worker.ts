@@ -32,6 +32,7 @@ import {
 import {
   getChat,
   getChatImage,
+  listChats,
   saveChatImageBlob,
   saveChatMessages,
   updateChatCampaign,
@@ -50,6 +51,7 @@ import {
   AUTH_PERSISTENCE_REQUEST,
   AUTH_STATE_CHANGED,
   CAMPAIGN_ATTACH_REQUEST,
+  CAMPAIGN_CANDIDATES_REQUEST,
   CAMPAIGN_DETACH_REQUEST,
   CAMPAIGN_STATUS_CHANGED,
   CAMPAIGN_STATUS_REQUEST,
@@ -65,6 +67,8 @@ import {
   CHAT_RESUME_QUERY,
   CHAT_START,
   isAuthRequest,
+  isCampaignAttachRequest,
+  isCampaignCandidatesRequest,
   isCampaignStatusRequest,
   isChatActivitiesRequest,
   isChatControlRequest,
@@ -73,10 +77,12 @@ import {
   type AuthResponse,
   type AuthStatus,
   type CampaignStatus,
+  type CampaignCandidate,
   type ChatActivityState,
   type ChatActivityStatus,
   type ChatPortResponse,
 } from "./openrouter-protocol";
+import { mergeCampaignCandidates } from "./chat-ui";
 import {
   ROLL20_EXECUTE_REQUEST_TYPE,
   ROLL20_PROTOCOL_VERSION,
@@ -557,17 +563,28 @@ chrome.runtime.onMessage.addListener(
 
 chrome.runtime.onMessage.addListener(
   (message: unknown, sender, sendResponse): boolean | undefined => {
-    if (!isCampaignStatusRequest(message) || !isTrustedExtensionSender(sender)) {
+    if (
+      (!isCampaignStatusRequest(message) &&
+        !isCampaignCandidatesRequest(message) &&
+        !isCampaignAttachRequest(message)) ||
+      !isTrustedExtensionSender(sender)
+    ) {
       return;
     }
-    const operation =
-      message.type === CAMPAIGN_ATTACH_REQUEST
-        ? attachCampaign(message.chatId)
-        : message.type === CAMPAIGN_DETACH_REQUEST
-          ? detachCampaign(message.chatId)
-          : resolveCampaignStatus(message.chatId);
-    void operation
-      .then((status) => sendResponse({ ok: true, status }))
+    if (message.type === CAMPAIGN_CANDIDATES_REQUEST) {
+      void discoverAttachCandidates(message.chatId)
+        .then((candidates) => sendResponse({ ok: true, candidates }))
+        .catch((error: unknown) =>
+          sendResponse({ ok: false, error: errorMessage(error) }),
+        );
+      return true;
+    }
+    const operation = message.type === CAMPAIGN_ATTACH_REQUEST
+      ? attachCampaign(message.chatId, message.candidate)
+      : message.type === CAMPAIGN_DETACH_REQUEST
+        ? detachCampaign(message.chatId)
+        : resolveCampaignStatus(message.chatId);
+    void operation.then((status) => sendResponse({ ok: true, status }))
       .catch((error: unknown) =>
         sendResponse({ ok: false, error: errorMessage(error) }),
       );
@@ -1197,20 +1214,6 @@ function isSendAcknowledgement(value: unknown): value is SendAcknowledgement {
   );
 }
 
-async function findActiveRoll20Tab(): Promise<chrome.tabs.Tab> {
-  const [activeTab] = await chrome.tabs.query({
-    active: true,
-    lastFocusedWindow: true,
-  });
-  if (
-    typeof activeTab?.id !== "number" ||
-    !activeTab.url?.startsWith(ROLL20_EDITOR_URL_PREFIX)
-  ) {
-    throw new Error("Focus a Roll20 campaign tab first.");
-  }
-  return activeTab;
-}
-
 async function getBoundRoll20Tab(tabId: number): Promise<chrome.tabs.Tab> {
   let tab: chrome.tabs.Tab;
   try {
@@ -1373,6 +1376,58 @@ async function candidateRoll20Tabs(
   return candidates;
 }
 
+async function discoverAttachCandidates(
+  chatId: string,
+): Promise<CampaignCandidate[]> {
+  const debug = await campaignDebugLogger(chatId);
+  const [activeTab] = await chrome.tabs.query({
+    active: true,
+    lastFocusedWindow: true,
+  });
+  const openTabs = await chrome.tabs.query({
+    url: `${ROLL20_EDITOR_URL_PREFIX}*`,
+  });
+  const tabs: chrome.tabs.Tab[] = [];
+  const seenTabIds = new Set<number>();
+  const add = (tab: chrome.tabs.Tab | undefined): void => {
+    if (
+      typeof tab?.id !== "number" ||
+      seenTabIds.has(tab.id) ||
+      !tab.url?.startsWith(ROLL20_EDITOR_URL_PREFIX)
+    ) {
+      return;
+    }
+    seenTabIds.add(tab.id);
+    tabs.push(tab);
+  };
+  add(activeTab);
+  openTabs.forEach(add);
+
+  const discovered = await Promise.all(tabs.map(async (tab) => {
+    try {
+      return await discoverCampaignInTab(tab, debug);
+    } catch (error) {
+      debug.group("Roll20 attach candidate probe failed", {
+        "Tab ID": tab.id,
+        Error: error,
+      });
+      return undefined;
+    }
+  }));
+  const liveCandidates = discovered.flatMap((identity): CampaignCandidate[] =>
+    identity?.isGM
+      ? [{
+          campaignId: identity.campaignId,
+          name: identity.name,
+          modVersion: identity.modVersion,
+          tabId: identity.tabId,
+          activeTab: identity.tabId === activeTab?.id,
+        }]
+      : [],
+  );
+  return mergeCampaignCandidates(liveCandidates, await listChats());
+}
+
 async function locateBoundCampaign(
   chatId: string,
   binding: CampaignBinding,
@@ -1476,7 +1531,10 @@ async function resolveCampaignStatus(chatId: string): Promise<CampaignStatus> {
   }
 }
 
-async function attachCampaign(chatId: string): Promise<CampaignStatus> {
+async function attachCampaign(
+  chatId: string,
+  candidate: CampaignCandidate,
+): Promise<CampaignStatus> {
   const existingAttempt = campaignAttachmentAttempts.get(chatId);
   if (existingAttempt) return existingAttempt;
   const attempt = (async (): Promise<CampaignStatus> => {
@@ -1490,31 +1548,65 @@ async function attachCampaign(chatId: string): Promise<CampaignStatus> {
     notifyCampaignStatus({
       chatId,
       state: "connecting",
-      detail: "Attaching the active Roll20 campaign.",
+      campaignId: candidate.campaignId,
+      name: candidate.name,
+      detail: `Attaching ${candidate.name}.`,
     });
     try {
-      const tab = await findActiveRoll20Tab();
       const debug = await campaignDebugLogger(chatId);
-      const identity = await discoverCampaignInTab(tab, debug);
-      if (!identity.isGM) {
-        return {
-          chatId,
-          state: "not-gm",
-          detail: "The active Roll20 tab is not open as the game master.",
+      let binding: CampaignBinding;
+      let liveTabId: number | undefined;
+      if (typeof candidate.tabId === "number") {
+        const tab = await getBoundRoll20Tab(candidate.tabId);
+        const identity = await discoverCampaignInTab(tab, debug);
+        if (!identity.isGM) {
+          return {
+            chatId,
+            state: "not-gm",
+            detail: "The selected Roll20 tab is not open as the game master.",
+          };
+        }
+        if (identity.campaignId !== candidate.campaignId) {
+          throw new Roll20CampaignMismatchError(
+            "The selected Roll20 tab is now showing a different campaign.",
+          );
+        }
+        binding = {
+          campaignId: identity.campaignId,
+          name: identity.name,
+          modVersion: identity.modVersion,
+        };
+        liveTabId = identity.tabId;
+      } else {
+        const source = (await listChats()).find(
+          (knownChat) =>
+            knownChat.campaignId === candidate.campaignId &&
+            knownChat.campaignName &&
+            knownChat.campaignModVersion,
+        );
+        if (!source?.campaignId || !source.campaignName || !source.campaignModVersion) {
+          throw new Error(
+            "That campaign is no longer available from another chat.",
+          );
+        }
+        binding = {
+          campaignId: source.campaignId,
+          name: source.campaignName,
+          modVersion: source.campaignModVersion,
         };
       }
-      const binding: CampaignBinding = {
-        campaignId: identity.campaignId,
-        name: identity.name,
-        modVersion: identity.modVersion,
-      };
       await setCampaignBinding(chatId, binding);
-      await setCampaignRoute(binding.campaignId, identity.tabId);
+      if (liveTabId !== undefined) {
+        await setCampaignRoute(binding.campaignId, liveTabId);
+      }
       return {
         chatId,
-        state: "connected",
+        state: liveTabId === undefined ? "disconnected" : "connected",
         campaignId: binding.campaignId,
         name: binding.name,
+        ...(liveTabId === undefined
+          ? { detail: "Attached for offline preparation; no matching Roll20 tab is open." }
+          : {}),
       };
     } catch (error) {
       return campaignStatusForError(chatId, error);

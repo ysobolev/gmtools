@@ -156,9 +156,16 @@ test("validates campaign status messages", () => {
     true,
   );
   assert.equal(
-    protocol.isCampaignStatusRequest({
+    protocol.isCampaignAttachRequest({
       type: protocol.CAMPAIGN_ATTACH_REQUEST,
       chatId: "chat-1",
+      candidate: {
+        campaignId: "campaign-1",
+        name: "Tuesday Night",
+        modVersion: "0.2.0",
+        tabId: 7,
+        activeTab: true,
+      },
     }),
     true,
   );
@@ -183,5 +190,24 @@ test("validates campaign status messages", () => {
       status: { ...status, state: "mystery" },
     }),
     false,
+  );
+  assert.equal(
+    protocol.isCampaignCandidatesRequest({
+      type: protocol.CAMPAIGN_CANDIDATES_REQUEST,
+      chatId: "chat-1",
+    }),
+    true,
+  );
+  assert.equal(
+    protocol.isCampaignCandidatesResponse({
+      ok: true,
+      candidates: [{
+        campaignId: "campaign-1",
+        name: "Tuesday Night",
+        modVersion: "0.2.0",
+        activeTab: false,
+      }],
+    }),
+    true,
   );
 });

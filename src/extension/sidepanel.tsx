@@ -1,12 +1,13 @@
 import { useChat } from "@ai-sdk/react";
 import { safeValidateUIMessages, type UIMessage } from "ai";
 import {
-  FormEvent,
   ClipboardEvent,
   DragEvent,
   KeyboardEvent,
+  memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -62,6 +63,12 @@ import {
 } from "./display-settings";
 import { ExtensionChatTransport } from "./extension-chat-transport";
 import {
+  createChatDraftStore,
+  groupChatsByCampaign,
+  nextChatIdAfterDeletion,
+  type ChatScrollPosition,
+} from "./chat-ui";
+import {
   DEFAULT_PROFILE,
   getModelDefinition,
   normalizeProfiles,
@@ -73,20 +80,22 @@ import {
   AUTH_STATE_CHANGED,
   AUTH_STATUS_REQUEST,
   CAMPAIGN_ATTACH_REQUEST,
+  CAMPAIGN_CANDIDATES_REQUEST,
   CAMPAIGN_DETACH_REQUEST,
-  CAMPAIGN_STATUS_REQUEST,
   CHAT_ACTIVITIES_REQUEST,
   CHAT_CLEAR,
   CHAT_COMMIT,
   isAuthResponse,
   isAuthStateChangedMessage,
   isCampaignStatusChangedMessage,
+  isCampaignCandidatesResponse,
   isCampaignStatusResponse,
   isChatActivitiesResponse,
   isChatActivityChangedMessage,
   type AuthRequest,
   type AuthStatus,
   type CampaignStatus,
+  type CampaignCandidate,
   type ChatActivityStatus,
 } from "./openrouter-protocol";
 
@@ -101,40 +110,6 @@ async function acknowledgeCompletedChat(chatId: string): Promise<void> {
   await chrome.runtime
     .sendMessage({ type: CHAT_COMMIT, chatId })
     .catch(() => undefined);
-}
-
-interface CampaignChatGroup {
-  readonly key: string;
-  readonly name: string;
-  readonly chats: ChatRecord[];
-}
-
-function groupChatsByCampaign(
-  chats: readonly ChatRecord[],
-): CampaignChatGroup[] {
-  const groups = new Map<string, CampaignChatGroup>();
-  for (const chat of chats) {
-    const key = chat.campaignId ? `campaign:${chat.campaignId}` : "unbound";
-    const existing = groups.get(key);
-    if (existing) {
-      existing.chats.push(chat);
-      continue;
-    }
-    groups.set(key, {
-      key,
-      name: chat.campaignId
-        ? chat.campaignName ?? "Unknown campaign"
-        : "No campaign",
-      chats: [chat],
-    });
-  }
-  return [...groups.values()].sort((left, right) => {
-    if (left.key === "unbound") return -1;
-    if (right.key === "unbound") return 1;
-    return left.name.localeCompare(right.name, undefined, {
-      sensitivity: "base",
-    });
-  });
 }
 
 function GeneratedImage({
@@ -521,83 +496,39 @@ function ChatNameEditor({
   );
 }
 
-function ChatScreen({
-  activeProfile,
-  chat,
-  chatActivities,
-  chats,
-  initialMessages,
-  onCampaignBindingChanged,
-  onCreateChat,
-  onDeleteChat,
-  onManageProfiles,
-  onOpenChats,
-  onRenameChat,
-  onSelectProfile,
-  onSwitchChat,
-  profiles,
+const ConversationPane = memo(function ConversationPane({
+  chatId,
+  initialScrollPosition,
+  messages,
+  notices,
+  onScrollPositionChange,
+  status,
 }: {
-  readonly activeProfile: AssistantProfile;
-  readonly chat: ChatRecord;
-  readonly chatActivities: Readonly<Record<string, ChatActivityStatus>>;
-  readonly chats: readonly ChatRecord[];
-  readonly initialMessages: UIMessage[];
-  readonly onCampaignBindingChanged: () => Promise<void>;
-  readonly onCreateChat: () => void;
-  readonly onDeleteChat: (chatId: string) => void;
-  readonly onManageProfiles: () => void;
-  readonly onOpenChats: () => void;
-  readonly onRenameChat: (title: string) => void;
-  readonly onSelectProfile: (profileId: string) => void;
-  readonly onSwitchChat: (chatId: string) => void;
-  readonly profiles: readonly AssistantProfile[];
+  readonly chatId: string;
+  readonly initialScrollPosition: ChatScrollPosition | undefined;
+  readonly messages: readonly UIMessage[];
+  readonly notices: ChatRecord["notices"];
+  readonly onScrollPositionChange: (
+    chatId: string,
+    position: ChatScrollPosition,
+  ) => void;
+  readonly status: "submitted" | "streaming" | "ready" | "error";
 }): React.JSX.Element {
-  const chatId = chat.id;
-  const transport = useMemo(
-    () => new ExtensionChatTransport(activeProfile.id),
-    [activeProfile.id],
+  const conversationRef = useRef<HTMLElement>(null);
+  const pinnedToBottomRef = useRef(initialScrollPosition?.atBottom ?? true);
+  const anchorRef = useRef<{
+    readonly messageId: string;
+    readonly offset: number;
+  } | null>(
+    initialScrollPosition?.anchorMessageId !== undefined &&
+      initialScrollPosition.anchorOffset !== undefined
+      ? {
+          messageId: initialScrollPosition.anchorMessageId,
+          offset: initialScrollPosition.anchorOffset,
+        }
+      : null,
   );
-  const {
-    messages,
-    sendMessage,
-    regenerate,
-    stop,
-    status,
-    error,
-    clearError,
-    setMessages,
-  } = useChat({
-    id: chatId,
-    messages: initialMessages,
-    transport,
-    throttle: 40,
-    resume: true,
-  });
-  const [input, setInput] = useState("");
-  const [pendingImages, setPendingImages] = useState<UploadedImageReference[]>(
-    [],
-  );
-  const pendingImagesRef = useRef<UploadedImageReference[]>([]);
-  const [attachmentError, setAttachmentError] = useState<string | null>(null);
-  const [draggingImages, setDraggingImages] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(
-    null,
-  );
-  const [campaignStatus, setCampaignStatus] = useState<CampaignStatus>({
-    chatId,
-    state: "connecting",
-  });
-  const [campaignActionPending, setCampaignActionPending] = useState<
-    "attach" | "detach" | null
-  >(null);
-  const [campaignActionFeedback, setCampaignActionFeedback] = useState<
-    string | null
-  >(null);
-  const activeTurnRef = useRef(false);
-  const safeMessagesRef = useRef(initialMessages);
-  const endRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const restoredRef = useRef(false);
   const busy = status === "submitted" || status === "streaming";
   const activity = getChatActivity(status, messages);
   const latestAssistantMessage = [...messages]
@@ -606,124 +537,345 @@ function ChatScreen({
   const inlineRoll20Working = latestAssistantMessage
     ? hasActiveRoll20Status(latestAssistantMessage)
     : false;
-  const deleteCandidate = chats.find(
-    (candidate) => candidate.id === deleteCandidateId,
-  );
-  const campaignChatGroups = useMemo(
-    () => groupChatsByCampaign(chats),
-    [chats],
-  );
 
-  useEffect(() => {
-    let active = true;
-    const handleCampaignStatus = (message: unknown): void => {
-      if (
-        active &&
-        isCampaignStatusChangedMessage(message) &&
-        message.status.chatId === chatId
-      ) {
-        setCampaignStatus(message.status);
-      }
-    };
-    chrome.runtime.onMessage.addListener(handleCampaignStatus);
-    void chrome.runtime
-      .sendMessage({ type: CAMPAIGN_STATUS_REQUEST, chatId })
-      .then((response: unknown) => {
-        if (!active) return;
-        if (isCampaignStatusResponse(response) && response.ok) {
-          setCampaignStatus(response.status);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setCampaignStatus({
-            chatId,
-            state: "unavailable",
-            detail: "Could not contact the extension service worker.",
-          });
-        }
-      });
-    return () => {
-      active = false;
-      chrome.runtime.onMessage.removeListener(handleCampaignStatus);
-    };
-  }, [chatId]);
-
-  const campaignLabel =
-    campaignStatus.campaignId && campaignStatus.name
-      ? campaignStatus.name
-      : "No campaign attached";
-  const campaignBound = Boolean(
-    campaignStatus.campaignId && campaignStatus.name,
-  );
-
-  const changeCampaignBinding = async (
-    action: "attach" | "detach",
-  ): Promise<void> => {
-    setCampaignActionPending(action);
-    setCampaignActionFeedback(null);
-    try {
-      const response: unknown = await chrome.runtime.sendMessage({
-        type:
-          action === "attach"
-            ? CAMPAIGN_ATTACH_REQUEST
-            : CAMPAIGN_DETACH_REQUEST,
-        chatId,
-      });
-      if (!isCampaignStatusResponse(response)) {
-        throw new Error("The extension returned an invalid response.");
-      }
-      if (!response.ok) throw new Error(response.error);
-      setCampaignStatus(response.status);
-      const succeeded =
-        action === "attach"
-          ? response.status.state === "connected"
-          : response.status.state === "unbound";
-      if (succeeded) {
-        await onCampaignBindingChanged();
-      } else {
-        setCampaignActionFeedback(
-          response.status.detail ?? "The campaign could not be attached.",
-        );
-      }
-    } catch (actionError) {
-      setCampaignActionFeedback(
-        actionError instanceof Error
-          ? actionError.message
-          : "The campaign binding could not be changed.",
-      );
-    } finally {
-      setCampaignActionPending(null);
-    }
-  };
-
-  useEffect(() => {
-    if (status === "submitted") {
-      activeTurnRef.current = true;
-      safeMessagesRef.current = messages;
+  useLayoutEffect(() => {
+    const conversation = conversationRef.current;
+    if (!conversation) return;
+    if (!initialScrollPosition) {
+      conversation.scrollTop = conversation.scrollHeight;
+      pinnedToBottomRef.current = true;
+      anchorRef.current = null;
+      restoredRef.current = true;
       return;
     }
-    if (status === "streaming") {
-      activeTurnRef.current = true;
+    if (initialScrollPosition.atBottom) {
+      conversation.scrollTop = conversation.scrollHeight;
+      pinnedToBottomRef.current = true;
+      anchorRef.current = null;
+      restoredRef.current = true;
       return;
     }
-    if (status === "ready" && activeTurnRef.current) {
-      activeTurnRef.current = false;
-      safeMessagesRef.current = messages;
-      sendChatControl(CHAT_COMMIT, chatId);
+    conversation.scrollTop = initialScrollPosition.scrollTop;
+    const initialAnchorMessageId = initialScrollPosition.anchorMessageId;
+    const anchor = initialAnchorMessageId
+      ? [...conversation.querySelectorAll<HTMLElement>("[data-message-id]")]
+          .find(
+            (candidate) =>
+              candidate.dataset.messageId === initialAnchorMessageId,
+          )
+      : undefined;
+    if (
+      anchor &&
+      initialAnchorMessageId &&
+      initialScrollPosition.anchorOffset !== undefined
+    ) {
+      anchorRef.current = {
+        messageId: initialAnchorMessageId,
+        offset: initialScrollPosition.anchorOffset,
+      };
+      conversation.scrollTop +=
+        anchor.getBoundingClientRect().top -
+        conversation.getBoundingClientRect().top -
+        initialScrollPosition.anchorOffset;
     }
-  }, [chatId, messages, status]);
+    pinnedToBottomRef.current = false;
+    restoredRef.current = true;
+  }, [chatId, initialScrollPosition]);
 
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: busy ? "auto" : "smooth" });
+  useLayoutEffect(() => {
+    const conversation = conversationRef.current;
+    if (
+      !conversation ||
+      !restoredRef.current ||
+      !pinnedToBottomRef.current
+    ) {
+      return;
+    }
+    conversation.scrollTop = conversation.scrollHeight;
   }, [busy, messages]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const conversation = conversationRef.current;
+    if (!conversation || !restoredRef.current) return;
+    const maintainViewport = (): void => {
+      if (pinnedToBottomRef.current) {
+        conversation.scrollTop = conversation.scrollHeight;
+        return;
+      }
+      const savedAnchor = anchorRef.current;
+      if (!savedAnchor) return;
+      const anchor = [
+        ...conversation.querySelectorAll<HTMLElement>("[data-message-id]"),
+      ].find(
+        (candidate) => candidate.dataset.messageId === savedAnchor.messageId,
+      );
+      if (!anchor) return;
+      const offset =
+        anchor.getBoundingClientRect().top -
+        conversation.getBoundingClientRect().top;
+      conversation.scrollTop += offset - savedAnchor.offset;
+    };
+    const observer = new ResizeObserver(maintainViewport);
+    for (const element of conversation.children) observer.observe(element);
+    maintainViewport();
+    return () => observer.disconnect();
+  }, [chatId, messages.length, notices.length]);
+
+  const rememberScrollPosition = (): void => {
+    const conversation = conversationRef.current;
+    if (!conversation || !restoredRef.current) return;
+    const atBottom =
+      conversation.scrollHeight - conversation.scrollTop -
+        conversation.clientHeight < 24;
+    pinnedToBottomRef.current = atBottom;
+    const conversationTop = conversation.getBoundingClientRect().top;
+    const anchor = [
+      ...conversation.querySelectorAll<HTMLElement>("[data-message-id]"),
+    ].find(
+      (candidate) => candidate.getBoundingClientRect().bottom > conversationTop,
+    );
+    const anchorMessageId = anchor?.dataset.messageId;
+    anchorRef.current =
+      anchor && anchorMessageId
+        ? {
+            messageId: anchorMessageId,
+            offset: anchor.getBoundingClientRect().top - conversationTop,
+          }
+        : null;
+    onScrollPositionChange(chatId, {
+      scrollTop: conversation.scrollTop,
+      atBottom,
+      ...(anchor && anchorMessageId
+        ? {
+            anchorMessageId,
+            anchorOffset: anchorRef.current!.offset,
+          }
+        : {}),
+    });
+  };
+
+  return (
+    <section
+      aria-live="polite"
+      className="conversation"
+      onScroll={rememberScrollPosition}
+      ref={conversationRef}
+    >
+      {notices.map((notice) => (
+        <div className="chat-notice" key={notice.id} role="status">
+          {notice.text}
+        </div>
+      ))}
+      {messages.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-glyph" aria-hidden="true">✦</div>
+          <h2>What does tonight need?</h2>
+          <p>
+            Sketch a scene, improvise an NPC, untangle a plot, or ask for a
+            second opinion.
+          </p>
+        </div>
+      ) : (
+        <div className="message-list">
+          {messages.map((message, messageIndex) => {
+            const text = textFromMessage(message);
+            const assistantBlocks =
+              message.role === "assistant"
+                ? getAssistantContentBlocks(message)
+                : [];
+            const images =
+              message.role === "assistant"
+                ? getDisplayableAssistantImages(message.parts)
+                : [];
+            const uploadedImages =
+              message.role === "user"
+                ? message.parts
+                    .filter(isUploadedImagePart)
+                    .map((part) => part.data)
+                : [];
+            const generatedImageReferences =
+              message.role === "assistant"
+                ? message.parts
+                    .filter(isGeneratedImagePart)
+                    .map((part) => part.data)
+                : [];
+            const assistantImages = combineAssistantImages(
+              images,
+              generatedImageReferences,
+            );
+            const embeddedImageCount = Math.min(
+              assistantImages.length,
+              countMarkdownImageReferences(text),
+            );
+            const embeddedImages = assistantImages.slice(0, embeddedImageCount);
+            const trailingImages = assistantImages.slice(embeddedImageCount);
+            const visibleTrailingImages =
+              status === "streaming" &&
+              message.role === "assistant" &&
+              messageIndex === messages.length - 1
+                ? []
+                : trailingImages;
+            let embeddedImageCursor = 0;
+            if (
+              !text &&
+              assistantBlocks.length === 0 &&
+              images.length === 0 &&
+              uploadedImages.length === 0 &&
+              generatedImageReferences.length === 0
+            ) {
+              return null;
+            }
+            return (
+              <article
+                className={`message ${message.role}`}
+                data-message-id={message.id}
+                key={message.id}
+              >
+                <p className="message-author">
+                  {message.role === "user" ? "You" : "GM Tools"}
+                </p>
+                {message.role === "assistant" ? (
+                  assistantBlocks.map((block, blockIndex) => {
+                    if (block.type === "roll20-status") {
+                      return (
+                        <Roll20Status
+                          key={block.receipt.toolCallId}
+                          receipt={block.receipt}
+                        />
+                      );
+                    }
+                    const imageCount = Math.min(
+                      countMarkdownImageReferences(block.text),
+                      embeddedImages.length - embeddedImageCursor,
+                    );
+                    const blockImages = embeddedImages.slice(
+                      embeddedImageCursor,
+                      embeddedImageCursor + imageCount,
+                    );
+                    embeddedImageCursor += imageCount;
+                    return (
+                      <div
+                        className="message-text message-markdown"
+                        key={`text:${blockIndex}`}
+                      >
+                        <ReactMarkdown
+                          components={createMarkdownComponents(
+                            chatId,
+                            blockImages,
+                          )}
+                          remarkPlugins={[remarkGfm]}
+                        >
+                          {block.text}
+                        </ReactMarkdown>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <>
+                    {uploadedImages.length > 0 ? (
+                      <div className="uploaded-image-grid message-images">
+                        {uploadedImages.map((image) => (
+                          <StoredImagePreview
+                            chatId={chatId}
+                            image={image}
+                            key={image.imageId}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+                    {text ? <div className="message-text">{text}</div> : null}
+                  </>
+                )}
+                {visibleTrailingImages.map((image, index) => (
+                  <AssistantImageView
+                    chatId={chatId}
+                    image={image}
+                    key={
+                      image.kind === "displayable"
+                        ? `${image.image.url.slice(0, 80)}:${index}`
+                        : image.image.imageId
+                    }
+                  />
+                ))}
+              </article>
+            );
+          })}
+          {activity && !inlineRoll20Working ? (
+            <div
+              className={`activity-indicator ${activity.kind.toLowerCase()}`}
+              role="status"
+            >
+              <span>
+                {activity.kind}
+                {activity.summary ? `: ${activity.summary}` : ""}
+              </span>
+              <span className="activity-dots" aria-hidden="true">
+                <span /><span /><span />
+              </span>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+});
+
+function ChatComposer({
+  busy,
+  chatId,
+  error,
+  initialDraft,
+  modelLabel,
+  onClearError,
+  onDraftChange,
+  onRegenerate,
+  onSend,
+  onStop,
+}: {
+  readonly busy: boolean;
+  readonly chatId: string;
+  readonly error: Error | undefined;
+  readonly initialDraft: string;
+  readonly modelLabel: string;
+  readonly onClearError: () => void;
+  readonly onDraftChange: (chatId: string, draft: string) => void;
+  readonly onRegenerate: () => void;
+  readonly onSend: (parts: UIMessage["parts"]) => void;
+  readonly onStop: () => void;
+}): React.JSX.Element {
+  const [input, setInput] = useState(initialDraft);
+  const [pendingImages, setPendingImages] = useState<UploadedImageReference[]>(
+    [],
+  );
+  const pendingImagesRef = useRef<UploadedImageReference[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [draggingImages, setDraggingImages] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useLayoutEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
+    const conversation = textarea
+      .closest(".chat-shell")
+      ?.querySelector<HTMLElement>(".conversation");
+    const wasPinned = conversation
+      ? conversation.scrollHeight - conversation.scrollTop -
+          conversation.clientHeight < 24
+      : false;
+    const previousScrollTop = conversation?.scrollTop;
     textarea.style.height = "auto";
     textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
+    if (conversation) {
+      conversation.scrollTop = wasPinned
+        ? conversation.scrollHeight
+        : previousScrollTop ?? conversation.scrollTop;
+    }
   }, [input]);
+
+  const updateInput = (value: string): void => {
+    setInput(value);
+    onDraftChange(chatId, value);
+  };
 
   const addImageFiles = useCallback(async (files: readonly File[]) => {
     if (busy || files.length === 0) return;
@@ -787,22 +939,20 @@ function ChatScreen({
     void deleteChatImage(chatId, imageId);
   }, [chatId]);
 
-  const submit = useCallback(() => {
+  const submit = (): void => {
     const text = input.trim();
     if ((!text && pendingImages.length === 0) || busy) return;
-    clearError();
-    setInput("");
+    onClearError();
+    updateInput("");
     setAttachmentError(null);
     const images = pendingImages;
     pendingImagesRef.current = [];
     setPendingImages([]);
-    void sendMessage({
-      parts: [
-        ...images.map(createUploadedImagePart),
-        ...(text ? [{ type: "text" as const, text }] : []),
-      ],
-    });
-  }, [busy, clearError, input, pendingImages, sendMessage]);
+    onSend([
+      ...images.map(createUploadedImagePart),
+      ...(text ? [{ type: "text" as const, text }] : []),
+    ]);
+  };
 
   useEffect(() => () => {
     for (const image of pendingImagesRef.current) {
@@ -810,18 +960,6 @@ function ChatScreen({
     }
     pendingImagesRef.current = [];
   }, [chatId]);
-
-  const handleSubmit = (event: FormEvent): void => {
-    event.preventDefault();
-    submit();
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      submit();
-    }
-  };
 
   const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
     const images = [...event.clipboardData.files].filter((file) =>
@@ -841,6 +979,475 @@ function ChatScreen({
     if (images.length > 0) void addImageFiles(images);
   };
 
+  return (
+    <footer className="composer-area">
+      {error ? (
+        <div className="chat-error" role="alert">
+          <span>{error.message}</span>
+          <button type="button" onClick={onRegenerate}>Retry</button>
+        </div>
+      ) : null}
+      {attachmentError ? (
+        <div className="attachment-error" role="alert">{attachmentError}</div>
+      ) : null}
+      {pendingImages.length > 0 ? (
+        <div className="uploaded-image-grid pending-images">
+          {pendingImages.map((image) => (
+            <StoredImagePreview
+              chatId={chatId}
+              image={image}
+              key={image.imageId}
+              onRemove={() => removePendingImage(image.imageId)}
+            />
+          ))}
+        </div>
+      ) : null}
+      <form
+        className={draggingImages ? "composer image-dragging" : "composer"}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          if (!busy) setDraggingImages(true);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setDraggingImages(false);
+          }
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={handleDrop}
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
+        <textarea
+          aria-label="Message GM Tools"
+          onChange={(event) => updateInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              submit();
+            }
+          }}
+          onPaste={handlePaste}
+          placeholder="Ask, paste, or drop an image…"
+          ref={textareaRef}
+          rows={1}
+          value={input}
+        />
+        {busy ? (
+          <button
+            aria-label="Stop generating"
+            className="send-button stop-button"
+            onClick={onStop}
+            type="button"
+          >
+            ■
+          </button>
+        ) : (
+          <button
+            aria-label="Send message"
+            className="send-button"
+            disabled={!input.trim() && pendingImages.length === 0}
+            type="submit"
+          >
+            ↑
+          </button>
+        )}
+      </form>
+      <div className="composer-meta">
+        <span>{modelLabel} via OpenRouter</span>
+      </div>
+    </footer>
+  );
+}
+
+function ChatDrawer({
+  activities,
+  activeChatId,
+  chats,
+  onClose,
+  onCreateChat,
+  onDeleteChat,
+  onSwitchChat,
+}: {
+  readonly activities: Readonly<Record<string, ChatActivityStatus>>;
+  readonly activeChatId: string;
+  readonly chats: readonly ChatRecord[];
+  readonly onClose: () => void;
+  readonly onCreateChat: () => void;
+  readonly onDeleteChat: (chatId: string) => Promise<void>;
+  readonly onSwitchChat: (chatId: string) => void;
+}): React.JSX.Element {
+  const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(
+    null,
+  );
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteCandidate = chats.find(
+    (candidate) => candidate.id === deleteCandidateId,
+  );
+  const groups = useMemo(() => groupChatsByCampaign(chats), [chats]);
+
+  return (
+    <>
+      <button
+        aria-label="Close chats"
+        className="chat-drawer-backdrop"
+        onClick={onClose}
+        type="button"
+      />
+      <aside className="chat-drawer" aria-label="Chats">
+        <div className="chat-drawer-heading">
+          <h2>Chats</h2>
+          <button className="new-chat-button" onClick={onCreateChat} type="button">
+            <span aria-hidden="true">+</span> New
+          </button>
+        </div>
+        <div className="chat-drawer-list">
+          {groups.map((group) => (
+            <section className="chat-drawer-group" key={group.key}>
+              <h3 title={group.name}>{group.name}</h3>
+              {group.chats.map((candidate) => {
+                const activity = activities[candidate.id];
+                return (
+                  <div
+                    className={
+                      candidate.id === activeChatId
+                        ? "chat-drawer-item selected"
+                        : "chat-drawer-item"
+                    }
+                    key={candidate.id}
+                  >
+                    <button
+                      className="chat-drawer-select"
+                      onClick={() => onSwitchChat(candidate.id)}
+                      type="button"
+                    >
+                      <strong>{candidate.title}</strong>
+                      {activity &&
+                      (activity.state !== "unread" ||
+                        candidate.id !== activeChatId) ? (
+                        <span
+                          className={`chat-drawer-activity ${activity.state}`}
+                          title={activity.summary}
+                        >
+                          <span aria-hidden="true" />
+                          {activity.state === "working"
+                            ? "Working"
+                            : activity.state === "unread"
+                              ? "New response"
+                              : "Thinking"}
+                        </span>
+                      ) : null}
+                    </button>
+                    <button
+                      aria-label={`Delete ${candidate.title}`}
+                      className="chat-drawer-delete"
+                      onClick={() => {
+                        setDeleteError(null);
+                        setDeleteCandidateId(candidate.id);
+                      }}
+                      title="Delete chat"
+                      type="button"
+                    >
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  </div>
+                );
+              })}
+            </section>
+          ))}
+        </div>
+      </aside>
+      {deleteCandidate ? (
+        <>
+          <button
+            aria-label="Cancel chat deletion"
+            className="chat-delete-modal-backdrop"
+            disabled={deleting}
+            onClick={() => setDeleteCandidateId(null)}
+            type="button"
+          />
+          <div
+            aria-label="Confirm chat deletion"
+            className="chat-delete-confirm"
+            role="alertdialog"
+          >
+            <p
+              title={`Delete “${deleteCandidate.title}” from “${deleteCandidate.campaignName ?? "No campaign"}”?`}
+            >
+              Delete “{deleteCandidate.title}” from “
+              {deleteCandidate.campaignName ?? "No campaign"}”?
+            </p>
+            {deleteError ? (
+              <p className="chat-delete-error" role="alert">
+                {deleteError}
+              </p>
+            ) : null}
+            <div>
+              <button
+                disabled={deleting}
+                onClick={() => setDeleteCandidateId(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="danger"
+                disabled={deleting}
+                onClick={() => {
+                  setDeleting(true);
+                  setDeleteError(null);
+                  void onDeleteChat(deleteCandidate.id)
+                    .then(() => setDeleteCandidateId(null))
+                    .catch((error: unknown) => {
+                      setDeleteError(
+                        error instanceof Error
+                          ? error.message
+                          : "The chat could not be deleted.",
+                      );
+                    })
+                    .finally(() => setDeleting(false));
+                }}
+                type="button"
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function ChatScreen({
+  activeProfile,
+  chat,
+  initialDraft,
+  initialMessages,
+  initialScrollPosition,
+  onCampaignBindingChanged,
+  onDraftChange,
+  onManageProfiles,
+  onOpenChatDrawer,
+  onRenameChat,
+  onScrollPositionChange,
+  onSelectProfile,
+  profiles,
+}: {
+  readonly activeProfile: AssistantProfile;
+  readonly chat: ChatRecord;
+  readonly initialDraft: string;
+  readonly initialMessages: UIMessage[];
+  readonly initialScrollPosition: ChatScrollPosition | undefined;
+  readonly onCampaignBindingChanged: () => Promise<void>;
+  readonly onDraftChange: (chatId: string, draft: string) => void;
+  readonly onManageProfiles: () => void;
+  readonly onOpenChatDrawer: () => void;
+  readonly onRenameChat: (title: string) => void;
+  readonly onScrollPositionChange: (
+    chatId: string,
+    position: ChatScrollPosition,
+  ) => void;
+  readonly onSelectProfile: (profileId: string) => void;
+  readonly profiles: readonly AssistantProfile[];
+}): React.JSX.Element {
+  const chatId = chat.id;
+  const transport = useMemo(
+    () => new ExtensionChatTransport(activeProfile.id),
+    [activeProfile.id],
+  );
+  const {
+    messages,
+    sendMessage,
+    regenerate,
+    stop,
+    status,
+    error,
+    clearError,
+    setMessages,
+  } = useChat({
+    id: chatId,
+    messages: initialMessages,
+    transport,
+    throttle: 40,
+    resume: true,
+  });
+  const [campaignStatus, setCampaignStatus] = useState<CampaignStatus>(() =>
+    chat.campaignId && chat.campaignName
+      ? {
+          chatId,
+          state: "disconnected",
+          campaignId: chat.campaignId,
+          name: chat.campaignName,
+        }
+      : { chatId, state: "unbound" },
+  );
+  const [campaignActionPending, setCampaignActionPending] = useState<
+    "attach" | "detach" | null
+  >(null);
+  const [campaignActionFeedback, setCampaignActionFeedback] = useState<
+    string | null
+  >(null);
+  const [campaignCandidates, setCampaignCandidates] = useState<
+    readonly CampaignCandidate[]
+  >([]);
+  const activeTurnRef = useRef(false);
+  const safeMessagesRef = useRef(initialMessages);
+  const busy = status === "submitted" || status === "streaming";
+
+  useEffect(() => {
+    const handleCampaignStatus = (message: unknown): void => {
+      if (
+        isCampaignStatusChangedMessage(message) &&
+        message.status.chatId === chatId
+      ) {
+        setCampaignStatus(message.status);
+      }
+    };
+    chrome.runtime.onMessage.addListener(handleCampaignStatus);
+    return () => {
+      chrome.runtime.onMessage.removeListener(handleCampaignStatus);
+    };
+  }, [chatId]);
+
+  const campaignLabel =
+    campaignStatus.campaignId && campaignStatus.name
+      ? campaignStatus.name
+      : "No campaign attached";
+  const campaignBound = Boolean(
+    campaignStatus.campaignId && campaignStatus.name,
+  );
+
+  useEffect(() => {
+    if (campaignCandidates.length <= 1) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === "Escape") setCampaignCandidates([]);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [campaignCandidates.length]);
+
+  const attachCandidate = async (
+    candidate: CampaignCandidate,
+  ): Promise<void> => {
+    setCampaignCandidates([]);
+    setCampaignActionPending("attach");
+    setCampaignActionFeedback(null);
+    try {
+      const response: unknown = await chrome.runtime.sendMessage({
+        type: CAMPAIGN_ATTACH_REQUEST,
+        chatId,
+        candidate,
+      });
+      if (!isCampaignStatusResponse(response)) {
+        throw new Error("The extension returned an invalid response.");
+      }
+      if (!response.ok) throw new Error(response.error);
+      setCampaignStatus(response.status);
+      if (response.status.campaignId && response.status.name) {
+        await onCampaignBindingChanged();
+      } else {
+        setCampaignActionFeedback(
+          response.status.detail ?? "The campaign could not be attached.",
+        );
+      }
+    } catch (actionError) {
+      setCampaignActionFeedback(
+        actionError instanceof Error
+          ? actionError.message
+          : "The campaign binding could not be changed.",
+      );
+    } finally {
+      setCampaignActionPending(null);
+    }
+  };
+
+  const beginAttach = async (): Promise<void> => {
+    setCampaignActionPending("attach");
+    setCampaignActionFeedback(null);
+    try {
+      const response: unknown = await chrome.runtime.sendMessage({
+        type: CAMPAIGN_CANDIDATES_REQUEST,
+        chatId,
+      });
+      if (!isCampaignCandidatesResponse(response)) {
+        throw new Error("The extension returned an invalid response.");
+      }
+      if (!response.ok) throw new Error(response.error);
+      if (response.candidates.length === 0) {
+        setCampaignActionFeedback(
+          "No campaign is available. Open a Roll20 campaign as its GM, or keep another chat attached to it.",
+        );
+        return;
+      }
+      if (response.candidates.length === 1) {
+        await attachCandidate(response.candidates[0]!);
+        return;
+      }
+      setCampaignCandidates(response.candidates);
+    } catch (actionError) {
+      setCampaignActionFeedback(
+        actionError instanceof Error
+          ? actionError.message
+          : "Campaign candidates could not be loaded.",
+      );
+    } finally {
+      setCampaignActionPending(null);
+    }
+  };
+
+  const detach = async (): Promise<void> => {
+    setCampaignActionPending("detach");
+    setCampaignActionFeedback(null);
+    setCampaignCandidates([]);
+    try {
+      const response: unknown = await chrome.runtime.sendMessage({
+        type: CAMPAIGN_DETACH_REQUEST,
+        chatId,
+      });
+      if (!isCampaignStatusResponse(response)) {
+        throw new Error("The extension returned an invalid response.");
+      }
+      if (!response.ok) throw new Error(response.error);
+      setCampaignStatus(response.status);
+      if (response.status.state === "unbound") {
+        await onCampaignBindingChanged();
+      } else {
+        setCampaignActionFeedback(
+          response.status.detail ?? "The campaign could not be detached.",
+        );
+      }
+    } catch (actionError) {
+      setCampaignActionFeedback(
+        actionError instanceof Error
+          ? actionError.message
+          : "The campaign could not be detached.",
+      );
+    } finally {
+      setCampaignActionPending(null);
+    }
+  };
+
+  useEffect(() => {
+    if (status === "submitted") {
+      activeTurnRef.current = true;
+      safeMessagesRef.current = messages;
+      return;
+    }
+    if (status === "streaming") {
+      activeTurnRef.current = true;
+      return;
+    }
+    if (status === "ready" && activeTurnRef.current) {
+      activeTurnRef.current = false;
+      safeMessagesRef.current = messages;
+      sendChatControl(CHAT_COMMIT, chatId);
+    }
+  }, [chatId, messages, status]);
+
   const stopGeneration = (): void => {
     activeTurnRef.current = false;
     stop();
@@ -852,145 +1459,14 @@ function ChatScreen({
     onSelectProfile(profileId);
   };
 
-  const toggleChatMenu = (): void => {
-    setMenuOpen((open) => {
-      if (!open) onOpenChats();
-      return !open;
-    });
-    setDeleteCandidateId(null);
-  };
-
-  const switchChat = (nextChatId: string): void => {
-    if (nextChatId !== chatId) onSwitchChat(nextChatId);
-    setMenuOpen(false);
-    setDeleteCandidateId(null);
-  };
-
   return (
     <main className="chat-shell">
-      {menuOpen ? (
-        <>
-          <button
-            aria-label="Close chats"
-            className="chat-drawer-backdrop"
-            onClick={toggleChatMenu}
-            type="button"
-          />
-          <aside className="chat-drawer" aria-label="Chats">
-            <div className="chat-drawer-heading">
-              <h2>Chats</h2>
-              <button
-                className="new-chat-button"
-                onClick={() => {
-                  onCreateChat();
-                  setMenuOpen(false);
-                }}
-                type="button"
-              >
-                <span aria-hidden="true">+</span> New
-              </button>
-            </div>
-            <div className="chat-drawer-list">
-              {campaignChatGroups.map((group) => (
-                <section className="chat-drawer-group" key={group.key}>
-                  <h3 title={group.name}>{group.name}</h3>
-                  {group.chats.map((candidate) => {
-                    const drawerActivity = chatActivities[candidate.id];
-                    return (
-                      <div
-                        className={
-                          candidate.id === chatId
-                            ? "chat-drawer-item selected"
-                            : "chat-drawer-item"
-                        }
-                        key={candidate.id}
-                      >
-                        <button
-                          className="chat-drawer-select"
-                          onClick={() => switchChat(candidate.id)}
-                          type="button"
-                        >
-                          <strong>{candidate.title}</strong>
-                          {drawerActivity &&
-                          (drawerActivity.state !== "unread" ||
-                            candidate.id !== chatId) ? (
-                            <span
-                              className={`chat-drawer-activity ${drawerActivity.state}`}
-                              title={drawerActivity.summary}
-                          >
-                            <span aria-hidden="true" />
-                            {drawerActivity.state === "working"
-                              ? "Working"
-                              : drawerActivity.state === "unread"
-                                ? "New response"
-                                : "Thinking"}
-                            </span>
-                          ) : null}
-                        </button>
-                        <button
-                          aria-label={`Delete ${candidate.title}`}
-                          className="chat-drawer-delete"
-                          onClick={() => setDeleteCandidateId(candidate.id)}
-                          title="Delete chat"
-                          type="button"
-                        >
-                          <span aria-hidden="true">×</span>
-                        </button>
-                      </div>
-                    );
-                  })}
-                </section>
-              ))}
-            </div>
-          </aside>
-          {deleteCandidate ? (
-            <>
-              <button
-                aria-label="Cancel chat deletion"
-                className="chat-delete-modal-backdrop"
-                onClick={() => setDeleteCandidateId(null)}
-                type="button"
-              />
-              <div
-                aria-label="Confirm chat deletion"
-                className="chat-delete-confirm"
-                role="alertdialog"
-              >
-                <p
-                  title={`Delete “${deleteCandidate.title}” from “${deleteCandidate.campaignName ?? "No campaign"}”?`}
-                >
-                  Delete “{deleteCandidate.title}” from “
-                  {deleteCandidate.campaignName ?? "No campaign"}”?
-                </p>
-                <div>
-                  <button
-                    onClick={() => setDeleteCandidateId(null)}
-                    type="button"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="danger"
-                    onClick={() => {
-                      onDeleteChat(deleteCandidate.id);
-                      setDeleteCandidateId(null);
-                    }}
-                    type="button"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </>
-          ) : null}
-        </>
-      ) : null}
       <header className="chat-header">
         <div className="chat-title-row">
           <button
             aria-label="Open chats"
             className="chat-menu-button"
-            onClick={toggleChatMenu}
+            onClick={onOpenChatDrawer}
             title="Open chats"
             type="button"
           >
@@ -1007,15 +1483,11 @@ function ChatScreen({
             <button
               className="campaign-action-button"
               disabled={busy || campaignActionPending !== null}
-              onClick={() =>
-                void changeCampaignBinding(
-                  campaignBound ? "detach" : "attach",
-                )
-              }
+              onClick={() => void (campaignBound ? detach() : beginAttach())}
               title={
                 campaignBound
                   ? "Detach this chat from its Roll20 campaign"
-                  : "Attach this chat to the active Roll20 campaign"
+                  : "Attach this chat to a Roll20 campaign"
               }
               type="button"
             >
@@ -1057,244 +1529,71 @@ function ChatScreen({
         </div>
       </header>
 
-      <section className="conversation" aria-live="polite">
-        {chat.notices.map((notice) => (
-          <div className="chat-notice" key={notice.id} role="status">
-            {notice.text}
-          </div>
-        ))}
-        {messages.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-glyph" aria-hidden="true">✦</div>
-            <h2>What does tonight need?</h2>
-            <p>
-              Sketch a scene, improvise an NPC, untangle a plot, or ask for a
-              second opinion.
-            </p>
-          </div>
-        ) : (
-          <div className="message-list">
-            {messages.map((message, messageIndex) => {
-              const text = textFromMessage(message);
-              const assistantBlocks =
-                message.role === "assistant"
-                  ? getAssistantContentBlocks(message)
-                  : [];
-              const images =
-                message.role === "assistant"
-                  ? getDisplayableAssistantImages(message.parts)
-                  : [];
-              const uploadedImages =
-                message.role === "user"
-                  ? message.parts
-                      .filter(isUploadedImagePart)
-                      .map((part) => part.data)
-                  : [];
-              const generatedImageReferences =
-                message.role === "assistant"
-                  ? message.parts
-                      .filter(isGeneratedImagePart)
-                      .map((part) => part.data)
-                  : [];
-              const assistantImages = combineAssistantImages(
-                images,
-                generatedImageReferences,
-              );
-              const embeddedImageCount = Math.min(
-                assistantImages.length,
-                countMarkdownImageReferences(text),
-              );
-              const embeddedImages = assistantImages.slice(
-                0,
-                embeddedImageCount,
-              );
-              const trailingImages = assistantImages.slice(embeddedImageCount);
-              const visibleTrailingImages =
-                status === "streaming" &&
-                message.role === "assistant" &&
-                messageIndex === messages.length - 1
-                  ? []
-                  : trailingImages;
-              let embeddedImageCursor = 0;
-              if (
-                !text &&
-                assistantBlocks.length === 0 &&
-                images.length === 0 &&
-                uploadedImages.length === 0 &&
-                generatedImageReferences.length === 0
-              ) {
-                return null;
-              }
-              return (
-                <article
-                  className={`message ${message.role}`}
-                  key={message.id}
-                >
-                  <p className="message-author">
-                    {message.role === "user" ? "You" : "GM Tools"}
-                  </p>
-                  {message.role === "assistant" ? (
-                    assistantBlocks.map((block, blockIndex) => {
-                      if (block.type === "roll20-status") {
-                        return (
-                          <Roll20Status
-                            key={block.receipt.toolCallId}
-                            receipt={block.receipt}
-                          />
-                        );
-                      }
-                      const imageCount = Math.min(
-                        countMarkdownImageReferences(block.text),
-                        embeddedImages.length - embeddedImageCursor,
-                      );
-                      const blockImages = embeddedImages.slice(
-                        embeddedImageCursor,
-                        embeddedImageCursor + imageCount,
-                      );
-                      embeddedImageCursor += imageCount;
-                      return (
-                        <div
-                          className="message-text message-markdown"
-                          key={`text:${blockIndex}`}
-                        >
-                          <ReactMarkdown
-                            components={createMarkdownComponents(
-                              chatId,
-                              blockImages,
-                            )}
-                            remarkPlugins={[remarkGfm]}
-                          >
-                            {block.text}
-                          </ReactMarkdown>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <>
-                      {uploadedImages.length > 0 ? (
-                        <div className="uploaded-image-grid message-images">
-                          {uploadedImages.map((image) => (
-                            <StoredImagePreview
-                              chatId={chatId}
-                              image={image}
-                              key={image.imageId}
-                            />
-                          ))}
-                        </div>
-                      ) : null}
-                      {text ? <div className="message-text">{text}</div> : null}
-                    </>
-                  )}
-                  {visibleTrailingImages.map((image, index) => (
-                    <AssistantImageView
-                      chatId={chatId}
-                      image={image}
-                      key={
-                        image.kind === "displayable"
-                          ? `${image.image.url.slice(0, 80)}:${index}`
-                          : image.image.imageId
-                      }
-                    />
-                  ))}
-                </article>
-              );
-            })}
-            {activity && !inlineRoll20Working ? (
-              <div
-                className={`activity-indicator ${activity.kind.toLowerCase()}`}
-                role="status"
-              >
-                <span>
-                  {activity.kind}
-                  {activity.summary ? `: ${activity.summary}` : ""}
-                </span>
-                <span className="activity-dots" aria-hidden="true">
-                  <span /><span /><span />
-                </span>
-              </div>
-            ) : null}
-          </div>
-        )}
-        <div ref={endRef} />
-      </section>
-
-      <footer className="composer-area">
-        {error ? (
-          <div className="chat-error" role="alert">
-            <span>{error.message}</span>
-            <button type="button" onClick={() => void regenerate()}>
-              Retry
-            </button>
-          </div>
-        ) : null}
-        {attachmentError ? (
-          <div className="attachment-error" role="alert">
-            {attachmentError}
-          </div>
-        ) : null}
-        {pendingImages.length > 0 ? (
-          <div className="uploaded-image-grid pending-images">
-            {pendingImages.map((image) => (
-              <StoredImagePreview
-                chatId={chatId}
-                image={image}
-                key={image.imageId}
-                onRemove={() => removePendingImage(image.imageId)}
-              />
-            ))}
-          </div>
-        ) : null}
-        <form
-          className={draggingImages ? "composer image-dragging" : "composer"}
-          onDragEnter={(event) => {
-            event.preventDefault();
-            if (!busy) setDraggingImages(true);
-          }}
-          onDragLeave={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-              setDraggingImages(false);
-            }
-          }}
-          onDragOver={(event) => event.preventDefault()}
-          onDrop={handleDrop}
-          onSubmit={handleSubmit}
-        >
-          <textarea
-            aria-label="Message GM Tools"
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            placeholder="Ask, paste, or drop an image…"
-            ref={textareaRef}
-            rows={1}
-            value={input}
+      {campaignCandidates.length > 1 ? (
+        <>
+          <button
+            aria-label="Cancel campaign selection"
+            className="campaign-candidate-backdrop"
+            onClick={() => setCampaignCandidates([])}
+            type="button"
           />
-          {busy ? (
+          <div
+            aria-labelledby="campaign-candidate-heading"
+            aria-modal="true"
+            className="campaign-candidate-picker"
+            role="dialog"
+          >
+            <h2 id="campaign-candidate-heading">Attach this chat to</h2>
+            <div className="campaign-candidate-list">
+              {campaignCandidates.map((candidate, index) => (
+                <button
+                  autoFocus={index === 0}
+                  key={candidate.campaignId}
+                  onClick={() => void attachCandidate(candidate)}
+                  type="button"
+                >
+                  <span>{candidate.name}</span>
+                  <small>
+                    {candidate.activeTab
+                      ? "Current tab"
+                      : candidate.tabId !== undefined
+                        ? "Open Roll20 tab"
+                        : "Existing chat"}
+                  </small>
+                </button>
+              ))}
+            </div>
             <button
-              aria-label="Stop generating"
-              className="send-button stop-button"
-              onClick={stopGeneration}
+              className="campaign-candidate-cancel"
+              onClick={() => setCampaignCandidates([])}
               type="button"
             >
-              ■
+              Cancel
             </button>
-          ) : (
-            <button
-              aria-label="Send message"
-              className="send-button"
-              disabled={!input.trim() && pendingImages.length === 0}
-              type="submit"
-            >
-              ↑
-            </button>
-          )}
-        </form>
-        <div className="composer-meta">
-          <span>
-            {getModelDefinition(activeProfile.modelId).label} via OpenRouter
-          </span>
-        </div>
-      </footer>
+          </div>
+        </>
+      ) : null}
+
+      <ConversationPane
+        chatId={chatId}
+        initialScrollPosition={initialScrollPosition}
+        messages={messages}
+        notices={chat.notices}
+        onScrollPositionChange={onScrollPositionChange}
+        status={status}
+      />
+      <ChatComposer
+        busy={busy}
+        chatId={chatId}
+        error={error}
+        initialDraft={initialDraft}
+        modelLabel={getModelDefinition(activeProfile.modelId).label}
+        onClearError={clearError}
+        onDraftChange={onDraftChange}
+        onRegenerate={() => void regenerate()}
+        onSend={(parts) => void sendMessage({ parts })}
+        onStop={stopGeneration}
+      />
     </main>
   );
 }
@@ -1305,16 +1604,47 @@ function ChatWorkspace(): React.JSX.Element {
   const [chatActivities, setChatActivities] = useState<
     Record<string, ChatActivityStatus>
   >({});
-  const [chatResetRevision, setChatResetRevision] = useState(0);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [transientNotice, setTransientNotice] = useState<string | null>(null);
   const [storedChat, setStoredChat] = useState<{
     readonly chat: ChatRecord;
     readonly messages: UIMessage[];
   } | null>(null);
   const storedChatRef = useRef<typeof storedChat>(null);
+  const draftsRef = useRef(createChatDraftStore());
+  const noticeTimeoutRef = useRef<number | undefined>(undefined);
 
   const setCurrentChat = useCallback((value: typeof storedChat): void => {
     storedChatRef.current = value;
     setStoredChat(value);
+  }, []);
+
+  const updateDraft = useCallback((chatId: string, draft: string): void => {
+    draftsRef.current.set(chatId, draft);
+  }, []);
+
+  const updateScrollPosition = useCallback(
+    (chatId: string, position: ChatScrollPosition): void => {
+      draftsRef.current.setScrollPosition(chatId, position);
+    },
+    [],
+  );
+
+  const showTransientNotice = useCallback((notice: string): void => {
+    setTransientNotice(notice);
+    if (noticeTimeoutRef.current !== undefined) {
+      window.clearTimeout(noticeTimeoutRef.current);
+    }
+    noticeTimeoutRef.current = window.setTimeout(() => {
+      setTransientNotice(null);
+      noticeTimeoutRef.current = undefined;
+    }, 4_000);
+  }, []);
+
+  useEffect(() => () => {
+    if (noticeTimeoutRef.current !== undefined) {
+      window.clearTimeout(noticeTimeoutRef.current);
+    }
   }, []);
 
   const fallbackMissingProfile = useCallback(async (
@@ -1485,12 +1815,18 @@ function ChatWorkspace(): React.JSX.Element {
     void (async () => {
       await acknowledgeCompletedChat(chatId);
       const loaded = await getStoredChat(chatId);
-      if (loaded) await activateStoredChat(loaded);
+      if (loaded) {
+        await activateStoredChat(loaded);
+        setDrawerOpen(false);
+      }
     })();
   };
 
   const createNewChat = (): void => {
-    void createChat(storedChat.chat.profileId).then(activateStoredChat);
+    void createChat(storedChat.chat.profileId).then(async (created) => {
+      await activateStoredChat(created);
+      setDrawerOpen(false);
+    });
   };
 
   const renameCurrentChat = (title: string): void => {
@@ -1513,44 +1849,76 @@ function ChatWorkspace(): React.JSX.Element {
     setChats(await listChats());
   };
 
-  const removeChat = (chatId: string): void => {
+  const removeChat = async (chatId: string): Promise<void> => {
+    const deleted = chats.find((chat) => chat.id === chatId);
+    const nextChatId = nextChatIdAfterDeletion(chats, chatId);
     sendChatControl(CHAT_CLEAR, chatId);
-    void deleteChat(chatId).then(async () => {
-      let remaining = await listChats();
-      if (chatId !== storedChat.chat.id) {
-        setChats(remaining);
-        return;
-      }
-      let next = remaining[0]
-        ? await getStoredChat(remaining[0].id)
-        : undefined;
-      if (!next) {
-        next = await createChat(storedChat.chat.profileId);
-        remaining = [next.chat];
-      }
+    draftsRef.current.delete(chatId);
+    await deleteChat(chatId);
+    const remaining = await listChats();
+    if (chatId !== storedChat.chat.id) {
       setChats(remaining);
+      return;
+    }
+    const nextId =
+      nextChatId && remaining.some((chat) => chat.id === nextChatId)
+        ? nextChatId
+        : remaining[0]?.id;
+    const next = nextId ? await getStoredChat(nextId) : undefined;
+    if (next) {
       await activateStoredChat(next);
-    });
+      return;
+    }
+    const replacement = await createChat(storedChat.chat.profileId);
+    await activateStoredChat(replacement);
+    setDrawerOpen(false);
+    showTransientNotice(
+      `Deleted “${deleted?.title ?? "chat"}” and started a new chat.`,
+    );
+  };
+
+  const openDrawer = (): void => {
+    setDrawerOpen(true);
+    void listChats().then(setChats);
   };
 
   return (
-    <ChatScreen
-      activeProfile={activeProfile}
-      chat={storedChat.chat}
-      chatActivities={chatActivities}
-      chats={chats}
-      initialMessages={storedChat.messages}
-      key={`${storedChat.chat.id}:${chatResetRevision}`}
-      onCampaignBindingChanged={refreshCurrentChatBinding}
-      onCreateChat={createNewChat}
-      onDeleteChat={removeChat}
-      onManageProfiles={() => void chrome.runtime.openOptionsPage()}
-      onOpenChats={() => void listChats().then(setChats)}
-      onRenameChat={renameCurrentChat}
-      onSelectProfile={selectProfile}
-      onSwitchChat={switchChat}
-      profiles={profiles}
-    />
+    <div className="chat-workspace">
+      <ChatScreen
+        activeProfile={activeProfile}
+        chat={storedChat.chat}
+        initialDraft={draftsRef.current.get(storedChat.chat.id)}
+        initialMessages={storedChat.messages}
+        initialScrollPosition={draftsRef.current.getScrollPosition(
+          storedChat.chat.id,
+        )}
+        key={storedChat.chat.id}
+        onCampaignBindingChanged={refreshCurrentChatBinding}
+        onDraftChange={updateDraft}
+        onManageProfiles={() => void chrome.runtime.openOptionsPage()}
+        onOpenChatDrawer={openDrawer}
+        onRenameChat={renameCurrentChat}
+        onScrollPositionChange={updateScrollPosition}
+        onSelectProfile={selectProfile}
+        profiles={profiles}
+      />
+      {drawerOpen ? (
+        <ChatDrawer
+          activities={chatActivities}
+          activeChatId={storedChat.chat.id}
+          chats={chats}
+          onClose={() => setDrawerOpen(false)}
+          onCreateChat={createNewChat}
+          onDeleteChat={removeChat}
+          onSwitchChat={switchChat}
+        />
+      ) : null}
+      {transientNotice ? (
+        <div className="workspace-toast" role="status">
+          {transientNotice}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

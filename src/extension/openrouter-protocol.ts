@@ -6,6 +6,8 @@ export const AUTH_DISCONNECT_REQUEST = "GMTOOLS_AUTH_DISCONNECT" as const;
 export const AUTH_PERSISTENCE_REQUEST = "GMTOOLS_AUTH_PERSISTENCE" as const;
 export const AUTH_STATE_CHANGED = "GMTOOLS_AUTH_STATE_CHANGED" as const;
 export const CAMPAIGN_STATUS_REQUEST = "GMTOOLS_CAMPAIGN_STATUS" as const;
+export const CAMPAIGN_CANDIDATES_REQUEST =
+  "GMTOOLS_CAMPAIGN_CANDIDATES" as const;
 export const CAMPAIGN_ATTACH_REQUEST = "GMTOOLS_CAMPAIGN_ATTACH" as const;
 export const CAMPAIGN_DETACH_REQUEST = "GMTOOLS_CAMPAIGN_DETACH" as const;
 export const CAMPAIGN_STATUS_CHANGED =
@@ -70,9 +72,27 @@ export interface CampaignStatus {
 export interface CampaignStatusRequest {
   readonly type:
     | typeof CAMPAIGN_STATUS_REQUEST
-    | typeof CAMPAIGN_ATTACH_REQUEST
     | typeof CAMPAIGN_DETACH_REQUEST;
   readonly chatId: string;
+}
+
+export interface CampaignCandidate {
+  readonly campaignId: string;
+  readonly name: string;
+  readonly modVersion: string;
+  readonly tabId?: number;
+  readonly activeTab: boolean;
+}
+
+export interface CampaignCandidatesRequest {
+  readonly type: typeof CAMPAIGN_CANDIDATES_REQUEST;
+  readonly chatId: string;
+}
+
+export interface CampaignAttachRequest {
+  readonly type: typeof CAMPAIGN_ATTACH_REQUEST;
+  readonly chatId: string;
+  readonly candidate: CampaignCandidate;
 }
 
 export interface CampaignStatusChangedMessage {
@@ -82,6 +102,10 @@ export interface CampaignStatusChangedMessage {
 
 export type CampaignStatusResponse =
   | { readonly ok: true; readonly status: CampaignStatus }
+  | { readonly ok: false; readonly error: string };
+
+export type CampaignCandidatesResponse =
+  | { readonly ok: true; readonly candidates: readonly CampaignCandidate[] }
   | { readonly ok: false; readonly error: string };
 
 export type ChatPortRequest =
@@ -205,15 +229,48 @@ function isCampaignStatus(value: unknown): value is CampaignStatus {
   );
 }
 
+function isCampaignCandidate(value: unknown): value is CampaignCandidate {
+  return (
+    isRecord(value) &&
+    typeof value.campaignId === "string" &&
+    value.campaignId.length > 0 &&
+    typeof value.name === "string" &&
+    value.name.length > 0 &&
+    typeof value.modVersion === "string" &&
+    (value.tabId === undefined || typeof value.tabId === "number") &&
+    typeof value.activeTab === "boolean"
+  );
+}
+
 export function isCampaignStatusRequest(
   value: unknown,
 ): value is CampaignStatusRequest {
   return (
     isRecord(value) &&
     (value.type === CAMPAIGN_STATUS_REQUEST ||
-      value.type === CAMPAIGN_ATTACH_REQUEST ||
       value.type === CAMPAIGN_DETACH_REQUEST) &&
     typeof value.chatId === "string"
+  );
+}
+
+export function isCampaignCandidatesRequest(
+  value: unknown,
+): value is CampaignCandidatesRequest {
+  return (
+    isRecord(value) &&
+    value.type === CAMPAIGN_CANDIDATES_REQUEST &&
+    typeof value.chatId === "string"
+  );
+}
+
+export function isCampaignAttachRequest(
+  value: unknown,
+): value is CampaignAttachRequest {
+  return (
+    isRecord(value) &&
+    value.type === CAMPAIGN_ATTACH_REQUEST &&
+    typeof value.chatId === "string" &&
+    isCampaignCandidate(value.candidate)
   );
 }
 
@@ -225,6 +282,19 @@ export function isCampaignStatusResponse(
     typeof value.ok === "boolean" &&
     (value.ok === true
       ? isCampaignStatus(value.status)
+      : typeof value.error === "string")
+  );
+}
+
+export function isCampaignCandidatesResponse(
+  value: unknown,
+): value is CampaignCandidatesResponse {
+  return (
+    isRecord(value) &&
+    typeof value.ok === "boolean" &&
+    (value.ok === true
+      ? Array.isArray(value.candidates) &&
+        value.candidates.every(isCampaignCandidate)
       : typeof value.error === "string")
   );
 }
