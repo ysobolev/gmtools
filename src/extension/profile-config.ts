@@ -2,6 +2,7 @@ export const PROFILES_STORAGE_KEY = "gmToolsProfiles";
 
 export const MODEL_IDS = [
   "openai/gpt-5.2",
+  "openai/gpt-5.6-sol",
   "anthropic/claude-sonnet-4.6",
 ] as const;
 export type ModelId = (typeof MODEL_IDS)[number];
@@ -48,6 +49,11 @@ export const MODELS: readonly ModelDefinition[] = [
     id: "openai/gpt-5.2",
     label: "ChatGPT (GPT-5.2)",
     description: "OpenAI's current GM Tools default.",
+  },
+  {
+    id: "openai/gpt-5.6-sol",
+    label: "ChatGPT (GPT-5.6 Sol)",
+    description: "OpenAI's flagship model for complex reasoning and agentic work.",
   },
   {
     id: "anthropic/claude-sonnet-4.6",

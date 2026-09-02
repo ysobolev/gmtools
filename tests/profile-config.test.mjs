@@ -49,6 +49,19 @@ test("rejects unknown models and incompatible game-sheet combinations", () => {
   );
 });
 
+test("offers GPT-5.6 Sol as a profile model", () => {
+  assert.ok(profiles.MODEL_IDS.includes("openai/gpt-5.6-sol"));
+  assert.deepEqual(
+    profiles.getModelDefinition("openai/gpt-5.6-sol"),
+    {
+      id: "openai/gpt-5.6-sol",
+      label: "ChatGPT (GPT-5.6 Sol)",
+      description:
+        "OpenAI's flagship model for complex reasoning and agentic work.",
+    },
+  );
+});
+
 test("composes base, ruleset, sheet, and user guidance", () => {
   const prompt = profiles.buildProfileInstructions({
     id: "waterdeep",
