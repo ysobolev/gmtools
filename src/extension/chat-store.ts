@@ -348,6 +348,23 @@ export async function saveChatImage(
   chatId: string,
   file: File,
 ): Promise<StoredChatImage> {
+  return saveChatImageBlob(chatId, {
+    id: crypto.randomUUID(),
+    filename: file.name.trim() || "pasted-image",
+    mediaType: file.type,
+    blob: file,
+  });
+}
+
+export async function saveChatImageBlob(
+  chatId: string,
+  value: {
+    readonly id: string;
+    readonly filename: string;
+    readonly mediaType: string;
+    readonly blob: Blob;
+  },
+): Promise<StoredChatImage> {
   const database = await openDatabase();
   const transaction = database.transaction(
     [CHATS_STORE, IMAGES_STORE],
@@ -361,15 +378,15 @@ export async function saveChatImage(
     throw new Error("The chat no longer exists.");
   }
   const image: StoredChatImage = {
-    id: crypto.randomUUID(),
+    id: value.id,
     chatId,
-    filename: file.name.trim() || "pasted-image",
-    mediaType: file.type,
-    size: file.size,
-    blob: file,
+    filename: value.filename,
+    mediaType: value.mediaType,
+    size: value.blob.size,
+    blob: value.blob,
     createdAt: Date.now(),
   };
-  transaction.objectStore(IMAGES_STORE).add(image);
+  transaction.objectStore(IMAGES_STORE).put(image);
   await transactionComplete(transaction);
   return image;
 }

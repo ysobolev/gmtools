@@ -12,6 +12,6 @@ test("the worker exclusively persists model conversation history", () => {
   assert.match(workerSource, /\bsaveChatMessages\b/);
   assert.match(
     workerSource,
-    /await persistCompletedConversation\(job, validation\.data\);\s*finishJob/,
+    /await persistCompletedConversation\(job, conversationMessages\);\s*finishJob/,
   );
 });

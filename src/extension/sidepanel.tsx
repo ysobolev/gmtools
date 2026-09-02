@@ -47,6 +47,7 @@ import {
   MAX_PENDING_IMAGES,
   MAX_UPLOADED_IMAGE_BYTES,
   createUploadedImagePart,
+  isGeneratedImagePart,
   isSupportedUploadedImageType,
   isUploadedImagePart,
   type UploadedImageReference,
@@ -175,16 +176,19 @@ function GeneratedImage({
   );
 }
 
-function UploadedImagePreview({
+function StoredImagePreview({
   chatId,
+  fullSize = false,
   image,
   onRemove,
 }: {
   readonly chatId: string;
+  readonly fullSize?: boolean;
   readonly image: UploadedImageReference;
   readonly onRemove?: () => void;
 }): React.JSX.Element {
   const [url, setUrl] = useState<string | null>(null);
+  const [blob, setBlob] = useState<Blob | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -192,6 +196,7 @@ function UploadedImagePreview({
     void getChatImage(chatId, image.imageId).then((stored) => {
       if (!active || !stored) return;
       objectUrl = URL.createObjectURL(stored.blob);
+      setBlob(stored.blob);
       setUrl(objectUrl);
     });
     return () => {
@@ -199,6 +204,37 @@ function UploadedImagePreview({
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [chatId, image.imageId]);
+
+  if (fullSize) {
+    const handleDragStart = (event: DragEvent<HTMLImageElement>): void => {
+      if (!blob || !url) {
+        event.preventDefault();
+        return;
+      }
+      event.dataTransfer.clearData();
+      event.dataTransfer.items.add(new File([blob], image.filename, {
+        type: image.mediaType,
+      }));
+      event.dataTransfer.setData(
+        "DownloadURL",
+        `${image.mediaType}:${image.filename}:${url}`,
+      );
+      event.dataTransfer.effectAllowed = "copy";
+    };
+    return url ? (
+      <img
+        alt={image.filename}
+        className="generated-image"
+        draggable={Boolean(blob)}
+        loading="lazy"
+        onDragStart={handleDragStart}
+        src={url}
+        title="Drag into Roll20 to upload"
+      />
+    ) : (
+      <span className="image-placeholder">[Loading image…]</span>
+    );
+  }
 
   return (
     <figure className="uploaded-image-preview">
@@ -1028,6 +1064,12 @@ function ChatScreen({
                       .filter(isUploadedImagePart)
                       .map((part) => part.data)
                   : [];
+              const generatedImageReferences =
+                message.role === "assistant"
+                  ? message.parts
+                      .filter(isGeneratedImagePart)
+                      .map((part) => part.data)
+                  : [];
               const embeddedImageCount = Math.min(
                 images.length,
                 countMarkdownImageReferences(text),
@@ -1045,7 +1087,8 @@ function ChatScreen({
                 !text &&
                 assistantBlocks.length === 0 &&
                 images.length === 0 &&
-                uploadedImages.length === 0
+                uploadedImages.length === 0 &&
+                generatedImageReferences.length === 0
               ) {
                 return null;
               }
@@ -1095,7 +1138,7 @@ function ChatScreen({
                       {uploadedImages.length > 0 ? (
                         <div className="uploaded-image-grid message-images">
                           {uploadedImages.map((image) => (
-                            <UploadedImagePreview
+                            <StoredImagePreview
                               chatId={chatId}
                               image={image}
                               key={image.imageId}
@@ -1112,6 +1155,18 @@ function ChatScreen({
                       key={`${image.url.slice(0, 80)}:${index}`}
                     />
                   ))}
+                  {generatedImageReferences.length > 0 ? (
+                    <div className="uploaded-image-grid message-images">
+                      {generatedImageReferences.map((image) => (
+                        <StoredImagePreview
+                          chatId={chatId}
+                          fullSize
+                          image={image}
+                          key={image.imageId}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
                 </article>
               );
             })}
@@ -1151,7 +1206,7 @@ function ChatScreen({
         {pendingImages.length > 0 ? (
           <div className="uploaded-image-grid pending-images">
             {pendingImages.map((image) => (
-              <UploadedImagePreview
+              <StoredImagePreview
                 chatId={chatId}
                 image={image}
                 key={image.imageId}

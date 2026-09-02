@@ -32,15 +32,17 @@ import {
 import {
   getChat,
   getChatImage,
+  saveChatImageBlob,
   saveChatMessages,
   updateChatCampaign,
   updateChatProfile,
   type ChatNotice,
 } from "./chat-store";
 import {
-  isUploadedImagePart,
-  uploadedImagePrompt,
+  generatedImageSystemContext,
+  imageDataPartForModel,
 } from "./chat-images";
+import { normalizeGeneratedImages } from "./chat-image-normalization";
 import { KeyedExecutionQueue } from "./keyed-execution-queue";
 import {
   AUTH_CONNECT_REQUEST,
@@ -1826,7 +1828,11 @@ async function streamChat(
     messages: untrustedMessages,
   });
   if (!validation.success) throw new Error("The chat history is invalid.");
-  await persistConversationInput(job, validation.data);
+  const conversationMessages = await normalizeConversationImages(
+    job,
+    validation.data,
+  );
+  await persistConversationInput(job, conversationMessages);
 
   const stored = await readStoredAuth();
   if (typeof stored.openRouterApiKey !== "string") {
@@ -1848,14 +1854,14 @@ async function streamChat(
     image_generation: createOpenRouterImageGenerationTool(),
     inspect_image: tool({
       description:
-        "Load one user-attached image for visual inspection. Call this only when seeing the image would help answer the request. Use an imageId supplied in an attached-image notice; never invent an ID.",
+        "Load a locally stored user-attached or generated image for visual inspection. Call this only when seeing the image would help answer the request. Use an imageId supplied in an image notice; never invent an ID.",
       inputSchema: jsonSchema<{ readonly imageId: string }>({
         type: "object",
         properties: {
           imageId: {
             type: "string",
             minLength: 1,
-            description: "The exact imageId from an attached-image notice.",
+            description: "The exact imageId from an image notice.",
           },
         },
         required: ["imageId"],
@@ -1863,7 +1869,7 @@ async function streamChat(
       }),
       execute: async ({ imageId }) => {
         const image = await getChatImage(job.chatId, imageId);
-        if (!image) throw new Error("The attached image is no longer available.");
+        if (!image) throw new Error("The image is no longer available.");
         return {
           imageId: image.id,
           filename: image.filename,
@@ -1876,7 +1882,7 @@ async function streamChat(
         if (!image) {
           return {
             type: "error-text" as const,
-            value: "The attached image is no longer available.",
+            value: "The image is no longer available.",
           };
         }
         return {
@@ -1884,7 +1890,7 @@ async function streamChat(
           value: [
             {
               type: "text" as const,
-              text: `User-attached image: ${image.filename}`,
+              text: `Stored image: ${image.filename}`,
             },
             {
               type: "file" as const,
@@ -2060,14 +2066,16 @@ async function streamChat(
   if (job.webSearchEnabled) activeTools.unshift("web_search");
   const result = streamText({
     model: openrouter(profile.modelId),
-    system: buildProfileInstructions(profile, {
-      roll20Available: Boolean(job.campaignId),
-    }),
-    messages: await convertToModelMessages(validation.data, {
-      convertDataPart: (part) =>
-        isUploadedImagePart(part)
-          ? { type: "text", text: uploadedImagePrompt(part.data) }
-          : undefined,
+    system: [
+      buildProfileInstructions(profile, {
+        roll20Available: Boolean(job.campaignId),
+      }),
+      generatedImageSystemContext(conversationMessages),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+    messages: await convertToModelMessages(conversationMessages, {
+      convertDataPart: imageDataPartForModel,
     }),
     tools,
     activeTools,
@@ -2135,7 +2143,7 @@ async function streamChat(
   const stream = toUIMessageStream({
     stream: result.stream,
     tools,
-    originalMessages: validation.data,
+    originalMessages: conversationMessages,
     generateMessageId: () => crypto.randomUUID(),
     sendReasoning: false,
     sendSources: false,
@@ -2161,7 +2169,7 @@ async function streamChat(
     debug.group("Conversation failed", { Error: streamError });
     return;
   }
-  await persistCompletedConversation(job, validation.data);
+  await persistCompletedConversation(job, conversationMessages);
   finishJob(job, { type: "complete" });
   debug.group("Conversation completed", {});
 }
@@ -2182,6 +2190,43 @@ async function persistConversationInput(
   }
 }
 
+async function normalizeConversationImages(
+  job: ConversationJob,
+  messages: readonly UIMessage[],
+): Promise<UIMessage[]> {
+  return normalizeGeneratedImages(
+    messages,
+    async (generated) => {
+      const stored = await saveChatImageBlob(job.chatId, {
+        id: generated.imageId,
+        filename: generated.filename,
+        mediaType: generated.mediaType,
+        blob: new Blob([new Uint8Array(generated.bytes)], {
+          type: generated.mediaType,
+        }),
+      });
+      job.debug.group("Generated image normalized", {
+        "Image ID": stored.id,
+        Filename: stored.filename,
+        "Size (bytes)": stored.size,
+      });
+      return {
+        imageId: stored.id,
+        filename: stored.filename,
+        mediaType: stored.mediaType,
+        size: stored.size,
+      };
+    },
+    (error, messageId, partIndex) => {
+      job.debug.group("Generated image normalization failed", {
+        "Message ID": messageId,
+        "Part index": partIndex,
+        Error: modelErrorDebugDetails(error),
+      });
+    },
+  );
+}
+
 async function persistCompletedConversation(
   job: ConversationJob,
   inputMessages: readonly UIMessage[],
@@ -2192,9 +2237,13 @@ async function persistCompletedConversation(
       job.chunks,
     );
     if (!messages) return;
-    await saveChatMessages(job.chatId, messages);
+    const normalizedMessages = await normalizeConversationImages(
+      job,
+      messages,
+    );
+    await saveChatMessages(job.chatId, normalizedMessages);
     job.debug.group("Conversation saved", {
-      "Message count": messages.length,
+      "Message count": normalizedMessages.length,
     });
   } catch (error) {
     job.debug.group("Conversation save failed", {

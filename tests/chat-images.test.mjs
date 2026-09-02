@@ -50,13 +50,58 @@ test("rejects unsupported or mismatched uploaded-image references", () => {
 });
 
 test("describes an attachment without embedding its bytes", () => {
-  const prompt = images.uploadedImagePrompt({
+  const reference = {
     imageId: "image-1",
     filename: "map.png",
     mediaType: "image/png",
     size: 1234,
-  });
+  };
+  const prompt = images.uploadedImagePrompt(reference);
   assert.match(prompt, /inspect_image/);
   assert.match(prompt, /image-1/);
   assert.doesNotMatch(prompt, /data:image/);
+  assert.deepEqual(
+    images.imageDataPartForModel(images.createUploadedImagePart(reference)),
+    { type: "text", text: prompt },
+  );
+});
+
+test("decodes a generated image and creates a lightweight pointer", () => {
+  const generated = images.getGeneratedImageData({
+    type: "file",
+    mediaType: "image/png",
+    url: "data:image/png;base64,AQID",
+  });
+  assert.deepEqual([...generated.bytes], [1, 2, 3]);
+  assert.equal(generated.filename, "generated-image.png");
+  const reference = {
+    imageId: "generated:assistant-1:0",
+    filename: generated.filename,
+    mediaType: generated.mediaType,
+    size: generated.bytes.byteLength,
+  };
+  const part = images.createGeneratedImagePart(reference);
+  assert.equal(images.isGeneratedImagePart(part), true);
+  assert.equal(JSON.stringify(part).includes("AQID"), false);
+  assert.equal(images.imageDataPartForModel(part), undefined);
+  const context = images.generatedImageSystemContext([{
+    parts: [
+      { type: "text", text: "Here is the image." },
+      part,
+    ],
+  }]);
+  assert.match(context, /inspect_image/);
+  assert.match(context, /generated:assistant-1:0/);
+  assert.match(context, /application metadata, not text previously written/);
+});
+
+test("does not add generated-image notices to assistant message content", () => {
+  const part = images.createGeneratedImagePart({
+    imageId: "generated:assistant-1:0",
+    filename: "map.png",
+    mediaType: "image/png",
+    size: 1234,
+  });
+
+  assert.equal(images.imageDataPartForModel(part), undefined);
 });
