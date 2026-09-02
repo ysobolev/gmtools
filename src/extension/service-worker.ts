@@ -41,6 +41,8 @@ import {
   AUTH_DISCONNECT_REQUEST,
   AUTH_PERSISTENCE_REQUEST,
   AUTH_STATE_CHANGED,
+  CAMPAIGN_ATTACH_REQUEST,
+  CAMPAIGN_DETACH_REQUEST,
   CAMPAIGN_STATUS_CHANGED,
   CAMPAIGN_STATUS_REQUEST,
   CHAT_ACTIVITY_CHANGED,
@@ -147,6 +149,10 @@ interface PendingCampaignDiscovery {
 
 const pendingCampaignDiscoveries = new Map<string, PendingCampaignDiscovery>();
 const campaignDiscoveryAttempts = new Map<
+  string,
+  Promise<CampaignStatus>
+>();
+const campaignAttachmentAttempts = new Map<
   string,
   Promise<CampaignStatus>
 >();
@@ -549,7 +555,13 @@ chrome.runtime.onMessage.addListener(
     if (!isCampaignStatusRequest(message) || !isTrustedExtensionSender(sender)) {
       return;
     }
-    void discoverAndBindCampaign(message.chatId)
+    const operation =
+      message.type === CAMPAIGN_ATTACH_REQUEST
+        ? attachCampaign(message.chatId)
+        : message.type === CAMPAIGN_DETACH_REQUEST
+          ? detachCampaign(message.chatId)
+          : resolveCampaignStatus(message.chatId);
+    void operation
       .then((status) => sendResponse({ ok: true, status }))
       .catch((error: unknown) =>
         sendResponse({ ok: false, error: errorMessage(error) }),
@@ -1190,7 +1202,7 @@ async function findActiveRoll20Tab(): Promise<chrome.tabs.Tab> {
     typeof activeTab?.id !== "number" ||
     !activeTab.url?.startsWith(ROLL20_EDITOR_URL_PREFIX)
   ) {
-    throw new Error("Focus the Roll20 campaign tab before using Roll20 tools.");
+    throw new Error("Focus a Roll20 campaign tab first.");
   }
   return activeTab;
 }
@@ -1415,57 +1427,76 @@ async function locateBoundCampaign(
   }
 }
 
-async function discoverAndBindCampaign(chatId: string): Promise<CampaignStatus> {
+async function resolveCampaignStatus(chatId: string): Promise<CampaignStatus> {
   const existingAttempt = campaignDiscoveryAttempts.get(chatId);
   if (existingAttempt) return existingAttempt;
   const attempt = (async (): Promise<CampaignStatus> => {
     const existing = await getCampaignBinding(chatId);
     const debug = await campaignDebugLogger(chatId);
-    if (existing) {
-      notifyCampaignStatus({
-        chatId,
-        state: "connecting",
-        campaignId: existing.campaignId,
-        name: existing.name,
-        detail: "Looking for an open Roll20 tab with this campaign.",
-      });
-      const identity = await locateBoundCampaign(
-        chatId,
-        existing,
-        debug,
-      ).catch(() => undefined);
-      if (identity) {
-        return {
-          chatId,
-          state: "connected",
-          campaignId: existing.campaignId,
-          name: existing.name,
-        };
-      }
+    if (!existing) return { chatId, state: "unbound" };
+    notifyCampaignStatus({
+      chatId,
+      state: "connecting",
+      campaignId: existing.campaignId,
+      name: existing.name,
+      detail: "Looking for an open Roll20 tab with this campaign.",
+    });
+    const identity = await locateBoundCampaign(
+      chatId,
+      existing,
+      debug,
+    ).catch(() => undefined);
+    if (identity) {
       return {
         chatId,
-        state: "disconnected",
+        state: "connected",
         campaignId: existing.campaignId,
         name: existing.name,
-        detail: "No open Roll20 GM tab matches this conversation's campaign.",
       };
     }
+    return {
+      chatId,
+      state: "disconnected",
+      campaignId: existing.campaignId,
+      name: existing.name,
+      detail: "No open Roll20 GM tab matches this conversation's campaign.",
+    };
+  })();
+  campaignDiscoveryAttempts.set(chatId, attempt);
+  try {
+    const status = await attempt;
+    notifyCampaignStatus(status);
+    return status;
+  } finally {
+    campaignDiscoveryAttempts.delete(chatId);
+  }
+}
 
-    notifyCampaignStatus({ chatId, state: "connecting" });
-    let tab: chrome.tabs.Tab;
-    try {
-      tab = await findActiveRoll20Tab();
-    } catch (error) {
-      return { chatId, state: "unbound", detail: errorMessage(error) };
+async function attachCampaign(chatId: string): Promise<CampaignStatus> {
+  const existingAttempt = campaignAttachmentAttempts.get(chatId);
+  if (existingAttempt) return existingAttempt;
+  const attempt = (async (): Promise<CampaignStatus> => {
+    const chat = await getChat(chatId);
+    if (!chat) throw new Error("The chat no longer exists.");
+    const existing = await getCampaignBinding(chatId);
+    if (existing) return resolveCampaignStatus(chatId);
+    if (conversationJobs.has(chatId) || pendingConversationStarts.has(chatId)) {
+      throw new Error("Wait for the current response before attaching a campaign.");
     }
+    notifyCampaignStatus({
+      chatId,
+      state: "connecting",
+      detail: "Attaching the active Roll20 campaign.",
+    });
     try {
+      const tab = await findActiveRoll20Tab();
+      const debug = await campaignDebugLogger(chatId);
       const identity = await discoverCampaignInTab(tab, debug);
       if (!identity.isGM) {
         return {
           chatId,
           state: "not-gm",
-          name: identity.name,
-          detail: "This Roll20 tab is not open as the game master.",
+          detail: "The active Roll20 tab is not open as the game master.",
         };
       }
       const binding: CampaignBinding = {
@@ -1485,14 +1516,24 @@ async function discoverAndBindCampaign(chatId: string): Promise<CampaignStatus> 
       return campaignStatusForError(chatId, error);
     }
   })();
-  campaignDiscoveryAttempts.set(chatId, attempt);
+  campaignAttachmentAttempts.set(chatId, attempt);
   try {
     const status = await attempt;
     notifyCampaignStatus(status);
     return status;
   } finally {
-    campaignDiscoveryAttempts.delete(chatId);
+    campaignAttachmentAttempts.delete(chatId);
   }
+}
+
+async function detachCampaign(chatId: string): Promise<CampaignStatus> {
+  if (conversationJobs.has(chatId) || pendingConversationStarts.has(chatId)) {
+    throw new Error("Wait for the current response before detaching the campaign.");
+  }
+  await removeCampaignBinding(chatId);
+  const status: CampaignStatus = { chatId, state: "unbound" };
+  notifyCampaignStatus(status);
+  return status;
 }
 
 async function executeRoll20(
@@ -1694,21 +1735,11 @@ async function ensureJobCampaignBinding(
 ): Promise<CampaignTarget> {
   let binding = await getCampaignBinding(job.chatId);
   if (!binding) {
-    const status = await discoverAndBindCampaign(job.chatId);
-    if (status.state !== "connected") {
-      throw new Roll20CommandRejectedError(
-        status.state === "not-gm"
-          ? "ROLL20_GM_ACCESS_REQUIRED"
-          : status.state === "incompatible"
-            ? "ROLL20_BRIDGE_INCOMPATIBLE"
-            : "ROLL20_CAMPAIGN_UNAVAILABLE",
-        status.detail ??
-          "Open this conversation from its Roll20 campaign as the GM, with the GM Tools Mod enabled.",
-      );
-    }
-    binding = await getCampaignBinding(job.chatId);
+    throw new Roll20CommandRejectedError(
+      "ROLL20_CHAT_UNBOUND",
+      "This chat is not attached to a Roll20 campaign. Click Attach before using Roll20 tools.",
+    );
   }
-  if (!binding) throw new Error("The Roll20 campaign could not be bound.");
   let tabId = forceRouteDiscovery ? undefined : job.targetTabId;
   if (tabId === undefined && !forceRouteDiscovery) {
     tabId = (await getCampaignRoute(binding.campaignId))?.tabId;
@@ -1975,12 +2006,14 @@ async function streamChat(
   const activeTools: Array<keyof typeof tools> = [
     "image_generation",
     "web_fetch",
-    "execute_roll20",
   ];
+  if (job.campaignId) activeTools.push("execute_roll20");
   if (job.webSearchEnabled) activeTools.unshift("web_search");
   const result = streamText({
     model: openrouter(profile.modelId),
-    system: buildProfileInstructions(profile),
+    system: buildProfileInstructions(profile, {
+      roll20Available: Boolean(job.campaignId),
+    }),
     messages: await convertToModelMessages(validation.data),
     tools,
     activeTools,

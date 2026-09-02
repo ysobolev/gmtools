@@ -90,6 +90,17 @@ test("composes base, ruleset, sheet, and user guidance", () => {
   assert.match(prompt, /Call the players heroes\./);
 });
 
+test("explains that Roll20 tools require an attached campaign", () => {
+  const prompt = profiles.buildProfileInstructions(
+    profiles.DEFAULT_PROFILE,
+    { roll20Available: false },
+  );
+
+  assert.match(prompt, /not attached to a Roll20 campaign/);
+  assert.match(prompt, /click Attach/);
+  assert.doesNotMatch(prompt, /Every execute_roll20 call must include/);
+});
+
 test("offers only sheets compatible with the selected ruleset", () => {
   const sheets = profiles.sheetsForRuleset("vtm5");
   assert.ok(sheets.length > 0);

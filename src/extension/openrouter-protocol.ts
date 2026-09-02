@@ -6,6 +6,8 @@ export const AUTH_DISCONNECT_REQUEST = "GMTOOLS_AUTH_DISCONNECT" as const;
 export const AUTH_PERSISTENCE_REQUEST = "GMTOOLS_AUTH_PERSISTENCE" as const;
 export const AUTH_STATE_CHANGED = "GMTOOLS_AUTH_STATE_CHANGED" as const;
 export const CAMPAIGN_STATUS_REQUEST = "GMTOOLS_CAMPAIGN_STATUS" as const;
+export const CAMPAIGN_ATTACH_REQUEST = "GMTOOLS_CAMPAIGN_ATTACH" as const;
+export const CAMPAIGN_DETACH_REQUEST = "GMTOOLS_CAMPAIGN_DETACH" as const;
 export const CAMPAIGN_STATUS_CHANGED =
   "GMTOOLS_CAMPAIGN_STATUS_CHANGED" as const;
 
@@ -66,7 +68,10 @@ export interface CampaignStatus {
 }
 
 export interface CampaignStatusRequest {
-  readonly type: typeof CAMPAIGN_STATUS_REQUEST;
+  readonly type:
+    | typeof CAMPAIGN_STATUS_REQUEST
+    | typeof CAMPAIGN_ATTACH_REQUEST
+    | typeof CAMPAIGN_DETACH_REQUEST;
   readonly chatId: string;
 }
 
@@ -205,7 +210,9 @@ export function isCampaignStatusRequest(
 ): value is CampaignStatusRequest {
   return (
     isRecord(value) &&
-    value.type === CAMPAIGN_STATUS_REQUEST &&
+    (value.type === CAMPAIGN_STATUS_REQUEST ||
+      value.type === CAMPAIGN_ATTACH_REQUEST ||
+      value.type === CAMPAIGN_DETACH_REQUEST) &&
     typeof value.chatId === "string"
   );
 }

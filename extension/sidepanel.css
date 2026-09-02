@@ -443,9 +443,17 @@ h1 {
   gap: 8px;
 }
 
-.chat-title-row h1 {
+.campaign-title-group {
+  display: flex;
   min-width: 0;
   flex: 1;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.chat-title-row h1 {
+  min-width: 0;
+  flex: 0 1 auto;
   margin: 0;
   overflow: hidden;
   color: #f0ece4;
@@ -462,9 +470,27 @@ h1 {
 }
 
 .chat-menu-button,
+.campaign-action-button,
 .chat-settings-button {
   border: 0;
   background: none;
+}
+
+.campaign-action-button {
+  padding: 2px 0;
+  color: #9ca5b2;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.campaign-action-button:hover:not(:disabled) {
+  color: #e0dbd3;
+}
+
+.campaign-action-button:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .chat-menu-button {
@@ -493,6 +519,13 @@ h1 {
 .chat-context-row {
   gap: 10px;
   padding-left: 23px;
+}
+
+.campaign-action-feedback {
+  margin: -2px 0 0 23px;
+  color: #d6937f;
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 .chat-name {
@@ -1091,8 +1124,13 @@ h1 {
 }
 
 :root[data-theme="light"] .chat-menu-button,
+:root[data-theme="light"] .campaign-action-button,
 :root[data-theme="light"] .chat-name {
   color: #6f6b72;
+}
+
+:root[data-theme="light"] .campaign-action-button:hover:not(:disabled) {
+  color: #302e33;
 }
 
 :root[data-theme="light"] .chat-title-row h1.unbound {

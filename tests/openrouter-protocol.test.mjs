@@ -155,6 +155,20 @@ test("validates campaign status messages", () => {
     }),
     true,
   );
+  assert.equal(
+    protocol.isCampaignStatusRequest({
+      type: protocol.CAMPAIGN_ATTACH_REQUEST,
+      chatId: "chat-1",
+    }),
+    true,
+  );
+  assert.equal(
+    protocol.isCampaignStatusRequest({
+      type: protocol.CAMPAIGN_DETACH_REQUEST,
+      chatId: "chat-1",
+    }),
+    true,
+  );
   assert.equal(protocol.isCampaignStatusResponse({ ok: true, status }), true);
   assert.equal(
     protocol.isCampaignStatusChangedMessage({

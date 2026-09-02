@@ -54,6 +54,8 @@ import {
   AUTH_CONNECT_REQUEST,
   AUTH_STATE_CHANGED,
   AUTH_STATUS_REQUEST,
+  CAMPAIGN_ATTACH_REQUEST,
+  CAMPAIGN_DETACH_REQUEST,
   CAMPAIGN_STATUS_REQUEST,
   CHAT_ACTIVITIES_REQUEST,
   CHAT_CLEAR,
@@ -281,6 +283,7 @@ function ChatScreen({
   chats,
   initialMessages,
   onClearConversation,
+  onCampaignBindingChanged,
   onCreateChat,
   onDeleteChat,
   onManageProfiles,
@@ -296,6 +299,7 @@ function ChatScreen({
   readonly chats: readonly ChatRecord[];
   readonly initialMessages: UIMessage[];
   readonly onClearConversation: () => void;
+  readonly onCampaignBindingChanged: () => Promise<void>;
   readonly onCreateChat: () => void;
   readonly onDeleteChat: (chatId: string) => void;
   readonly onManageProfiles: () => void;
@@ -337,6 +341,12 @@ function ChatScreen({
     chatId,
     state: "connecting",
   });
+  const [campaignActionPending, setCampaignActionPending] = useState<
+    "attach" | "detach" | null
+  >(null);
+  const [campaignActionFeedback, setCampaignActionFeedback] = useState<
+    string | null
+  >(null);
   const activeTurnRef = useRef(false);
   const safeMessagesRef = useRef(initialMessages);
   const persistenceQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -401,6 +411,46 @@ function ChatScreen({
   const campaignBound = Boolean(
     campaignStatus.campaignId && campaignStatus.name,
   );
+
+  const changeCampaignBinding = async (
+    action: "attach" | "detach",
+  ): Promise<void> => {
+    setCampaignActionPending(action);
+    setCampaignActionFeedback(null);
+    try {
+      const response: unknown = await chrome.runtime.sendMessage({
+        type:
+          action === "attach"
+            ? CAMPAIGN_ATTACH_REQUEST
+            : CAMPAIGN_DETACH_REQUEST,
+        chatId,
+      });
+      if (!isCampaignStatusResponse(response)) {
+        throw new Error("The extension returned an invalid response.");
+      }
+      if (!response.ok) throw new Error(response.error);
+      setCampaignStatus(response.status);
+      const succeeded =
+        action === "attach"
+          ? response.status.state === "connected"
+          : response.status.state === "unbound";
+      if (succeeded) {
+        await onCampaignBindingChanged();
+      } else {
+        setCampaignActionFeedback(
+          response.status.detail ?? "The campaign could not be attached.",
+        );
+      }
+    } catch (actionError) {
+      setCampaignActionFeedback(
+        actionError instanceof Error
+          ? actionError.message
+          : "The campaign binding could not be changed.",
+      );
+    } finally {
+      setCampaignActionPending(null);
+    }
+  };
 
   useEffect(() => {
     if (status === "submitted") {
@@ -628,13 +678,38 @@ function ChatScreen({
           >
             <span aria-hidden="true">☰</span>
           </button>
-          <h1
-            aria-label={`Campaign: ${campaignLabel}`}
-            className={campaignBound ? "bound" : "unbound"}
-            title={campaignLabel}
-          >
-            {campaignLabel}
-          </h1>
+          <div className="campaign-title-group">
+            <h1
+              aria-label={`Campaign: ${campaignLabel}`}
+              className={campaignBound ? "bound" : "unbound"}
+              title={campaignLabel}
+            >
+              {campaignLabel}
+            </h1>
+            <button
+              className="campaign-action-button"
+              disabled={busy || campaignActionPending !== null}
+              onClick={() =>
+                void changeCampaignBinding(
+                  campaignBound ? "detach" : "attach",
+                )
+              }
+              title={
+                campaignBound
+                  ? "Detach this chat from its Roll20 campaign"
+                  : "Attach this chat to the active Roll20 campaign"
+              }
+              type="button"
+            >
+              {campaignActionPending === "attach"
+                ? "Attaching…"
+                : campaignActionPending === "detach"
+                  ? "Detaching…"
+                  : campaignBound
+                    ? "Detach"
+                    : "Attach"}
+            </button>
+          </div>
           <button
             className="chat-settings-button"
             type="button"
@@ -643,6 +718,11 @@ function ChatScreen({
             Settings
           </button>
         </div>
+        {campaignActionFeedback ? (
+          <p className="campaign-action-feedback" role="status">
+            {campaignActionFeedback}
+          </p>
+        ) : null}
         <div className="chat-context-row">
           {editingTitle ? (
             <span className="chat-name chat-name-editor">
@@ -1073,6 +1153,15 @@ function ChatWorkspace(): React.JSX.Element {
     });
   };
 
+  const refreshCurrentChatBinding = async (): Promise<void> => {
+    const current = storedChatRef.current;
+    if (!current) return;
+    const refreshed = await getStoredChat(current.chat.id);
+    if (!refreshed || storedChatRef.current?.chat.id !== current.chat.id) return;
+    setCurrentChat({ ...current, chat: refreshed.chat });
+    setChats(await listChats());
+  };
+
   const removeChat = (chatId: string): void => {
     sendChatControl(CHAT_CLEAR, chatId);
     void deleteChat(chatId).then(async () => {
@@ -1101,6 +1190,7 @@ function ChatWorkspace(): React.JSX.Element {
       chats={chats}
       initialMessages={storedChat.messages}
       key={`${storedChat.chat.id}:${chatResetRevision}`}
+      onCampaignBindingChanged={refreshCurrentChatBinding}
       onClearConversation={clearChat}
       onCreateChat={createNewChat}
       onDeleteChat={removeChat}

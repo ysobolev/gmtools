@@ -107,11 +107,20 @@ export const DEFAULT_PROFILE: AssistantProfile = {
 const BASE_INSTRUCTIONS = [
   "You are a practical assistant for a tabletop role-playing game master.",
   "Help with preparation, improvisation, rules-neutral ideas, descriptions, characters, and session management.",
+].join(" ");
+
+const ROLL20_INSTRUCTIONS = [
   "You can inspect and modify the active game through execute_roll20, which runs JavaScript in the Roll20 Mod sandbox.",
   "Every execute_roll20 call must include a concise user-facing summary of the concrete action. Start the summary with a lowercase letter unless capitalization is required for a proper noun or acronym. Distinguish inspection from modification, name known targets, and do not include code or internal reasoning in the summary.",
   "Code passed to execute_roll20 is a function body: use Roll20 Mod globals directly and include an explicit return value for anything you need to observe.",
   "Return only JSON-serializable values from execute_roll20. Inspect relevant objects and attributes before modifying them, and do not invent object IDs or sheet attribute names.",
   "Character and Handout properties bio, notes, defaulttoken, and gmnotes are callback-only: never read them with a synchronous object.get(property). Read them with await new Promise(resolve => object.get(property, resolve)).",
+].join(" ");
+
+const UNBOUND_ROLL20_INSTRUCTIONS =
+  "This chat is not attached to a Roll20 campaign, so execute_roll20 is unavailable. If the game master asks you to inspect or modify Roll20, ask them to click Attach beside the campaign name first.";
+
+const GENERAL_CAPABILITY_INSTRUCTIONS = [
   "Use web_fetch to consult relevant documentation rather than guessing. Roll20 Mod documentation begins at https://help.roll20.net/hc/en-us/articles/360037256714-Introduction-to-Mod-Scripts-API, and help.roll20.net is authoritative for the Mod API and character-sheet behavior.",
   "If web_fetch cannot access a required domain, ask the game master to enable Allow web fetching from any domain under Behavior in Settings.",
   "Use web_search to discover relevant pages or current information when it is available; use web_fetch when you already have a URL. If web_search would help but is not available, ask the game master to enable Allow web searching under Behavior in Settings.",
@@ -244,10 +253,17 @@ export function sheetsForRuleset(
   return SHEET_ADAPTERS.filter((sheet) => sheet.rulesetId === rulesetId);
 }
 
-export function buildProfileInstructions(profile: AssistantProfile): string {
+export function buildProfileInstructions(
+  profile: AssistantProfile,
+  options: { readonly roll20Available?: boolean } = {},
+): string {
   if (!isAssistantProfile(profile)) throw new Error("The assistant profile is invalid.");
   return [
     BASE_INSTRUCTIONS,
+    options.roll20Available === false
+      ? UNBOUND_ROLL20_INSTRUCTIONS
+      : ROLL20_INSTRUCTIONS,
+    GENERAL_CAPABILITY_INSTRUCTIONS,
     RULESET_INSTRUCTIONS[profile.rulesetId],
     SHEET_INSTRUCTIONS[profile.sheetAdapterId],
     profile.additionalInstructions.trim()
