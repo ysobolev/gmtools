@@ -646,16 +646,6 @@ function BehaviorSettings({
           </span>
         </label>
 
-        <label className="toggle-card behavior-card unavailable">
-          <input checked={false} disabled readOnly type="checkbox" />
-          <span>
-            <strong>Use private JavaScript API for chat</strong>
-            <small className="warning-note">
-              Risky and not implemented yet. This would rely on undocumented
-              Roll20 internals that may change without notice.
-            </small>
-          </span>
-        </label>
       </div>
     </section>
   );
