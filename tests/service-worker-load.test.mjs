@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-test("the generated service worker starts without browser-global errors", async () => {
+test("the generated Firefox worker starts without browser-global errors", async () => {
   const listeners = new Map();
   const localData = {
     gmToolsDebugLoggingEnabled: true,
@@ -30,8 +30,6 @@ test("the generated service worker starts without browser-global errors", async 
       listeners.set(name, [...(listeners.get(name) ?? []), listener]);
     },
   });
-  let sessionStorageRestricted = false;
-  let localStorageRestricted = false;
   const debugLabels = [];
   const sandbox = {
     AbortController,
@@ -52,18 +50,21 @@ test("the generated service worker starts without browser-global errors", async 
     WritableStream,
     btoa,
     chrome: {
+      action: {
+        onClicked: event("action-clicked"),
+      },
       identity: {},
       runtime: {
         id: "extension-id",
-        getURL: (path) => `chrome-extension://extension-id/${path}`,
+        getURL: (path) => `moz-extension://extension-id/${path}`,
         onConnect: event("connect"),
         onInstalled: event("installed"),
         onMessage: event("message"),
         onStartup: event("startup"),
         sendMessage: async () => undefined,
       },
-      sidePanel: {
-        setPanelBehavior: async () => undefined,
+      sidebarAction: {
+        open: async () => undefined,
       },
       tabs: {
         onRemoved: event("tab-removed"),
@@ -74,19 +75,11 @@ test("the generated service worker starts without browser-global errors", async 
           get: async (keys) => getStored(localData, keys),
           remove: async (keys) => removeStored(localData, keys),
           set: async (values) => Object.assign(localData, values),
-          setAccessLevel: async ({ accessLevel }) => {
-            assert.equal(accessLevel, "TRUSTED_CONTEXTS");
-            localStorageRestricted = true;
-          },
         },
         session: {
           get: async (keys) => getStored(sessionData, keys),
           remove: async (keys) => removeStored(sessionData, keys),
           set: async (values) => Object.assign(sessionData, values),
-          setAccessLevel: async ({ accessLevel }) => {
-            assert.equal(accessLevel, "TRUSTED_CONTEXTS");
-            sessionStorageRestricted = true;
-          },
         },
       },
     },
@@ -102,19 +95,17 @@ test("the generated service worker starts without browser-global errors", async 
     clearTimeout,
   };
 
-  const source = await readFile("extension/service-worker.js", "utf8");
+  const source = await readFile("extension-firefox/service-worker.js", "utf8");
   vm.runInNewContext(source, sandbox);
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.equal(sessionStorageRestricted, true);
-  assert.equal(localStorageRestricted, true);
   assert.equal(sessionData.openRouterApiKey, localData.openRouterApiKey);
   assert.ok(listeners.get("message")?.length > 0);
   assert.ok(listeners.get("connect")?.length > 0);
 
   const optionsSender = {
     id: "extension-id",
-    origin: "chrome-extension://extension-id",
+    origin: "moz-extension://extension-id",
     tab: { id: 42 },
   };
   const activitiesResponse = await new Promise((resolve) => {

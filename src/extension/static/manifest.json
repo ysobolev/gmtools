@@ -3,12 +3,14 @@
   "name": "GM Tools for VTT",
   "description": "An AI side-panel assistant for virtual tabletop game masters, with Roll20 integration.",
   "version": "0.2.0",
+  "homepage_url": "https://github.com/ysobolev/gmtools",
   "minimum_chrome_version": "114",
   "permissions": ["sidePanel", "identity", "storage", "scripting"],
   "host_permissions": [
     "https://app.roll20.net/*",
     "https://openrouter.ai/*"
   ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "service-worker.js"
   },

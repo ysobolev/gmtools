@@ -14,11 +14,25 @@ async function sourceFiles(path) {
 }
 
 const packageJson = JSON.parse(await readFile("package.json", "utf8"));
-const manifest = JSON.parse(
-  await readFile("src/extension/static/manifest.json", "utf8"),
-);
-if (packageJson.version !== manifest.version) {
-  throw new Error("package.json and extension manifest versions must match.");
+const extensionBuilds = [
+  {
+    outdir: "extension",
+    target: "chrome114",
+    manifest: "src/extension/static/manifest.json",
+  },
+  {
+    outdir: "extension-firefox",
+    target: "firefox140",
+    manifest: "src/extension/static/manifest.firefox.json",
+  },
+];
+for (const extensionBuild of extensionBuilds) {
+  const manifest = JSON.parse(await readFile(extensionBuild.manifest, "utf8"));
+  if (packageJson.version !== manifest.version) {
+    throw new Error(
+      `package.json and ${extensionBuild.manifest} versions must match.`,
+    );
+  }
 }
 
 const hashedFiles = [
@@ -44,39 +58,48 @@ const generatedBanner = {
   js: "// Generated from TypeScript by `pnpm build`. Do not edit directly.",
 };
 
-await mkdir("extension", { recursive: true });
+await Promise.all(
+  extensionBuilds.map(({ outdir }) => mkdir(outdir, { recursive: true })),
+);
 await mkdir("roll20-mod", { recursive: true });
 
 await Promise.all([
-  build({
-    entryPoints: ["src/extension/content-script.ts"],
-    outdir: "extension",
-    bundle: true,
-    format: "iife",
-    platform: "browser",
-    target: "chrome114",
-    define: extensionDefines,
-    banner: generatedBanner,
-  }),
-  build({
-    entryPoints: [
-      "src/extension/options.tsx",
-      "src/extension/service-worker.ts",
-      "src/extension/sidepanel.tsx",
-    ],
-    outdir: "extension",
-    bundle: true,
-    format: "iife",
-    platform: "browser",
-    target: "chrome114",
-    jsx: "automatic",
-    define: {
-      ...extensionDefines,
-      "process.env.NODE_ENV": '"production"',
-    },
-    minify: true,
-    banner: generatedBanner,
-  }),
+  ...extensionBuilds.flatMap(({ outdir, target, manifest }) => [
+    build({
+      entryPoints: ["src/extension/content-script.ts"],
+      outdir,
+      bundle: true,
+      format: "iife",
+      platform: "browser",
+      target,
+      define: extensionDefines,
+      banner: generatedBanner,
+    }),
+    build({
+      entryPoints: [
+        "src/extension/options.tsx",
+        "src/extension/service-worker.ts",
+        "src/extension/sidepanel.tsx",
+      ],
+      outdir,
+      bundle: true,
+      format: "iife",
+      platform: "browser",
+      target,
+      jsx: "automatic",
+      define: {
+        ...extensionDefines,
+        "process.env.NODE_ENV": '"production"',
+      },
+      minify: true,
+      banner: generatedBanner,
+    }),
+    copyFile(manifest, `${outdir}/manifest.json`),
+    copyFile("src/extension/static/options.html", `${outdir}/options.html`),
+    copyFile("src/extension/static/options.css", `${outdir}/options.css`),
+    copyFile("src/extension/static/sidepanel.html", `${outdir}/sidepanel.html`),
+    copyFile("src/extension/static/sidepanel.css", `${outdir}/sidepanel.css`),
+  ]),
   build({
     entryPoints: ["src/roll20-mod/GMToolsPoc.ts"],
     outfile: "roll20-mod/GMToolsPoc.js",
@@ -86,9 +109,4 @@ await Promise.all([
     target: "es2018",
     banner: generatedBanner,
   }),
-  copyFile("src/extension/static/manifest.json", "extension/manifest.json"),
-  copyFile("src/extension/static/options.html", "extension/options.html"),
-  copyFile("src/extension/static/options.css", "extension/options.css"),
-  copyFile("src/extension/static/sidepanel.html", "extension/sidepanel.html"),
-  copyFile("src/extension/static/sidepanel.css", "extension/sidepanel.css"),
 ]);

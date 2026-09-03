@@ -1,3 +1,4 @@
+import "./configure-csp";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import {
   convertToModelMessages,
@@ -104,6 +105,11 @@ import {
   isWebSearchEnabled,
   normalizeMaxSteps,
 } from "./behavior-settings";
+import {
+  configureBrowserSidebar,
+  type BrowserSidebarApi,
+} from "./browser-sidebar";
+import { restrictExtensionStorage } from "./browser-storage";
 import { createDebugLogger, type DebugLogger } from "./debug-logger";
 import {
   createOpenRouterImageGenerationTool,
@@ -278,28 +284,20 @@ interface StoredAuth {
   readonly openRouterKeyInfo?: unknown;
 }
 
-function enableActionClick(): void {
-  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-}
-
-function restrictExtensionStorage(): void {
-  void chrome.storage.session.setAccessLevel({
-    accessLevel: "TRUSTED_CONTEXTS",
-  });
-  void chrome.storage.local.setAccessLevel({
-    accessLevel: "TRUSTED_CONTEXTS",
-  });
-}
+const refreshSidebarAction = configureBrowserSidebar(
+  chrome as unknown as BrowserSidebarApi,
+  chrome.action.onClicked,
+);
 
 chrome.runtime.onInstalled.addListener(() => {
-  enableActionClick();
-  restrictExtensionStorage();
+  refreshSidebarAction();
+  restrictExtensionStorage(chrome.storage);
 });
 chrome.runtime.onStartup.addListener(() => {
-  enableActionClick();
-  restrictExtensionStorage();
+  refreshSidebarAction();
+  restrictExtensionStorage(chrome.storage);
 });
-restrictExtensionStorage();
+restrictExtensionStorage(chrome.storage);
 
 function isTrustedExtensionSender(
   sender:
@@ -1940,7 +1938,7 @@ async function streamChat(
     apiKey: stored.openRouterApiKey,
     compatibility: "strict",
     appName: "GM Tools for VTT",
-    appUrl: `https://chromewebstore.google.com/detail/${chrome.runtime.id}`,
+    appUrl: "https://github.com/ysobolev/gmtools",
   });
   const tools = {
     image_generation: createOpenRouterImageGenerationTool(),

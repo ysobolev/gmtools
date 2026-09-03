@@ -1151,6 +1151,53 @@ h1 {
   font-size: 11px;
 }
 
+.remote-image-permission {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 7px 9px;
+  border: 1px solid #4b5360;
+  border-radius: 8px;
+  background: #202631;
+  color: #d9dde4;
+  font-size: 10px;
+}
+
+.remote-image-permission > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.remote-image-permission > div {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
+.remote-image-permission button {
+  padding: 4px 6px;
+  border: 1px solid #596273;
+  border-radius: 5px;
+  background: #2a313d;
+  color: #f0ece4;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.remote-image-permission button:last-child {
+  border-color: transparent;
+  background: transparent;
+  color: #aab1bc;
+}
+
+.remote-image-permission button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .composer textarea {
   width: 100%;
   min-height: 27px;
@@ -1247,6 +1294,24 @@ h1 {
 :root[data-theme="light"] .composer-area {
   border-color: #ddd7ce;
   background: rgb(250 248 244 / 92%);
+}
+
+:root[data-theme="light"] .remote-image-permission {
+  border-color: #d2c9be;
+  background: #f2ede6;
+  color: #403c3a;
+}
+
+:root[data-theme="light"] .remote-image-permission button {
+  border-color: #c9beb2;
+  background: #fffaf4;
+  color: #433d39;
+}
+
+:root[data-theme="light"] .remote-image-permission button:last-child {
+  border-color: transparent;
+  background: transparent;
+  color: #746d68;
 }
 
 :root[data-theme="light"] .chat-drawer {

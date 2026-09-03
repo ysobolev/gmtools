@@ -6,6 +6,9 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "build": "pnpm typecheck && node scripts/build.mjs",
+    "firefox:lint": "pnpm build && web-ext lint --source-dir extension-firefox",
+    "firefox:run": "pnpm build && web-ext run --source-dir extension-firefox",
+    "firefox:package": "pnpm build && web-ext build --source-dir extension-firefox --overwrite-dest",
     "typecheck": "tsc --noEmit",
     "test": "pnpm build && node --test tests/*.test.mjs",
     "check": "pnpm test"
@@ -15,7 +18,8 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "esbuild": "^0.28.2",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "web-ext": "^10.6.0"
   },
   "dependencies": {
     "@ai-sdk/provider-utils": "5.0.33",
@@ -25,6 +29,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "zod": "^4.5.4"
   }
 }

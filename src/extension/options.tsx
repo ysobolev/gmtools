@@ -1,3 +1,4 @@
+import "./configure-csp";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -489,7 +490,7 @@ function AuthenticationSettings({
           <strong>Keep me signed in on this device</strong>
           <small>
             Security risk: stores your OpenRouter credential persistently in
-            your Chrome profile. Anyone or any software with access to that
+            your browser profile. Anyone or any software with access to that
             profile may be able to recover it.
           </small>
         </span>

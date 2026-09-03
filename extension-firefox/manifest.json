@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "GM Tools for VTT",
+  "description": "An AI sidebar assistant for virtual tabletop game masters, with Roll20 integration.",
+  "version": "0.2.0",
+  "homepage_url": "https://github.com/ysobolev/gmtools",
+  "permissions": ["identity", "storage", "scripting"],
+  "host_permissions": [
+    "https://app.roll20.net/*",
+    "https://openrouter.ai/*"
+  ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "scripts": ["service-worker.js"]
+  },
+  "action": {
+    "default_title": "Open GM Tools for VTT",
+    "default_area": "navbar"
+  },
+  "sidebar_action": {
+    "default_title": "GM Tools for VTT",
+    "default_panel": "sidepanel.html",
+    "open_at_install": false
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://app.roll20.net/editor/*"],
+      "js": ["content-script.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "gmtools@achiral.net",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "authenticationInfo",
+          "personalCommunications",
+          "searchTerms",
+          "websiteContent"
+        ]
+      }
+    }
+  }
+}

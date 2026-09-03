@@ -1,3 +1,4 @@
+import "./configure-csp";
 import { useChat } from "@ai-sdk/react";
 import { safeValidateUIMessages, type UIMessage } from "ai";
 import {
@@ -41,6 +42,7 @@ import {
   listChats,
   renameChat,
   saveChatImage,
+  saveChatImageBlob,
   updateChatProfile,
   type ChatNotice,
   type ChatRecord,
@@ -54,6 +56,17 @@ import {
   isUploadedImagePart,
   type UploadedImageReference,
 } from "./chat-images";
+import {
+  describeImageDrop,
+  getDroppedImageUrls,
+  imageOriginPermission,
+} from "./image-drop";
+import { downloadImage, RemoteImageNetworkError } from "./remote-image";
+import {
+  DEBUG_LOGGING_STORAGE_KEY,
+  isDebugLoggingEnabled,
+} from "./behavior-settings";
+import { createDebugLogger } from "./debug-logger";
 import {
   applyDisplayTheme,
   DEFAULT_DISPLAY_THEME,
@@ -848,6 +861,10 @@ function ChatComposer({
     [],
   );
   const pendingImagesRef = useRef<UploadedImageReference[]>([]);
+  const [pendingRemoteDrop, setPendingRemoteDrop] = useState<{
+    readonly urls: readonly string[];
+    readonly origins: readonly string[];
+  } | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [draggingImages, setDraggingImages] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -930,6 +947,123 @@ function ChatComposer({
     }
   }, [busy, chatId, pendingImages.length]);
 
+  const addImageUrls = useCallback(async (
+    urls: readonly string[],
+    deferNetworkError = false,
+  ): Promise<"attached" | "error" | "ignored" | "network-error"> => {
+    if (busy || urls.length === 0) return "ignored";
+    setAttachmentError(null);
+    try {
+      const available = MAX_PENDING_IMAGES - pendingImages.length;
+      if (available <= 0) {
+        throw new Error(
+          `You can attach up to ${MAX_PENDING_IMAGES} images per message.`,
+        );
+      }
+      const downloaded = await Promise.all(
+        urls.slice(0, available).map((url) => downloadImage(url)),
+      );
+      const stored = await Promise.all(
+        downloaded.map((image) => saveChatImageBlob(chatId, {
+          id: crypto.randomUUID(),
+          filename: image.filename,
+          mediaType: image.mediaType,
+          blob: image.blob,
+        })),
+      );
+      const references = stored.map((image) => ({
+        imageId: image.id,
+        filename: image.filename,
+        mediaType: image.mediaType,
+        size: image.size,
+      }));
+      setPendingImages((existing) => {
+        const next = [...existing, ...references];
+        pendingImagesRef.current = next;
+        return next;
+      });
+      if (urls.length > available) {
+        setAttachmentError(
+          `You can attach up to ${MAX_PENDING_IMAGES} images per message.`,
+        );
+      }
+      return "attached";
+    } catch (uploadError) {
+      if (
+        deferNetworkError &&
+        uploadError instanceof RemoteImageNetworkError
+      ) return "network-error";
+      setAttachmentError(
+        uploadError instanceof Error
+          ? uploadError.message
+          : "Could not download the image.",
+      );
+      return "error";
+    }
+  }, [busy, chatId, pendingImages.length]);
+
+  const attachDroppedImageUrls = (
+    transfer: Pick<DataTransfer, "getData">,
+  ): boolean => {
+    const urls = getDroppedImageUrls(transfer);
+    if (urls.length === 0) return false;
+    setPendingRemoteDrop(null);
+    const origins = [...new Set(
+      urls.map(imageOriginPermission).filter((value): value is string =>
+        value !== undefined
+      ),
+    )];
+    if (origins.length === 0) {
+      void addImageUrls(urls);
+      return true;
+    }
+    void chrome.permissions.contains({ origins })
+      .then((granted) => {
+        if (granted) {
+          void addImageUrls(urls);
+          return;
+        }
+        void addImageUrls(urls, true).then((outcome) => {
+          if (outcome === "network-error") {
+            setPendingRemoteDrop({ urls, origins });
+          }
+        });
+      })
+      .catch((permissionError: unknown) => {
+        setAttachmentError(
+          permissionError instanceof Error
+            ? permissionError.message
+            : "Could not check image-site access.",
+        );
+      });
+    return true;
+  };
+
+  const approveRemoteDrop = (): void => {
+    if (!pendingRemoteDrop) return;
+    // Firefox requires this call to occur directly inside a click handler.
+    const permission = chrome.permissions.request({
+      origins: [...pendingRemoteDrop.origins],
+    });
+    const urls = pendingRemoteDrop.urls;
+    setPendingRemoteDrop(null);
+    void permission.then((granted) => {
+      if (!granted) {
+        setAttachmentError(
+          "Allow access to the image’s website to attach it without saving first.",
+        );
+        return;
+      }
+      void addImageUrls(urls);
+    }).catch((permissionError: unknown) => {
+      setAttachmentError(
+        permissionError instanceof Error
+          ? permissionError.message
+          : "Could not request image-site access.",
+      );
+    });
+  };
+
   const removePendingImage = useCallback((imageId: string): void => {
     setPendingImages((existing) => {
       const next = existing.filter((image) => image.imageId !== imageId);
@@ -945,6 +1079,7 @@ function ChatComposer({
     onClearError();
     updateInput("");
     setAttachmentError(null);
+    setPendingRemoteDrop(null);
     const images = pendingImages;
     pendingImagesRef.current = [];
     setPendingImages([]);
@@ -973,10 +1108,23 @@ function ChatComposer({
   const handleDrop = (event: DragEvent<HTMLFormElement>): void => {
     event.preventDefault();
     setDraggingImages(false);
+    // DataTransfer string data is protected outside the synchronous drop job.
+    const dropDetails = describeImageDrop(event.dataTransfer);
+    void chrome.storage.local.get(DEBUG_LOGGING_STORAGE_KEY).then((stored) => {
+      createDebugLogger(
+        isDebugLoggingEnabled(stored[DEBUG_LOGGING_STORAGE_KEY]),
+        chatId,
+      ).group("Image drop payload", dropDetails);
+    });
     const images = [...event.dataTransfer.files].filter((file) =>
       file.type.startsWith("image/"),
     );
-    if (images.length > 0) void addImageFiles(images);
+    if (images.length > 0) {
+      setPendingRemoteDrop(null);
+      void addImageFiles(images);
+      return;
+    }
+    attachDroppedImageUrls(event.dataTransfer);
   };
 
   return (
@@ -989,6 +1137,30 @@ function ChatComposer({
       ) : null}
       {attachmentError ? (
         <div className="attachment-error" role="alert">{attachmentError}</div>
+      ) : null}
+      {pendingRemoteDrop ? (
+        <div className="remote-image-permission" role="status">
+          <span>
+            Allow access to {pendingRemoteDrop.origins.length === 1
+              ? new URL(pendingRemoteDrop.origins[0] ?? "").hostname
+              : `${pendingRemoteDrop.origins.length} image sites`}?
+          </span>
+          <div>
+            <button
+              disabled={busy}
+              onClick={approveRemoteDrop}
+              type="button"
+            >
+              Allow &amp; attach
+            </button>
+            <button
+              onClick={() => setPendingRemoteDrop(null)}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       ) : null}
       {pendingImages.length > 0 ? (
         <div className="uploaded-image-grid pending-images">
