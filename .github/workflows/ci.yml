@@ -37,5 +37,5 @@ jobs:
 
       - name: Verify generated extensions are current
         run: |
-          git add --intent-to-add -- extension-chrome extension-firefox roll20-mod
-          git diff --exit-code -- extension-chrome extension-firefox roll20-mod
+          git add --intent-to-add -- generated
+          git diff --exit-code -- generated

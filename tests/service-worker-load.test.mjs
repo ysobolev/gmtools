@@ -95,7 +95,7 @@ test("the generated Firefox worker starts without browser-global errors", async 
     clearTimeout,
   };
 
-  const source = await readFile("extension-firefox/service-worker.js", "utf8");
+  const source = await readFile("generated/firefox/service-worker.js", "utf8");
   vm.runInNewContext(source, sandbox);
   await new Promise((resolve) => setImmediate(resolve));
 

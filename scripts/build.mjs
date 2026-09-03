@@ -16,12 +16,12 @@ async function sourceFiles(path) {
 const packageJson = JSON.parse(await readFile("package.json", "utf8"));
 const extensionBuilds = [
   {
-    outdir: "extension-chrome",
+    outdir: "generated/chrome",
     target: "chrome114",
     manifest: "src/extension/static/manifest.chrome.json",
   },
   {
-    outdir: "extension-firefox",
+    outdir: "generated/firefox",
     target: "firefox140",
     manifest: "src/extension/static/manifest.firefox.json",
   },
@@ -61,7 +61,7 @@ const generatedBanner = {
 await Promise.all(
   extensionBuilds.map(({ outdir }) => mkdir(outdir, { recursive: true })),
 );
-await mkdir("roll20-mod", { recursive: true });
+await mkdir("generated/roll20-mod", { recursive: true });
 
 await Promise.all([
   ...extensionBuilds.flatMap(({ outdir, target, manifest }) => [
@@ -102,7 +102,7 @@ await Promise.all([
   ]),
   build({
     entryPoints: ["src/roll20-mod/GMToolsPoc.ts"],
-    outfile: "roll20-mod/GMToolsPoc.js",
+    outfile: "generated/roll20-mod/GMToolsPoc.js",
     bundle: true,
     format: "iife",
     platform: "neutral",

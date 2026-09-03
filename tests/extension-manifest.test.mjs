@@ -3,8 +3,8 @@ import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 const builds = [
-  { directory: "extension-chrome", browser: "Chrome" },
-  { directory: "extension-firefox", browser: "Firefox" },
+  { directory: "generated/chrome", browser: "Chrome" },
+  { directory: "generated/firefox", browser: "Firefox" },
 ];
 
 test("registers and builds both browser extensions", async () => {
@@ -45,8 +45,8 @@ test("registers and builds both browser extensions", async () => {
 
 test("uses native sidebar and background declarations per browser", async () => {
   const [chromeManifest, firefoxManifest] = await Promise.all([
-    readFile("extension-chrome/manifest.json", "utf8").then(JSON.parse),
-    readFile("extension-firefox/manifest.json", "utf8").then(JSON.parse),
+    readFile("generated/chrome/manifest.json", "utf8").then(JSON.parse),
+    readFile("generated/firefox/manifest.json", "utf8").then(JSON.parse),
   ]);
 
   assert.ok(chromeManifest.permissions.includes("sidePanel"));

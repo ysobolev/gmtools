@@ -1,6 +1,6 @@
 # Manual Firefox checklist
 
-- Load `extension-firefox/manifest.json` as a temporary add-on in
+- Load `generated/firefox/manifest.json` as a temporary add-on in
   `about:debugging#/runtime/this-firefox`.
 - Confirm the toolbar action opens the GM Tools sidebar.
 - Complete OpenRouter PKCE login and verify the callback returns to the sidebar.

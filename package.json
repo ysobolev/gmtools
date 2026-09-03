@@ -6,10 +6,10 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "build": "pnpm typecheck && node scripts/build.mjs",
-    "chrome:package": "pnpm build && web-ext build --source-dir extension-chrome --artifacts-dir dist/chrome --overwrite-dest",
-    "firefox:lint": "pnpm build && web-ext lint --source-dir extension-firefox",
-    "firefox:run": "pnpm build && web-ext run --source-dir extension-firefox",
-    "firefox:package": "pnpm build && web-ext build --source-dir extension-firefox --artifacts-dir dist/firefox --overwrite-dest",
+    "chrome:package": "pnpm build && web-ext build --source-dir generated/chrome --artifacts-dir dist/chrome --overwrite-dest",
+    "firefox:lint": "pnpm build && web-ext lint --source-dir generated/firefox",
+    "firefox:run": "pnpm build && web-ext run --source-dir generated/firefox",
+    "firefox:package": "pnpm build && web-ext build --source-dir generated/firefox --artifacts-dir dist/firefox --overwrite-dest",
     "typecheck": "tsc --noEmit",
     "test": "pnpm build && node --test tests/*.test.mjs",
     "check": "pnpm test"

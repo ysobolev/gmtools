@@ -27,7 +27,7 @@ non-archived whisper that the extension removes before display.
 
 2. Open `chrome://extensions`.
 3. Enable **Developer mode**.
-4. Click **Load unpacked** and select the `extension-chrome` directory.
+4. Click **Load unpacked** and select the `generated/chrome` directory.
 5. Click the extension toolbar icon to open **GM Tools for VTT** in the side panel.
 6. Click **Connect OpenRouter**, authorize the app, and send a message.
 
@@ -42,7 +42,7 @@ non-archived whisper that the extension removes before display.
 
 2. Open `about:debugging#/runtime/this-firefox` in Firefox.
 3. Click **Load Temporary Add-on**.
-4. Select `extension-firefox/manifest.json`.
+4. Select `generated/firefox/manifest.json`.
 5. Click the extension toolbar action to open **GM Tools for VTT** in the sidebar.
 6. Click **Connect OpenRouter**, authorize the app, and send a message.
 
@@ -101,8 +101,9 @@ Authored code lives under `src`:
   Roll20 Mod bridge.
 - `src/roll20-mod` contains the Mod implementation and Roll20 global types.
 
-The checked-in `extension-chrome`, `extension-firefox`, and `roll20-mod`
-directories are generated artifacts. Do not edit them directly.
+The checked-in `generated/chrome`, `generated/firefox`, and
+`generated/roll20-mod` directories are generated artifacts. Do not edit them
+directly.
 
 ## Roll20 execution bridge
 
@@ -111,7 +112,7 @@ To load the Mod script for development:
 1. Open the Roll20 game's landing page.
 2. Choose **Settings > Mod (API) Scripts**.
 3. Create a script named `GMToolsPoc`.
-4. Copy `roll20-mod/GMToolsPoc.js` into the editor and save it.
+4. Copy `generated/roll20-mod/GMToolsPoc.js` into the editor and save it.
 
 Reload the development extension after each build. The worker injects the
 content-script bridge on demand if an

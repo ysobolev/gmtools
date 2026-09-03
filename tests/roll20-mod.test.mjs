@@ -40,7 +40,7 @@ async function loadMod() {
     },
   };
 
-  const source = await readFile("roll20-mod/GMToolsPoc.js", "utf8");
+  const source = await readFile("generated/roll20-mod/GMToolsPoc.js", "utf8");
   vm.runInNewContext(source, sandbox);
   handlers.get("ready")();
   return { handlers, logs, sentMessages, state: sandbox.state };
