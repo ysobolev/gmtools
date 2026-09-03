@@ -83,7 +83,7 @@ import {
 } from "./chat-ui";
 import {
   DEFAULT_PROFILE,
-  getModelDefinition,
+  getModelSelectionLabel,
   normalizeProfiles,
   PROFILES_STORAGE_KEY,
   type AssistantProfile,
@@ -1759,7 +1759,7 @@ function ChatScreen({
         chatId={chatId}
         error={error}
         initialDraft={initialDraft}
-        modelLabel={getModelDefinition(activeProfile.modelId).label}
+        modelLabel={getModelSelectionLabel(activeProfile.modelSelection)}
         onClearError={clearError}
         onDraftChange={onDraftChange}
         onRegenerate={() => void regenerate()}

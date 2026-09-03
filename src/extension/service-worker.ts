@@ -28,6 +28,7 @@ import {
   DEFAULT_PROFILE,
   normalizeProfiles,
   PROFILES_STORAGE_KEY,
+  resolveModelId,
   type AssistantProfile,
 } from "./profile-config";
 import {
@@ -1930,8 +1931,9 @@ async function streamChat(
   }
 
   const { abortController, debug } = job;
+  const modelId = resolveModelId(profile.modelSelection);
   debug.group("Conversation started", {
-    Profile: { id: profile.id, name: profile.name, modelId: profile.modelId },
+    Profile: { id: profile.id, name: profile.name, modelId },
   });
 
   const openrouter = createOpenRouter({
@@ -2155,7 +2157,7 @@ async function streamChat(
   if (job.campaignId) activeTools.push("execute_roll20");
   if (job.webSearchEnabled) activeTools.unshift("web_search");
   const result = streamText({
-    model: openrouter(profile.modelId),
+    model: openrouter(modelId),
     system: [
       buildProfileInstructions(profile, {
         roll20Available: Boolean(job.campaignId),

@@ -400,6 +400,25 @@ p {
   line-height: 1.45;
 }
 
+.field-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.field-label-row a {
+  color: #e19478;
+  font-size: 10px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.field-label-row a:hover {
+  color: #f0b29d;
+  text-decoration: underline;
+}
+
 .form-actions {
   display: flex;
   align-items: center;
@@ -813,6 +832,10 @@ p {
 
 :root[data-theme="light"] .field {
   color: #4d494f;
+}
+
+:root[data-theme="light"] .field-label-row a {
+  color: #9f402f;
 }
 
 :root[data-theme="light"] .field input,

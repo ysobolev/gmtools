@@ -17,6 +17,9 @@ const profiles = await import(
 test("provides a valid default profile when storage is empty", () => {
   assert.deepEqual(profiles.normalizeProfiles(undefined), [profiles.DEFAULT_PROFILE]);
   assert.equal(profiles.isAssistantProfile(profiles.DEFAULT_PROFILE), true);
+  assert.deepEqual(profiles.DEFAULT_PROFILE.modelSelection, {
+    kind: "recommended",
+  });
 });
 
 test("keeps the General profile available when stored profiles omit it", () => {
@@ -31,13 +34,13 @@ test("keeps the General profile available when stored profiles omit it", () => {
   ]);
 });
 
-test("rejects unknown models and incompatible game-sheet combinations", () => {
+test("accepts custom models and rejects incompatible game-sheet combinations", () => {
   assert.equal(
     profiles.isAssistantProfile({
       ...profiles.DEFAULT_PROFILE,
-      modelId: "unlisted/model",
+      modelSelection: { kind: "fixed", modelId: "unlisted/model" },
     }),
-    false,
+    true,
   );
   assert.equal(
     profiles.isAssistantProfile({
@@ -49,17 +52,53 @@ test("rejects unknown models and incompatible game-sheet combinations", () => {
   );
 });
 
-test("offers GPT-5.6 Sol as a profile model", () => {
-  assert.ok(profiles.MODEL_IDS.includes("openai/gpt-5.6-sol"));
+test("offers the curated OpenAI and Anthropic model classes", () => {
+  assert.deepEqual(profiles.MODEL_IDS, [
+    "openai/gpt-5.6-sol",
+    "openai/gpt-5.6-terra",
+    "openai/gpt-5.6-luna",
+    "anthropic/claude-fable-5.1",
+    "anthropic/claude-opus-5",
+    "anthropic/claude-sonnet-5",
+  ]);
   assert.deepEqual(
     profiles.getModelDefinition("openai/gpt-5.6-sol"),
     {
       id: "openai/gpt-5.6-sol",
-      label: "ChatGPT (GPT-5.6 Sol)",
+      label: "GPT-5.6 Sol",
       description:
         "OpenAI's flagship model for complex reasoning and agentic work.",
     },
   );
+});
+
+test("resolves recommended and fixed model selections", () => {
+  assert.equal(
+    profiles.resolveModelId({ kind: "recommended" }),
+    profiles.RECOMMENDED_MODEL_ID,
+  );
+  assert.equal(
+    profiles.resolveModelId({ kind: "fixed", modelId: "vendor/legacy" }),
+    "vendor/legacy",
+  );
+  assert.equal(
+    profiles.getModelSelectionLabel({ kind: "recommended" }),
+    "Recommended (GPT-5.6 Sol)",
+  );
+  assert.equal(
+    profiles.getModelDefinition("vendor/legacy").label,
+    "vendor/legacy",
+  );
+});
+
+test("preserves a stored custom model selection", () => {
+  const custom = {
+    ...profiles.DEFAULT_PROFILE,
+    id: "custom-model-profile",
+    modelSelection: { kind: "fixed", modelId: "vendor/retired-model" },
+  };
+  const normalized = profiles.normalizeProfiles([custom]);
+  assert.deepEqual(normalized[1], custom);
 });
 
 test("composes base, ruleset, sheet, and user guidance", () => {
@@ -68,7 +107,10 @@ test("composes base, ruleset, sheet, and user guidance", () => {
     name: "Waterdeep",
     rulesetId: "dnd5e",
     sheetAdapterId: "roll20-dnd5e-2024",
-    modelId: "anthropic/claude-sonnet-4.6",
+    modelSelection: {
+      kind: "fixed",
+      modelId: "anthropic/claude-sonnet-5",
+    },
     additionalInstructions: "Call the players heroes.",
   });
 

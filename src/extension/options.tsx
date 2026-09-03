@@ -34,15 +34,18 @@ import {
   createProfile,
   DEFAULT_PROFILE,
   getModelDefinition,
+  getModelSelectionLabel,
   getRulesetDefinition,
   getSheetAdapterDefinition,
+  isAssistantProfile,
+  isCuratedModelId,
   MODELS,
   normalizeProfiles,
   PROFILES_STORAGE_KEY,
+  RECOMMENDED_MODEL_ID,
   RULESETS,
   sheetsForRuleset,
   type AssistantProfile,
-  type ModelId,
   type RulesetId,
   type SheetAdapterId,
 } from "./profile-config";
@@ -70,7 +73,10 @@ function profilesEqual(
     left.name === right.name &&
     left.rulesetId === right.rulesetId &&
     left.sheetAdapterId === right.sheetAdapterId &&
-    left.modelId === right.modelId &&
+    left.modelSelection.kind === right.modelSelection.kind &&
+    (left.modelSelection.kind === "recommended" ||
+      (right.modelSelection.kind === "fixed" &&
+        left.modelSelection.modelId === right.modelSelection.modelId)) &&
     left.additionalInstructions === right.additionalInstructions
   );
 }
@@ -116,6 +122,16 @@ function ProfilesSettings(): React.JSX.Element {
     mode.kind === "new" ||
     !savedProfile ||
     !profilesEqual(draft, savedProfile);
+  const selectedModelChoice =
+    draft.modelSelection.kind === "recommended"
+      ? "recommended"
+      : isCuratedModelId(draft.modelSelection.modelId)
+        ? draft.modelSelection.modelId
+        : "custom";
+  const resolvedDraftModelId =
+    draft.modelSelection.kind === "recommended"
+      ? RECOMMENDED_MODEL_ID
+      : draft.modelSelection.modelId;
 
   if (!profiles) {
     return (
@@ -154,7 +170,16 @@ function ProfilesSettings(): React.JSX.Element {
     event.preventDefault();
     const name = draft.name.trim();
     if (!name) return;
-    const profile = { ...draft, name };
+    const modelSelection =
+      draft.modelSelection.kind === "fixed"
+        ? {
+            kind: "fixed" as const,
+            modelId: draft.modelSelection.modelId.trim(),
+          }
+        : draft.modelSelection;
+    if (modelSelection.kind === "fixed" && !modelSelection.modelId) return;
+    const profile = { ...draft, name, modelSelection };
+    if (!isAssistantProfile(profile)) return;
     const creating = mode.kind === "new";
     const nextProfiles = creating
       ? [...profiles, profile]
@@ -221,7 +246,7 @@ function ProfilesSettings(): React.JSX.Element {
                 <strong>{profile.name}</strong>
               </span>
               <span>{getRulesetDefinition(profile.rulesetId).label}</span>
-              <span>{getModelDefinition(profile.modelId).label}</span>
+              <span>{getModelSelectionLabel(profile.modelSelection)}</span>
             </button>
           ))}
         </nav>
@@ -304,19 +329,94 @@ function ProfilesSettings(): React.JSX.Element {
             <label className="field field-wide">
               <span>Model</span>
               <select
-                onChange={(event) =>
-                  updateDraft({ modelId: event.target.value as ModelId })
-                }
-                value={draft.modelId}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === "recommended") {
+                    updateDraft({ modelSelection: { kind: "recommended" } });
+                  } else if (value === "custom") {
+                    updateDraft({
+                      modelSelection: {
+                        kind: "fixed",
+                        modelId:
+                          draft.modelSelection.kind === "fixed" &&
+                          !isCuratedModelId(draft.modelSelection.modelId)
+                            ? draft.modelSelection.modelId
+                            : "",
+                      },
+                    });
+                  } else {
+                    updateDraft({
+                      modelSelection: { kind: "fixed", modelId: value },
+                    });
+                  }
+                }}
+                value={selectedModelChoice}
               >
-                {MODELS.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.label}
-                  </option>
-                ))}
+                <option value="recommended">
+                  Recommended ({getModelDefinition(RECOMMENDED_MODEL_ID).label})
+                </option>
+                <optgroup label="OpenAI">
+                  {MODELS.filter((model) => model.id.startsWith("openai/")).map(
+                    (model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label}
+                      </option>
+                    ),
+                  )}
+                </optgroup>
+                <optgroup label="Anthropic">
+                  {MODELS.filter((model) =>
+                    model.id.startsWith("anthropic/"),
+                  ).map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <option value="custom">Custom…</option>
               </select>
-              <small>{getModelDefinition(draft.modelId).description}</small>
+              <small>
+                {getModelDefinition(resolvedDraftModelId).description}
+              </small>
             </label>
+
+            {selectedModelChoice === "custom" ? (
+              <label className="field field-wide custom-model-field">
+                <span className="field-label-row">
+                  <span>OpenRouter model ID</span>
+                  <a
+                    href="https://openrouter.ai/models?input_modalities=text,image&supported_parameters=tools"
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Browse compatible models ↗
+                  </a>
+                </span>
+                <input
+                  maxLength={200}
+                  onChange={(event) =>
+                    updateDraft({
+                      modelSelection: {
+                        kind: "fixed",
+                        modelId: event.target.value,
+                      },
+                    })
+                  }
+                  placeholder="provider/model-name"
+                  required
+                  spellCheck={false}
+                  value={
+                    draft.modelSelection.kind === "fixed"
+                      ? draft.modelSelection.modelId
+                      : ""
+                  }
+                />
+                <small>
+                  Custom models are passed directly to OpenRouter and have not
+                  been tested with GM Tools.
+                </small>
+              </label>
+            ) : null}
 
             <label className="field field-wide">
               <span>
