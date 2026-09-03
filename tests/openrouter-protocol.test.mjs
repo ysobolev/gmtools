@@ -84,6 +84,23 @@ test("validates chat requests with stable conversation IDs", () => {
     }),
     false,
   );
+  assert.equal(
+    protocol.isChatPortRequest({
+      type: protocol.CHAT_CONTINUE,
+      requestId: "request-2",
+      chatId: "chat-1",
+      profileId: "general-gm",
+    }),
+    true,
+  );
+  assert.equal(
+    protocol.isChatPortRequest({
+      type: protocol.CHAT_CONTINUE,
+      requestId: "request-2",
+      chatId: "chat-1",
+    }),
+    false,
+  );
 });
 
 test("validates chat lifecycle control messages", () => {
@@ -138,6 +155,30 @@ test("validates chat activity snapshots and updates", () => {
       activities: [{ chatId: "chat-1", state: "unknown" }],
     }),
     false,
+  );
+});
+
+test("validates persisted continuation updates", () => {
+  assert.equal(
+    protocol.isChatContinuationChangedMessage({
+      type: protocol.CHAT_CONTINUATION_CHANGED,
+      chatId: "chat-1",
+      continuation: {
+        reason: "step-limit",
+        afterMessageId: "assistant-1",
+        stepLimit: 24,
+        createdAt: 1234,
+      },
+    }),
+    true,
+  );
+  assert.equal(
+    protocol.isChatContinuationChangedMessage({
+      type: protocol.CHAT_CONTINUATION_CHANGED,
+      chatId: "chat-1",
+      continuation: null,
+    }),
+    true,
   );
 });
 

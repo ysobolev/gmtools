@@ -1,4 +1,5 @@
 import type { UIMessage, UIMessageChunk } from "ai";
+import type { ChatContinuation } from "./chat-store";
 
 export const AUTH_STATUS_REQUEST = "GMTOOLS_AUTH_STATUS" as const;
 export const AUTH_CONNECT_REQUEST = "GMTOOLS_AUTH_CONNECT" as const;
@@ -15,6 +16,7 @@ export const CAMPAIGN_STATUS_CHANGED =
 
 export const CHAT_PORT_NAME = "GMTOOLS_OPENROUTER_CHAT" as const;
 export const CHAT_START = "GMTOOLS_CHAT_START" as const;
+export const CHAT_CONTINUE = "GMTOOLS_CHAT_CONTINUE" as const;
 export const CHAT_RESUME = "GMTOOLS_CHAT_RESUME" as const;
 export const CHAT_ABORT = "GMTOOLS_CHAT_ABORT" as const;
 export const CHAT_RESUME_QUERY = "GMTOOLS_CHAT_RESUME_QUERY" as const;
@@ -25,6 +27,8 @@ export const CHAT_COMPLETE = "GMTOOLS_CHAT_COMPLETE" as const;
 export const CHAT_ERROR = "GMTOOLS_CHAT_ERROR" as const;
 export const CHAT_ACTIVITIES_REQUEST = "GMTOOLS_CHAT_ACTIVITIES" as const;
 export const CHAT_ACTIVITY_CHANGED = "GMTOOLS_CHAT_ACTIVITY_CHANGED" as const;
+export const CHAT_CONTINUATION_CHANGED =
+  "GMTOOLS_CHAT_CONTINUATION_CHANGED" as const;
 
 export interface AuthStatus {
   readonly connected: boolean;
@@ -122,6 +126,12 @@ export type ChatPortRequest =
       readonly chatId: string;
     }
   | {
+      readonly type: typeof CHAT_CONTINUE;
+      readonly requestId: string;
+      readonly chatId: string;
+      readonly profileId: string;
+    }
+  | {
       readonly type: typeof CHAT_ABORT;
       readonly requestId: string;
       readonly chatId: string;
@@ -148,6 +158,12 @@ export interface ChatActivityStatus {
 export interface ChatActivityChangedMessage {
   readonly type: typeof CHAT_ACTIVITY_CHANGED;
   readonly activity: ChatActivityStatus;
+}
+
+export interface ChatContinuationChangedMessage {
+  readonly type: typeof CHAT_CONTINUATION_CHANGED;
+  readonly chatId: string;
+  readonly continuation: ChatContinuation | null;
 }
 
 export type ChatActivitiesResponse =
@@ -210,6 +226,31 @@ export function isChatActivityChangedMessage(
     isRecord(value) &&
     value.type === CHAT_ACTIVITY_CHANGED &&
     isChatActivityStatus(value.activity)
+  );
+}
+
+export function isChatContinuationChangedMessage(
+  value: unknown,
+): value is ChatContinuationChangedMessage {
+  if (
+    !isRecord(value) ||
+    value.type !== CHAT_CONTINUATION_CHANGED ||
+    typeof value.chatId !== "string"
+  ) {
+    return false;
+  }
+  if (value.continuation === null) return true;
+  return (
+    isRecord(value.continuation) &&
+    value.continuation.reason === "step-limit" &&
+    typeof value.continuation.afterMessageId === "string" &&
+    value.continuation.afterMessageId.length > 0 &&
+    typeof value.continuation.stepLimit === "number" &&
+    Number.isInteger(value.continuation.stepLimit) &&
+    value.continuation.stepLimit > 0 &&
+    typeof value.continuation.createdAt === "number" &&
+    Number.isFinite(value.continuation.createdAt) &&
+    value.continuation.createdAt >= 0
   );
 }
 
@@ -351,6 +392,9 @@ export function isChatPortRequest(value: unknown): value is ChatPortRequest {
     return false;
   }
   if (value.type === CHAT_ABORT || value.type === CHAT_RESUME) return true;
+  if (value.type === CHAT_CONTINUE) {
+    return typeof value.profileId === "string" && value.profileId.length > 0;
+  }
   return (
     value.type === CHAT_START &&
     Array.isArray(value.messages) &&

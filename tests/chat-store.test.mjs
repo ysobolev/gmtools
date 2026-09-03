@@ -57,4 +57,28 @@ test("rejects malformed durable chat records", () => {
   assert.equal(chats.isChatRecord({ ...chat, profileId: "" }), false);
   assert.equal(chats.isChatRecord({ ...chat, notices: [{}] }), false);
   assert.equal(chats.isChatRecord({ ...chat, updatedAt: -1 }), false);
+  assert.equal(
+    chats.isChatRecord({
+      ...chat,
+      continuation: {
+        reason: "step-limit",
+        afterMessageId: "assistant-1",
+        stepLimit: 24,
+        createdAt: 2345,
+      },
+    }),
+    true,
+  );
+  assert.equal(
+    chats.isChatRecord({
+      ...chat,
+      continuation: {
+        reason: "step-limit",
+        afterMessageId: "",
+        stepLimit: 24,
+        createdAt: 2345,
+      },
+    }),
+    false,
+  );
 });

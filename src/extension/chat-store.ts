@@ -25,6 +25,13 @@ export interface ChatNotice {
   readonly createdAt: number;
 }
 
+export interface ChatContinuation {
+  readonly reason: "step-limit";
+  readonly afterMessageId: string;
+  readonly stepLimit: number;
+  readonly createdAt: number;
+}
+
 export interface ChatRecord {
   readonly id: string;
   readonly title: string;
@@ -32,6 +39,7 @@ export interface ChatRecord {
   readonly campaignId?: string;
   readonly campaignName?: string;
   readonly campaignModVersion?: string;
+  readonly continuation?: ChatContinuation;
   readonly notices: readonly ChatNotice[];
   readonly createdAt: number;
   readonly updatedAt: number;
@@ -68,6 +76,19 @@ function isChatNotice(value: unknown): value is ChatNotice {
   );
 }
 
+function isChatContinuation(value: unknown): value is ChatContinuation {
+  return (
+    isRecord(value) &&
+    value.reason === "step-limit" &&
+    typeof value.afterMessageId === "string" &&
+    value.afterMessageId.length > 0 &&
+    typeof value.stepLimit === "number" &&
+    Number.isInteger(value.stepLimit) &&
+    value.stepLimit > 0 &&
+    isFiniteTimestamp(value.createdAt)
+  );
+}
+
 export function isChatRecord(value: unknown): value is ChatRecord {
   return (
     isRecord(value) &&
@@ -82,6 +103,8 @@ export function isChatRecord(value: unknown): value is ChatRecord {
       typeof value.campaignName === "string") &&
     (value.campaignModVersion === undefined ||
       typeof value.campaignModVersion === "string") &&
+    (value.continuation === undefined ||
+      isChatContinuation(value.continuation)) &&
     Array.isArray(value.notices) &&
     value.notices.every(isChatNotice) &&
     isFiniteTimestamp(value.createdAt) &&
@@ -402,6 +425,22 @@ export async function updateChatProfile(
   return updated;
 }
 
+export async function updateChatContinuation(
+  chatId: string,
+  continuation: ChatContinuation | undefined,
+): Promise<ChatRecord> {
+  const chat = await getChat(chatId);
+  if (!chat) throw new Error("The chat no longer exists.");
+  const updated: ChatRecord = continuation
+    ? { ...chat, continuation, updatedAt: Date.now() }
+    : (() => {
+        const { continuation: _continuation, ...remaining } = chat;
+        return { ...remaining, updatedAt: Date.now() };
+      })();
+  await putChat(updated);
+  return updated;
+}
+
 export async function updateChatCampaign(
   chatId: string,
   campaign:
@@ -427,6 +466,7 @@ export async function updateChatCampaign(
         title: chat.title,
         profileId: chat.profileId,
         notices: chat.notices,
+        ...(chat.continuation ? { continuation: chat.continuation } : {}),
         createdAt: chat.createdAt,
         updatedAt: Date.now(),
       };

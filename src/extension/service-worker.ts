@@ -22,7 +22,10 @@ import {
   type OpenRouterKeyInfo,
 } from "./openrouter-auth";
 import { reconstructCompletedConversation } from "./chat-persistence";
-import { getChatStreamError } from "./chat-stream-outcome";
+import {
+  getChatStreamError,
+  stoppedAtStepLimit,
+} from "./chat-stream-outcome";
 import {
   buildProfileInstructions,
   DEFAULT_PROFILE,
@@ -34,11 +37,14 @@ import {
 import {
   getChat,
   getChatImage,
+  getStoredChat,
   listChats,
   saveChatImageBlob,
   saveChatMessages,
   updateChatCampaign,
+  updateChatContinuation,
   updateChatProfile,
+  type ChatContinuation,
   type ChatNotice,
 } from "./chat-store";
 import {
@@ -63,6 +69,8 @@ import {
   CHAT_CHUNK,
   CHAT_COMMIT,
   CHAT_COMPLETE,
+  CHAT_CONTINUE,
+  CHAT_CONTINUATION_CHANGED,
   CHAT_ERROR,
   CHAT_PORT_NAME,
   CHAT_RESUME,
@@ -265,6 +273,7 @@ interface ConversationJob {
   readonly unrestrictedWebFetchEnabled: boolean;
   readonly webSearchEnabled: boolean;
   readonly maxSteps: number;
+  readonly continuation?: ChatContinuation;
   targetTabId: number | undefined;
   campaignId?: string;
   campaignName?: string;
@@ -1930,6 +1939,10 @@ async function streamChat(
     throw new Error("Connect to OpenRouter before sending a message.");
   }
 
+  if (job.continuation) {
+    await changeChatContinuation(job.chatId, undefined);
+  }
+
   const { abortController, debug } = job;
   const modelId = resolveModelId(profile.modelSelection);
   debug.group("Conversation started", {
@@ -2235,7 +2248,12 @@ async function streamChat(
   const stream = toUIMessageStream({
     stream: result.stream,
     tools,
-    originalMessages: conversationMessages,
+    // AI SDK treats a response whose history ends with an assistant message as
+    // an in-place continuation of that message. A user-requested continuation
+    // is a new model turn, so let the stream generate a fresh assistant ID. If
+    // we pass the stored history here, the panel replaces the previous message
+    // and its completed tool receipts as soon as the new stream starts.
+    ...(job.continuation ? {} : { originalMessages: conversationMessages }),
     generateMessageId: () => crypto.randomUUID(),
     sendReasoning: false,
     sendSources: false,
@@ -2257,11 +2275,32 @@ async function streamChat(
   }
   const streamError = getChatStreamError(job.chunks);
   if (streamError) {
+    await restoreContinuationAfterFailure(job);
     finishJob(job, { type: "error", error: streamError });
     debug.group("Conversation failed", { Error: streamError });
     return;
   }
-  await persistCompletedConversation(job, conversationMessages);
+  const completedMessages = await persistCompletedConversation(
+    job,
+    conversationMessages,
+  );
+  const steps = await result.steps;
+  if (completedMessages && stoppedAtStepLimit(steps, job.maxSteps)) {
+    const finalMessage = completedMessages.at(-1);
+    if (finalMessage) {
+      const continuation: ChatContinuation = {
+        reason: "step-limit",
+        afterMessageId: finalMessage.id,
+        stepLimit: job.maxSteps,
+        createdAt: Date.now(),
+      };
+      await changeChatContinuation(job.chatId, continuation);
+      debug.group("Conversation paused at step limit", {
+        "Completed steps": steps.length,
+        "Step limit": job.maxSteps,
+      });
+    }
+  }
   finishJob(job, { type: "complete" });
   debug.group("Conversation completed", {});
 }
@@ -2322,13 +2361,13 @@ async function normalizeConversationImages(
 async function persistCompletedConversation(
   job: ConversationJob,
   inputMessages: readonly UIMessage[],
-): Promise<void> {
+): Promise<UIMessage[] | undefined> {
   try {
     const messages = await reconstructCompletedConversation(
       inputMessages,
       job.chunks,
     );
-    if (!messages) return;
+    if (!messages) return undefined;
     const normalizedMessages = await normalizeConversationImages(
       job,
       messages,
@@ -2337,11 +2376,40 @@ async function persistCompletedConversation(
     job.debug.group("Conversation saved", {
       "Message count": normalizedMessages.length,
     });
+    return normalizedMessages;
   } catch (error) {
     job.debug.group("Conversation save failed", {
       Error: modelErrorDebugDetails(error),
     });
+    return undefined;
   }
+}
+
+async function changeChatContinuation(
+  chatId: string,
+  continuation: ChatContinuation | undefined,
+): Promise<void> {
+  const chat = await getChat(chatId);
+  if (!chat || (!chat.continuation && !continuation)) return;
+  await updateChatContinuation(chatId, continuation);
+  void chrome.runtime
+    .sendMessage({
+      type: CHAT_CONTINUATION_CHANGED,
+      chatId,
+      continuation: continuation ?? null,
+    })
+    .catch(() => undefined);
+}
+
+async function restoreContinuationAfterFailure(
+  job: ConversationJob,
+): Promise<void> {
+  if (!job.continuation) return;
+  await changeChatContinuation(job.chatId, job.continuation).catch((error) => {
+    job.debug.group("Continuation state restore failed", {
+      Error: modelErrorDebugDetails(error),
+    });
+  });
 }
 
 function broadcastJob(
@@ -2482,6 +2550,14 @@ chrome.runtime.onConnect.addListener((port) => {
 
     let existingJob = conversationJobs.get(message.chatId);
     if (
+      message.type === CHAT_CONTINUE &&
+      existingJob?.terminal?.type === "complete"
+    ) {
+      setJobActivity(existingJob, "idle");
+      conversationJobs.delete(message.chatId);
+      existingJob = undefined;
+    }
+    if (
       existingJob?.terminal &&
       (existingJob.terminal.type === "error" ||
         getChatStreamError(existingJob.chunks))
@@ -2506,6 +2582,34 @@ chrome.runtime.onConnect.addListener((port) => {
     attachedRequestId = message.requestId;
 
     void (async () => {
+      let inputMessages: unknown;
+      let continuation: ChatContinuation | undefined;
+      if (message.type === CHAT_CONTINUE) {
+        const storedChat = await getStoredChat(message.chatId);
+        continuation = storedChat?.chat.continuation;
+        const finalMessage = storedChat?.messages.at(-1);
+        const finalMessageId =
+          typeof finalMessage === "object" &&
+          finalMessage !== null &&
+          "id" in finalMessage &&
+          typeof finalMessage.id === "string"
+            ? finalMessage.id
+            : undefined;
+        if (
+          !storedChat ||
+          !continuation ||
+          finalMessageId !== continuation.afterMessageId
+        ) {
+          if (storedChat?.chat.continuation) {
+            await changeChatContinuation(message.chatId, undefined);
+          }
+          throw new Error("This conversation no longer needs to continue.");
+        }
+        inputMessages = storedChat.messages;
+      } else {
+        inputMessages = message.messages;
+        await changeChatContinuation(message.chatId, undefined);
+      }
       const profile = await resolveChatProfile(
         message.chatId,
         message.profileId,
@@ -2538,6 +2642,7 @@ chrome.runtime.onConnect.addListener((port) => {
         unrestrictedWebFetchEnabled,
         webSearchEnabled,
         maxSteps,
+        ...(continuation ? { continuation } : {}),
         targetTabId: campaignRoute?.tabId,
         ...(campaignBinding
           ? {
@@ -2567,11 +2672,12 @@ chrome.runtime.onConnect.addListener((port) => {
       });
       activeChatControllers.add(abortController);
 
-      void keepServiceWorkerAlive(streamChat(job, message.messages, profile))
-        .catch((error: unknown) => {
+      void keepServiceWorkerAlive(streamChat(job, inputMessages, profile))
+        .catch(async (error: unknown) => {
           if (abortController.signal.aborted) {
             discardAbortedJob(job);
           } else {
+            await restoreContinuationAfterFailure(job);
             finishJob(job, {
               type: "error",
               error: userFacingModelError(error),

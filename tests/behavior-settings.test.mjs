@@ -36,11 +36,11 @@ test("enables web search only for an explicit true preference", () => {
 });
 
 test("normalizes the maximum steps preference", () => {
-  assert.equal(behavior.normalizeMaxSteps(undefined), 16);
+  assert.equal(behavior.normalizeMaxSteps(undefined), 24);
   assert.equal(behavior.normalizeMaxSteps(8), 8);
   assert.equal(behavior.normalizeMaxSteps(64), 64);
-  assert.equal(behavior.normalizeMaxSteps(0), 16);
-  assert.equal(behavior.normalizeMaxSteps(65), 16);
-  assert.equal(behavior.normalizeMaxSteps(4.5), 16);
-  assert.equal(behavior.normalizeMaxSteps("16"), 16);
+  assert.equal(behavior.normalizeMaxSteps(0), 24);
+  assert.equal(behavior.normalizeMaxSteps(65), 24);
+  assert.equal(behavior.normalizeMaxSteps(4.5), 24);
+  assert.equal(behavior.normalizeMaxSteps("16"), 24);
 });

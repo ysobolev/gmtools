@@ -2,6 +2,7 @@ import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
 import {
   CHAT_ABORT,
   CHAT_COMPLETE,
+  CHAT_CONTINUE,
   CHAT_ERROR,
   CHAT_PORT_NAME,
   CHAT_RESUME,
@@ -12,7 +13,13 @@ import {
 } from "./openrouter-protocol";
 
 export class ExtensionChatTransport implements ChatTransport<UIMessage> {
+  private continueOnNextReconnect = false;
+
   constructor(private readonly profileId: string) {}
+
+  continueConversation(): void {
+    this.continueOnNextReconnect = true;
+  }
 
   async sendMessages({
     chatId,
@@ -102,9 +109,21 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
 
   async reconnectToStream({
     chatId,
+    abortSignal,
   }: Parameters<ChatTransport<UIMessage>["reconnectToStream"]>[0]): Promise<
     ReadableStream<UIMessageChunk> | null
   > {
+    if (this.continueOnNextReconnect) {
+      this.continueOnNextReconnect = false;
+      return this.openStream(chatId, abortSignal, (port, requestId) => {
+        port.postMessage({
+          type: CHAT_CONTINUE,
+          requestId,
+          chatId,
+          profileId: this.profileId,
+        });
+      });
+    }
     const response: unknown = await chrome.runtime.sendMessage({
       type: CHAT_RESUME_QUERY,
       chatId,
@@ -112,7 +131,7 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
     if (!isChatControlResponse(response) || response.available !== true) {
       return null;
     }
-    return this.openStream(chatId, undefined, (port, requestId) => {
+    return this.openStream(chatId, abortSignal, (port, requestId) => {
       port.postMessage({ type: CHAT_RESUME, requestId, chatId });
     });
   }

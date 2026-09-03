@@ -14,6 +14,49 @@ const outcome = await import(
   `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
 );
 
+test("detects an active tool loop stopped at the step limit", () => {
+  assert.equal(
+    outcome.stoppedAtStepLimit(
+      [
+        { finishReason: "tool-calls", toolCalls: [{}] },
+        { finishReason: "tool-calls", toolCalls: [{}] },
+      ],
+      2,
+    ),
+    true,
+  );
+  assert.equal(
+    outcome.stoppedAtStepLimit(
+      [
+        { finishReason: "tool-calls", toolCalls: [{}] },
+        { finishReason: "stop", toolCalls: [] },
+      ],
+      2,
+    ),
+    false,
+  );
+  assert.equal(
+    outcome.stoppedAtStepLimit(
+      [{ finishReason: "tool-calls", toolCalls: [{}] }],
+      2,
+    ),
+    false,
+  );
+  assert.equal(
+    outcome.stoppedAtStepLimit(
+      [
+        { finishReason: "tool-calls", toolCalls: [{}] },
+        {
+          finishReason: "tool-calls",
+          toolCalls: [{ providerExecuted: true }],
+        },
+      ],
+      2,
+    ),
+    false,
+  );
+});
+
 test("recognizes an AI SDK error chunk in an otherwise closed stream", () => {
   assert.equal(
     outcome.getChatStreamError([

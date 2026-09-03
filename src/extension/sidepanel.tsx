@@ -44,6 +44,7 @@ import {
   saveChatImage,
   saveChatImageBlob,
   updateChatProfile,
+  type ChatContinuation,
   type ChatNotice,
   type ChatRecord,
 } from "./chat-store";
@@ -105,6 +106,7 @@ import {
   isCampaignStatusResponse,
   isChatActivitiesResponse,
   isChatActivityChangedMessage,
+  isChatContinuationChangedMessage,
   type AuthRequest,
   type AuthStatus,
   type CampaignStatus,
@@ -123,6 +125,15 @@ async function acknowledgeCompletedChat(chatId: string): Promise<void> {
   await chrome.runtime
     .sendMessage({ type: CHAT_COMMIT, chatId })
     .catch(() => undefined);
+}
+
+function withChatContinuation(
+  chat: ChatRecord,
+  continuation: ChatContinuation | null,
+): ChatRecord {
+  if (continuation) return { ...chat, continuation };
+  const { continuation: _continuation, ...remaining } = chat;
+  return remaining;
 }
 
 function GeneratedImage({
@@ -514,6 +525,8 @@ const ConversationPane = memo(function ConversationPane({
   initialScrollPosition,
   messages,
   notices,
+  continuation,
+  onContinue,
   onScrollPositionChange,
   status,
 }: {
@@ -521,6 +534,8 @@ const ConversationPane = memo(function ConversationPane({
   readonly initialScrollPosition: ChatScrollPosition | undefined;
   readonly messages: readonly UIMessage[];
   readonly notices: ChatRecord["notices"];
+  readonly continuation: ChatContinuation | undefined;
+  readonly onContinue: () => void;
   readonly onScrollPositionChange: (
     chatId: string,
     position: ChatScrollPosition,
@@ -691,6 +706,9 @@ const ConversationPane = memo(function ConversationPane({
       ) : (
         <div className="message-list">
           {messages.map((message, messageIndex) => {
+            const continuesAssistantResponse =
+              message.role === "assistant" &&
+              messages[messageIndex - 1]?.role === "assistant";
             const text = textFromMessage(message);
             const assistantBlocks =
               message.role === "assistant"
@@ -740,13 +758,18 @@ const ConversationPane = memo(function ConversationPane({
             }
             return (
               <article
-                className={`message ${message.role}`}
+                className={
+                  `message ${message.role}` +
+                  (continuesAssistantResponse ? " continued" : "")
+                }
                 data-message-id={message.id}
                 key={message.id}
               >
-                <p className="message-author">
-                  {message.role === "user" ? "You" : "GM Tools"}
-                </p>
+                {!continuesAssistantResponse ? (
+                  <p className="message-author">
+                    {message.role === "user" ? "You" : "GM Tools"}
+                  </p>
+                ) : null}
                 {message.role === "assistant" ? (
                   assistantBlocks.map((block, blockIndex) => {
                     if (block.type === "roll20-status") {
@@ -825,6 +848,20 @@ const ConversationPane = memo(function ConversationPane({
               <span className="activity-dots" aria-hidden="true">
                 <span /><span /><span />
               </span>
+            </div>
+          ) : null}
+          {continuation && !busy ? (
+            <div className="continuation-card" role="status">
+              <div>
+                <strong>Step limit reached</strong>
+                <p>
+                  The model completed its last tool call but requested another
+                  step.
+                </p>
+              </div>
+              <button onClick={onContinue} type="button">
+                Continue task
+              </button>
             </div>
           ) : null}
         </div>
@@ -1435,6 +1472,7 @@ function ChatScreen({
     messages,
     sendMessage,
     regenerate,
+    resumeStream,
     stop,
     status,
     error,
@@ -1626,6 +1664,11 @@ function ChatScreen({
     window.setTimeout(() => setMessages(safeMessagesRef.current), 0);
   };
 
+  const continueTask = (): void => {
+    transport.continueConversation();
+    void resumeStream();
+  };
+
   const selectProfile = (profileId: string): void => {
     if (profileId === activeProfile.id) return;
     onSelectProfile(profileId);
@@ -1748,9 +1791,11 @@ function ChatScreen({
 
       <ConversationPane
         chatId={chatId}
+        continuation={chat.continuation}
         initialScrollPosition={initialScrollPosition}
         messages={messages}
         notices={chat.notices}
+        onContinue={continueTask}
         onScrollPositionChange={onScrollPositionChange}
         status={status}
       />
@@ -1944,6 +1989,27 @@ function ChatWorkspace(): React.JSX.Element {
       chrome.runtime.onMessage.removeListener(handleActivity);
     };
   }, []);
+
+  useEffect(() => {
+    const handleContinuation = (message: unknown): void => {
+      if (!isChatContinuationChangedMessage(message)) return;
+      setChats((current) =>
+        current.map((chat) =>
+          chat.id === message.chatId
+            ? withChatContinuation(chat, message.continuation)
+            : chat,
+        ),
+      );
+      const current = storedChatRef.current;
+      if (!current || current.chat.id !== message.chatId) return;
+      setCurrentChat({
+        ...current,
+        chat: withChatContinuation(current.chat, message.continuation),
+      });
+    };
+    chrome.runtime.onMessage.addListener(handleContinuation);
+    return () => chrome.runtime.onMessage.removeListener(handleContinuation);
+  }, [setCurrentChat]);
 
   if (!profiles || !storedChat) return <LoadingScreen />;
   const activeProfile =

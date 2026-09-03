@@ -758,6 +758,10 @@ h1 {
   min-width: 0;
 }
 
+.message.assistant.continued {
+  margin-top: -14px;
+}
+
 .message.user {
   width: fit-content;
   max-width: 88%;
@@ -963,6 +967,48 @@ h1 {
   color: #929ba8;
   font-size: 0.78rem;
   font-weight: 600;
+}
+
+.continuation-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 13px;
+  border: 1px solid #574b32;
+  border-radius: 10px;
+  background: rgb(92 71 34 / 18%);
+  color: #d9d3c7;
+}
+
+.continuation-card strong {
+  color: #e3c77e;
+  font-size: 0.8rem;
+}
+
+.continuation-card p {
+  margin: 3px 0 0;
+  color: #999286;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.continuation-card button {
+  flex: none;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid #7c6640;
+  border-radius: 7px;
+  background: #332a1d;
+  color: #ead497;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.continuation-card button:hover {
+  border-color: #aa8950;
+  background: #403321;
 }
 
 .tool-receipts {
@@ -1276,6 +1322,26 @@ h1 {
   border-color: rgb(180 130 20 / 35%);
   background: rgb(234 179 8 / 10%);
   color: #6f6658;
+}
+
+:root[data-theme="light"] .continuation-card {
+  border-color: #d7bd82;
+  background: #fff8e8;
+  color: #474137;
+}
+
+:root[data-theme="light"] .continuation-card strong {
+  color: #795b1e;
+}
+
+:root[data-theme="light"] .continuation-card p {
+  color: #716858;
+}
+
+:root[data-theme="light"] .continuation-card button {
+  border-color: #b99a5a;
+  background: #fff2cf;
+  color: #604817;
 }
 
 :root[data-theme="light"] .login-card {
