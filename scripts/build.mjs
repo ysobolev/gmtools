@@ -16,9 +16,9 @@ async function sourceFiles(path) {
 const packageJson = JSON.parse(await readFile("package.json", "utf8"));
 const extensionBuilds = [
   {
-    outdir: "extension",
+    outdir: "extension-chrome",
     target: "chrome114",
-    manifest: "src/extension/static/manifest.json",
+    manifest: "src/extension/static/manifest.chrome.json",
   },
   {
     outdir: "extension-firefox",

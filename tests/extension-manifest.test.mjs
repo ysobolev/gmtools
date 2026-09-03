@@ -3,7 +3,7 @@ import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 const builds = [
-  { directory: "extension", browser: "Chrome" },
+  { directory: "extension-chrome", browser: "Chrome" },
   { directory: "extension-firefox", browser: "Firefox" },
 ];
 
@@ -45,7 +45,7 @@ test("registers and builds both browser extensions", async () => {
 
 test("uses native sidebar and background declarations per browser", async () => {
   const [chromeManifest, firefoxManifest] = await Promise.all([
-    readFile("extension/manifest.json", "utf8").then(JSON.parse),
+    readFile("extension-chrome/manifest.json", "utf8").then(JSON.parse),
     readFile("extension-firefox/manifest.json", "utf8").then(JSON.parse),
   ]);
 

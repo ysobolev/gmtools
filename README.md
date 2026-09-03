@@ -27,7 +27,7 @@ non-archived whisper that the extension removes before display.
 
 2. Open `chrome://extensions`.
 3. Enable **Developer mode**.
-4. Click **Load unpacked** and select the `extension` directory.
+4. Click **Load unpacked** and select the `extension-chrome` directory.
 5. Click the extension toolbar icon to open **GM Tools for VTT** in the side panel.
 6. Click **Connect OpenRouter**, authorize the app, and send a message.
 
@@ -80,6 +80,7 @@ Useful commands:
 pnpm typecheck
 pnpm test
 pnpm check
+pnpm chrome:package
 pnpm firefox:lint
 pnpm firefox:run
 pnpm firefox:package
@@ -100,9 +101,8 @@ Authored code lives under `src`:
   Roll20 Mod bridge.
 - `src/roll20-mod` contains the Mod implementation and Roll20 global types.
 
-The checked-in `extension`, `extension-firefox`, and `roll20-mod` directories
-are generated artifacts. `extension` targets Chrome; `extension-firefox`
-targets Firefox. Do not edit them directly.
+The checked-in `extension-chrome`, `extension-firefox`, and `roll20-mod`
+directories are generated artifacts. Do not edit them directly.
 
 ## Roll20 execution bridge
 
