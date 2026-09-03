@@ -27,13 +27,13 @@ import {
   stoppedAtStepLimit,
 } from "./chat-stream-outcome";
 import {
-  buildProfileInstructions,
   DEFAULT_PROFILE,
   normalizeProfiles,
   PROFILES_STORAGE_KEY,
   resolveModelId,
   type AssistantProfile,
 } from "./profile-config";
+import { buildProfileInstructions } from "./prompts/build-profile-instructions";
 import {
   getChat,
   getChatImage,

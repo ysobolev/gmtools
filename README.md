@@ -96,7 +96,8 @@ Authored code lives under `src`:
 - `src/extension/openrouter-auth.ts` contains the testable PKCE and response
   parsing helpers.
 - `src/extension/profile-config.ts` defines supported games, sheets, models, and
-  the layered prompt assembled for each profile.
+  profile validation.
+- `src/extension/prompts` contains the prompt text and profile prompt assembly.
 - `src/protocol.ts` and `src/extension/content-script.ts` implement the encoded
   Roll20 Mod bridge.
 - `src/roll20-mod` contains the Mod implementation and Roll20 global types.
