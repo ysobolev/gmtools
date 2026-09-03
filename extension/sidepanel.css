@@ -1324,6 +1324,20 @@ h1 {
   color: #6f6658;
 }
 
+:root[data-theme="light"] .chat-error {
+  border-color: #d58b7d;
+  background: #fff0ec;
+  color: #782d22 !important;
+}
+
+:root[data-theme="light"] .chat-error button {
+  color: #8b3527;
+}
+
+:root[data-theme="light"] .chat-error button:hover {
+  color: #5f2118;
+}
+
 :root[data-theme="light"] .continuation-card {
   border-color: #d7bd82;
   background: #fff8e8;
