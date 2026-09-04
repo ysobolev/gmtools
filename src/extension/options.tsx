@@ -1066,6 +1066,11 @@ function CampaignsSettings({
               <li>{deletePrompt.pendingApprovalChatCount} {deletePrompt.pendingApprovalChatCount === 1 ? "chat has" : "chats have"} pending approvals that will be canceled.</li>
               <li>{deletePrompt.memoryCount} stored {deletePrompt.memoryCount === 1 ? "memory" : "memories"} will be permanently deleted.</li>
             </ul>
+            {deletePrompt.activeChatCount > 0 ? (
+              <p className="campaign-delete-warning" role="note">
+                Roll20 actions already sent to the campaign cannot be canceled and may still finish after deletion.
+              </p>
+            ) : null}
             {deleteError ? <p className="campaign-delete-error" role="alert">{deleteError}</p> : null}
             <div className="campaign-delete-actions">
               <button className="primary-button" disabled={deleteBusy} onClick={() => confirmDelete("detach-chats")} type="button">Detach and keep chats</button>

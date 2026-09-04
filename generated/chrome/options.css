@@ -544,6 +544,15 @@ p {
   line-height: 1.45;
 }
 
+.campaign-delete-dialog .campaign-delete-warning {
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgb(222 168 62 / 45%);
+  border-radius: 8px;
+  background: rgb(168 112 27 / 18%);
+  color: #f1cc7a;
+}
+
 .campaign-delete-dialog .campaign-delete-error {
   margin: 16px 0 0;
   padding: 10px 12px;
@@ -1114,6 +1123,12 @@ p {
 
 :root[data-theme="light"] .campaign-delete-impact {
   color: #4f4b51;
+}
+
+:root[data-theme="light"] .campaign-delete-dialog .campaign-delete-warning {
+  border-color: #d6ae62;
+  background: #fff7df;
+  color: #76520d;
 }
 
 :root[data-theme="light"] .campaign-delete-dialog .campaign-delete-error {
