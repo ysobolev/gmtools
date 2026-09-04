@@ -49,6 +49,54 @@ test("rejects non-images and oversized responses", async () => {
   );
 });
 
+test("cancels a chunked response that exceeds the image limit", async () => {
+  let cancelled = false;
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array(10 * 1024 * 1024));
+      controller.enqueue(new Uint8Array(1));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+
+  await assert.rejects(
+    remoteImage.downloadImage("https://example.com/huge.png", async () =>
+      new Response(body, {
+        headers: { "content-type": "image/png" },
+        status: 200,
+      })),
+    /10 MB or smaller/,
+  );
+  assert.equal(cancelled, true);
+});
+
+test("does not trust an understated content-length header", async () => {
+  let cancelled = false;
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array(10 * 1024 * 1024 + 1));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+
+  await assert.rejects(
+    remoteImage.downloadImage("https://example.com/huge.png", async () =>
+      new Response(body, {
+        headers: {
+          "content-length": "1",
+          "content-type": "image/png",
+        },
+        status: 200,
+      })),
+    /10 MB or smaller/,
+  );
+  assert.equal(cancelled, true);
+});
+
 test("recognizes image bytes when a server omits the MIME type", async () => {
   const result = await remoteImage.downloadImage(
     "https://images.example/map",

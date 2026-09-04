@@ -23,6 +23,42 @@ export class RemoteImageNetworkError extends Error {
   }
 }
 
+function oversizedImageError(): Error {
+  return new Error(
+    `Images must be ${MAX_UPLOADED_IMAGE_BYTES / 1024 / 1024} MB or smaller.`,
+  );
+}
+
+async function readBoundedResponseBlob(response: Response): Promise<Blob> {
+  if (!response.body) {
+    return new Blob([], {
+      type: response.headers.get("content-type") ?? "",
+    });
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array<ArrayBuffer>[] = [];
+  let receivedBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      receivedBytes += value.byteLength;
+      if (receivedBytes > MAX_UPLOADED_IMAGE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw oversizedImageError();
+      }
+      chunks.push(new Uint8Array(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return new Blob(chunks, {
+    type: response.headers.get("content-type") ?? "",
+  });
+}
+
 async function detectImageMediaType(blob: Blob): Promise<string> {
   const declared = blob.type.split(";", 1)[0]?.toLowerCase() ?? "";
   if (isSupportedUploadedImageType(declared)) return declared;
@@ -91,19 +127,15 @@ export async function downloadImage(
     Number.isFinite(declaredLength) &&
     declaredLength > MAX_UPLOADED_IMAGE_BYTES
   ) {
-    throw new Error(
-      `Images must be ${MAX_UPLOADED_IMAGE_BYTES / 1024 / 1024} MB or smaller.`,
-    );
+    throw oversizedImageError();
   }
-  const downloadedBlob = await response.blob();
+  const downloadedBlob = await readBoundedResponseBlob(response);
   const mediaType = await detectImageMediaType(downloadedBlob);
   if (!isSupportedUploadedImageType(mediaType)) {
     throw new Error("The dropped URL did not return a supported image.");
   }
   if (downloadedBlob.size > MAX_UPLOADED_IMAGE_BYTES) {
-    throw new Error(
-      `Images must be ${MAX_UPLOADED_IMAGE_BYTES / 1024 / 1024} MB or smaller.`,
-    );
+    throw oversizedImageError();
   }
   const blob = downloadedBlob.type === mediaType
     ? downloadedBlob
