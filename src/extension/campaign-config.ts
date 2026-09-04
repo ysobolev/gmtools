@@ -19,6 +19,7 @@ export interface CampaignRecord {
   readonly name: string;
   readonly defaultProfileId: string;
   readonly overrides: CampaignOverrides;
+  readonly memoryEnabled: boolean;
   readonly createdAt: number;
   readonly updatedAt: number;
 }
@@ -49,6 +50,7 @@ export function isCampaignRecord(value: unknown): value is CampaignRecord {
     isCampaignOverride(value.overrides.unrestrictedWebFetch) &&
     isCampaignOverride(value.overrides.webSearch) &&
     isCampaignOverride(value.overrides.requireRoll20Approval) &&
+    typeof value.memoryEnabled === "boolean" &&
     typeof value.createdAt === "number" &&
     Number.isFinite(value.createdAt) &&
     typeof value.updatedAt === "number" &&
@@ -66,6 +68,7 @@ export function createCampaignRecord(
     name: name.trim() || "Roll20 campaign",
     defaultProfileId: DEFAULT_PROFILE.id,
     overrides: DEFAULT_CAMPAIGN_OVERRIDES,
+    memoryEnabled: false,
     createdAt: now,
     updatedAt: now,
   };

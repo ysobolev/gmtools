@@ -20,6 +20,7 @@ test("campaign behavior overrides global preferences independently", () => {
     requireRoll20Approval: false,
   };
   const campaign = campaignConfig.createCampaignRecord("campaign-1", "Game", 1);
+  assert.equal(campaign.memoryEnabled, false);
   const configured = {
     ...campaign,
     overrides: {
@@ -35,4 +36,3 @@ test("campaign behavior overrides global preferences independently", () => {
   });
   assert.deepEqual(campaignConfig.resolveCampaignBehavior(global, undefined), global);
 });
-

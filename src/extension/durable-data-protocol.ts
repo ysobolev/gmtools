@@ -5,6 +5,7 @@ export const DURABLE_DATA_STORES = [
   "chats",
   "settings",
   "campaigns",
+  "campaignMemories",
 ] as const;
 export type DurableDataStore = (typeof DURABLE_DATA_STORES)[number];
 

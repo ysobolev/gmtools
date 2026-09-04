@@ -29,6 +29,14 @@ import {
   saveCampaignConfiguration,
 } from "./campaign-store";
 import {
+  countCampaignMemories,
+  deleteAllCampaignMemories,
+  deleteCampaignMemory,
+  listCampaignMemories,
+  updateCampaignMemory,
+  type CampaignMemoryRecord,
+} from "./campaign-memory-store";
+import {
   DEFAULT_CAMPAIGN_OVERRIDES,
   type CampaignOverride,
   type CampaignOverrides,
@@ -484,12 +492,14 @@ function ProfilesSettings(): React.JSX.Element {
 interface CampaignDraft {
   readonly defaultProfileId: string;
   readonly overrides: CampaignOverrides;
+  readonly memoryEnabled: boolean;
 }
 
 function campaignDraft(record: CampaignRecord): CampaignDraft {
   return {
     defaultProfileId: record.defaultProfileId,
     overrides: { ...record.overrides },
+    memoryEnabled: record.memoryEnabled,
   };
 }
 
@@ -503,17 +513,214 @@ function campaignDraftsEqual(
       right.overrides.unrestrictedWebFetch &&
     left.overrides.webSearch === right.overrides.webSearch &&
     left.overrides.requireRoll20Approval ===
-      right.overrides.requireRoll20Approval
+      right.overrides.requireRoll20Approval &&
+    left.memoryEnabled === right.memoryEnabled
+  );
+}
+
+function CampaignMemorySettings({
+  campaign,
+  onCountChange,
+  onShowSettings,
+}: {
+  readonly campaign: CampaignRecord;
+  readonly onCountChange: (count: number) => void;
+  readonly onShowSettings: () => void;
+}): React.JSX.Element {
+  const [memories, setMemories] = useState<CampaignMemoryRecord[] | null>(null);
+  const [query, setQuery] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState("");
+  const [message, setMessage] = useState("");
+  const [clearPrompt, setClearPrompt] = useState(false);
+  const [deletePromptId, setDeletePromptId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refreshMemories = (): void => {
+    void listCampaignMemories(campaign.campaignId).then((loadedMemories) => {
+      setMemories(loadedMemories);
+      onCountChange(loadedMemories.length);
+    }).catch(
+      (error: unknown) => setMessage(
+        error instanceof Error ? error.message : "Could not load campaign memory.",
+      ),
+    );
+  };
+
+  useEffect(() => {
+    refreshMemories();
+    const handleMessage = (value: unknown): void => {
+      if (
+        isDurableDataChangedMessage(value) &&
+        value.stores.includes("campaignMemories")
+      ) refreshMemories();
+    };
+    chrome.runtime.onMessage.addListener(handleMessage);
+    return () => chrome.runtime.onMessage.removeListener(handleMessage);
+  }, [campaign.campaignId]);
+
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visible = (memories ?? []).filter((memory) =>
+    !normalizedQuery || memory.content.toLocaleLowerCase().includes(normalizedQuery)
+  );
+
+  const saveEdit = (): void => {
+    if (!editingId) return;
+    setBusy(true);
+    setMessage("");
+    void updateCampaignMemory(
+      campaign.campaignId,
+      editingId,
+      editingContent,
+      false,
+    ).then(() => {
+      setEditingId(null);
+      setDeletePromptId(null);
+      setEditingContent("");
+      setMessage("Memory updated.");
+      refreshMemories();
+    }).catch((error: unknown) => setMessage(
+      error instanceof Error ? error.message : "Could not update memory.",
+    )).finally(() => setBusy(false));
+  };
+
+  const removeMemory = (memoryId: string): void => {
+    setBusy(true);
+    setMessage("");
+    void deleteCampaignMemory(campaign.campaignId, memoryId, false).then(() => {
+      if (editingId === memoryId) setEditingId(null);
+      setMessage("Memory deleted.");
+      refreshMemories();
+    }).catch((error: unknown) => setMessage(
+      error instanceof Error ? error.message : "Could not delete memory.",
+    )).finally(() => setBusy(false));
+  };
+
+  const clearAll = (): void => {
+    setBusy(true);
+    setMessage("");
+    void deleteAllCampaignMemories(campaign.campaignId).then((count) => {
+      setClearPrompt(false);
+      setEditingId(null);
+      setMessage(`Deleted ${count} ${count === 1 ? "memory" : "memories"}.`);
+      refreshMemories();
+    }).catch((error: unknown) => setMessage(
+      error instanceof Error ? error.message : "Could not clear campaign memory.",
+    )).finally(() => setBusy(false));
+  };
+
+  return (
+    <section className="editor-panel campaign-memory-panel">
+      <div className="editor-heading campaign-memory-heading">
+        <div>
+          <nav aria-label="Campaign settings location" className="campaign-breadcrumbs">
+            <button className="mode-badge" onClick={onShowSettings} type="button">
+              Campaign settings
+            </button>
+            <span aria-hidden="true">›</span>
+            <span aria-current="page" className="mode-badge">Campaign memory</span>
+          </nav>
+          <h2>{campaign.name}</h2>
+          <p>{campaign.memoryEnabled
+            ? "Durable information shared by chats attached to this campaign."
+            : "Memory is disabled, but stored information can still be managed."}</p>
+        </div>
+      </div>
+      <div className="campaign-memory-toolbar">
+        <label className="field">
+          <span>Filter memories</span>
+          <input
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search stored content"
+            type="search"
+            value={query}
+          />
+        </label>
+        <span>{memories?.length ?? 0} stored</span>
+      </div>
+      {message ? <p className="saved-message" role="status">{message}</p> : null}
+      {memories === null ? <p>Loading memories…</p> : null}
+      {memories !== null && visible.length === 0 ? (
+        <p className="campaign-memory-empty">
+          {memories.length === 0 ? "No memories have been stored." : "No memories match this filter."}
+        </p>
+      ) : null}
+      <div className="campaign-memory-list">
+        {visible.map((memory) => (
+          <article className="campaign-memory-item" key={memory.id}>
+            {editingId === memory.id ? (
+              <>
+                <textarea
+                  maxLength={4000}
+                  onChange={(event) => setEditingContent(event.target.value)}
+                  rows={6}
+                  value={editingContent}
+                />
+                <div className="campaign-memory-actions">
+                  <button className="secondary-button" disabled={busy} onClick={() => setEditingId(null)} type="button">Cancel</button>
+                  <button className="primary-button" disabled={busy || !editingContent.trim()} onClick={saveEdit} type="button">Save</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p>{memory.content}</p>
+                <div className="campaign-memory-meta">
+                  <time dateTime={new Date(memory.updatedAt).toISOString()}>
+                    Updated {new Date(memory.updatedAt).toLocaleString()}
+                  </time>
+                  <div className="campaign-memory-actions">
+                    {deletePromptId === memory.id ? (
+                      <>
+                        <button className="secondary-button" disabled={busy} onClick={() => setDeletePromptId(null)} type="button">Cancel</button>
+                        <button className="danger-button" disabled={busy} onClick={() => removeMemory(memory.id)} type="button">Confirm delete</button>
+                      </>
+                    ) : (
+                      <>
+                        <button className="secondary-button" disabled={busy} onClick={() => {
+                          setEditingId(memory.id);
+                          setEditingContent(memory.content);
+                          setMessage("");
+                        }} type="button">Edit</button>
+                        <button className="danger-button" disabled={busy} onClick={() => setDeletePromptId(memory.id)} type="button">Delete</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </article>
+        ))}
+      </div>
+      {memories?.length ? (
+        <div className="form-actions campaign-memory-footer">
+          <button className="danger-button" disabled={busy} onClick={() => setClearPrompt(true)} type="button">Clear all memory</button>
+        </div>
+      ) : null}
+      {clearPrompt ? (
+        <div className="campaign-delete-backdrop">
+          <section aria-modal="true" className="campaign-delete-dialog" role="alertdialog">
+            <h2>Clear memory for {campaign.name}?</h2>
+            <p>This permanently deletes all {memories?.length ?? 0} stored memories.</p>
+            <div className="campaign-delete-actions">
+              <button className="danger-button" disabled={busy} onClick={clearAll} type="button">Clear all memory</button>
+              <button className="secondary-button" disabled={busy} onClick={() => setClearPrompt(false)} type="button">Cancel</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
 function CampaignsSettings({
   active,
+  navigationVersion,
   globalUnrestrictedWebFetch,
   globalWebSearch,
   globalRequireRoll20Approval,
 }: {
   readonly active: boolean;
+  readonly navigationVersion: number;
   readonly globalUnrestrictedWebFetch: boolean;
   readonly globalWebSearch: boolean;
   readonly globalRequireRoll20Approval: boolean;
@@ -525,13 +732,17 @@ function CampaignsSettings({
   const [draft, setDraft] = useState<CampaignDraft>({
     defaultProfileId: DEFAULT_PROFILE.id,
     overrides: DEFAULT_CAMPAIGN_OVERRIDES,
+    memoryEnabled: false,
   });
+  const [managingMemory, setManagingMemory] = useState(false);
+  const [memoryCount, setMemoryCount] = useState(0);
   const [savedMessage, setSavedMessage] = useState("");
   const [deletePrompt, setDeletePrompt] = useState<{
     readonly campaign: CampaignRecord;
     readonly chatCount: number;
     readonly activeChatCount: number;
     readonly pendingApprovalChatCount: number;
+    readonly memoryCount: number;
   } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -558,12 +769,18 @@ function CampaignsSettings({
       if (
         !isDurableDataChangedMessage(message) ||
         !message.stores.some((store) =>
-          store === "campaigns" || store === "profiles"
+          store === "campaigns" || store === "profiles" ||
+          store === "campaignMemories"
         )
       ) return;
       if (cancelled) return;
       if (message.stores.includes("campaigns")) {
         void refresh();
+      } else if (message.stores.includes("campaignMemories")) {
+        const campaignId = selectedIdRef.current;
+        if (campaignId) {
+          void countCampaignMemories(campaignId).then(setMemoryCount);
+        }
       } else {
         void listProfiles().then((loadedProfiles) => {
           if (!cancelled) setProfiles(loadedProfiles);
@@ -578,8 +795,25 @@ function CampaignsSettings({
   }, []);
 
   useEffect(() => {
-    if (active) void refresh();
-  }, [active]);
+    if (!active) return;
+    setManagingMemory(false);
+    void refresh();
+  }, [active, navigationVersion]);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setMemoryCount(0);
+      return;
+    }
+    let cancelled = false;
+    setMemoryCount(0);
+    void countCampaignMemories(selectedId).then((count) => {
+      if (!cancelled) setMemoryCount(count);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
 
   const selected = campaigns?.find(
     (campaign) => campaign.campaignId === selectedId,
@@ -590,6 +824,7 @@ function CampaignsSettings({
     selectedIdRef.current = campaign.campaignId;
     setSelectedId(campaign.campaignId);
     setDraft(campaignDraft(campaign));
+    setManagingMemory(false);
     setSavedMessage("");
   };
 
@@ -611,6 +846,7 @@ function CampaignsSettings({
       selected.campaignId,
       draft.defaultProfileId,
       draft.overrides,
+      draft.memoryEnabled,
     ).then(async () => {
       await refresh();
       setSavedMessage("Changes saved.");
@@ -691,6 +927,29 @@ function CampaignsSettings({
     </>
   );
 
+  if (managingMemory) {
+    return (
+      <div className="profile-workspace">
+        <aside className="profile-sidebar">
+          <div className="sidebar-heading"><div><p className="section-label">Campaign overrides</p><h2>Campaigns</h2></div></div>
+          <nav className="profile-list" aria-label="Known campaigns">
+            {campaigns.map((campaign) => (
+              <button className={campaign.campaignId === selectedId ? "profile-item selected" : "profile-item"} key={campaign.campaignId} onClick={() => chooseCampaign(campaign)} type="button">
+                <span className="profile-item-topline"><strong>{campaign.name}</strong></span>
+                <span>{profiles.find((profile) => profile.id === campaign.defaultProfileId)?.name ?? "General"} by default</span>
+              </button>
+            ))}
+          </nav>
+        </aside>
+        <CampaignMemorySettings
+          campaign={selected}
+          onCountChange={setMemoryCount}
+          onShowSettings={() => setManagingMemory(false)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="profile-workspace">
       <aside className="profile-sidebar">
@@ -767,6 +1026,24 @@ function CampaignsSettings({
                 {overrideOptions(globalRequireRoll20Approval ? "required" : "not required")}
               </select>
             </label>
+            <label className="toggle-card field-wide campaign-memory-toggle">
+              <input
+                checked={draft.memoryEnabled}
+                onChange={(event) => {
+                  setDraft({ ...draft, memoryEnabled: event.target.checked });
+                  setSavedMessage("");
+                }}
+                type="checkbox"
+              />
+              <span>
+                <strong>Enable memory</strong>
+                <small>Allow the assistant to store and retrieve durable information shared by chats attached to this campaign.</small>
+              </span>
+            </label>
+            <div className="campaign-memory-summary field-wide">
+              <span><strong>{memoryCount}</strong> stored {memoryCount === 1 ? "memory" : "memories"}</span>
+              <button className="secondary-button" onClick={() => setManagingMemory(true)} type="button">Manage memory</button>
+            </div>
           </div>
           <div className="form-actions">
             <button className="danger-button" onClick={beginDelete} type="button">Delete campaign</button>
@@ -787,6 +1064,7 @@ function CampaignsSettings({
             <ul className="campaign-delete-impact">
               <li>{deletePrompt.activeChatCount} active {deletePrompt.activeChatCount === 1 ? "chat" : "chats"} will be stopped.</li>
               <li>{deletePrompt.pendingApprovalChatCount} {deletePrompt.pendingApprovalChatCount === 1 ? "chat has" : "chats have"} pending approvals that will be canceled.</li>
+              <li>{deletePrompt.memoryCount} stored {deletePrompt.memoryCount === 1 ? "memory" : "memories"} will be permanently deleted.</li>
             </ul>
             {deleteError ? <p className="campaign-delete-error" role="alert">{deleteError}</p> : null}
             <div className="campaign-delete-actions">
@@ -1066,6 +1344,7 @@ function BehaviorSettings({
 
 function OptionsApp(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<SettingsTab>("profiles");
+  const [campaignNavigationVersion, setCampaignNavigationVersion] = useState(0);
   const [theme, setTheme] = useState<DisplayTheme>(DEFAULT_DISPLAY_THEME);
   const [debugLoggingEnabled, setDebugLoggingEnabled] = useState(false);
   const [unrestrictedWebFetchEnabled, setUnrestrictedWebFetchEnabled] =
@@ -1244,7 +1523,12 @@ function OptionsApp(): React.JSX.Element {
                   : "settings-tab"
               }
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                if (tab.id === "campaigns") {
+                  setCampaignNavigationVersion((version) => version + 1);
+                }
+                setActiveTab(tab.id);
+              }}
               type="button"
             >
               <strong>{tab.label}</strong>
@@ -1263,6 +1547,7 @@ function OptionsApp(): React.JSX.Element {
               globalRequireRoll20Approval={requireRoll20Approval}
               globalUnrestrictedWebFetch={unrestrictedWebFetchEnabled}
               globalWebSearch={webSearchEnabled}
+              navigationVersion={campaignNavigationVersion}
             />
           </div>
           <div hidden={activeTab !== "display"}>

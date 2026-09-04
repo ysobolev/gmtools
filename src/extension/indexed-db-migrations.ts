@@ -2,7 +2,7 @@ import { DEFAULT_PROFILE } from "./profile-config";
 import { DEFAULT_GLOBAL_PREFERENCES } from "./global-preferences";
 
 export const CHAT_DATABASE_NAME = "gmToolsChats";
-export const CHAT_DATABASE_VERSION = 5;
+export const CHAT_DATABASE_VERSION = 6;
 
 export const CHATS_STORE = "chats";
 export const MESSAGES_STORE = "messages";
@@ -11,6 +11,7 @@ export const PROFILES_STORE = "profiles";
 export const SETTINGS_STORE = "settings";
 export const ROLL20_APPROVALS_STORE = "roll20Approvals";
 export const CAMPAIGNS_STORE = "campaigns";
+export const CAMPAIGN_MEMORIES_STORE = "campaignMemories";
 
 interface DatabaseMigration {
   readonly version: number;
@@ -76,6 +77,25 @@ export const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
       });
       campaigns.createIndex("name", "name");
       campaigns.createIndex("defaultProfileId", "defaultProfileId");
+    },
+  },
+  {
+    version: 6,
+    migrate(database, transaction) {
+      const memories = database.createObjectStore(CAMPAIGN_MEMORIES_STORE, {
+        keyPath: "id",
+      });
+      memories.createIndex("campaignId", "campaignId");
+      memories.createIndex("campaignUpdatedAt", ["campaignId", "updatedAt"]);
+
+      const request = transaction.objectStore(CAMPAIGNS_STORE).openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        const value = cursor.value as Record<string, unknown>;
+        cursor.update({ ...value, memoryEnabled: false });
+        cursor.continue();
+      };
     },
   },
 ];

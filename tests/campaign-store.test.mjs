@@ -43,7 +43,7 @@ test("campaign records apply defaults, preserve established profiles, and follow
     unrestrictedWebFetch: "enabled",
     webSearch: "disabled",
     requireRoll20Approval: "inherit",
-  });
+  }, true);
 
   const empty = await chats.createChat("general-gm");
   const attachedEmpty = await campaigns.attachChatToCampaign(empty.chat.id, {
@@ -94,4 +94,3 @@ test("campaign deletion can detach chats or delete them", async () => {
   await campaigns.deleteCampaign("campaign-2", "delete-chats");
   assert.equal(await chats.getStoredChat(doomed.chat.id), undefined);
 });
-

@@ -314,6 +314,7 @@ test("validates campaign deletion requests and responses", () => {
       chatCount: 3,
       activeChatCount: 1,
       pendingApprovalChatCount: 1,
+      memoryCount: 4,
     },
   }), true);
   assert.equal(protocol.isCampaignDeleteRequest({

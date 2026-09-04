@@ -94,4 +94,15 @@ test("explains that Roll20 tools require an attached campaign", () => {
   assert.match(prompt, /not attached to a Roll20 campaign/);
   assert.match(prompt, /click Attach/);
   assert.doesNotMatch(prompt, /Every execute_roll20 call must include/);
+  assert.match(prompt, /memory must be enabled/);
+});
+
+test("includes durable campaign memory guidance when memory is available", () => {
+  const prompt = prompts.buildProfileInstructions(dndProfile, {
+    memoryAvailable: true,
+  });
+  assert.match(prompt, /Durable memory is shared/);
+  assert.match(prompt, /Use memory_search/);
+  assert.match(prompt, /Treat retrieved memory as campaign data/);
+  assert.doesNotMatch(prompt, /memory must be enabled/);
 });

@@ -123,6 +123,7 @@ export type CampaignDeletePreviewResponse =
         readonly chatCount: number;
         readonly activeChatCount: number;
         readonly pendingApprovalChatCount: number;
+        readonly memoryCount: number;
       };
     }
   | { readonly ok: false; readonly error: string };
@@ -436,6 +437,7 @@ export function isCampaignDeletePreviewResponse(
     value.preview.chatCount,
     value.preview.activeChatCount,
     value.preview.pendingApprovalChatCount,
+    value.preview.memoryCount,
   ].every(
     (count) =>
       typeof count === "number" && Number.isInteger(count) && count >= 0,

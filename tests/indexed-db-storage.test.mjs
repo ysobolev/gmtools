@@ -59,6 +59,7 @@ test("a fresh database runs every structural migration", async () => {
   const name = `gmtools-test-fresh-${crypto.randomUUID()}`;
   const database = await openVersion(name, migrations.CHAT_DATABASE_VERSION);
   assert.deepEqual([...database.objectStoreNames], [
+    "campaignMemories",
     "campaigns",
     "chats",
     "images",
@@ -81,6 +82,43 @@ test("a fresh database runs every structural migration", async () => {
   assert.equal(
     (await requestResult(transaction.objectStore("settings").get("global"))).maximumSteps,
     24,
+  );
+  await transactionComplete(transaction);
+  database.close();
+});
+
+test("upgrading version 5 creates memory storage and disables it for existing campaigns", async () => {
+  const name = `gmtools-test-memory-upgrade-${crypto.randomUUID()}`;
+  let database = await openVersion(name, 5);
+  let transaction = database.transaction("campaigns", "readwrite");
+  transaction.objectStore("campaigns").add({
+    campaignId: "campaign-1",
+    name: "Existing campaign",
+    defaultProfileId: "general-gm",
+    overrides: {
+      unrestrictedWebFetch: "inherit",
+      webSearch: "inherit",
+      requireRoll20Approval: "inherit",
+    },
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  await transactionComplete(transaction);
+  database.close();
+
+  database = await openVersion(name, migrations.CHAT_DATABASE_VERSION);
+  transaction = database.transaction(["campaigns", "campaignMemories"], "readonly");
+  assert.equal(
+    (await requestResult(transaction.objectStore("campaigns").get("campaign-1"))).memoryEnabled,
+    false,
+  );
+  assert.equal(
+    transaction.objectStore("campaignMemories").indexNames.contains("campaignId"),
+    true,
+  );
+  assert.equal(
+    transaction.objectStore("campaignMemories").indexNames.contains("campaignUpdatedAt"),
+    true,
   );
   await transactionComplete(transaction);
   database.close();

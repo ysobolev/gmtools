@@ -13,6 +13,7 @@ import {
 import { notifyDurableDataChanged } from "./durable-data-protocol";
 import {
   CAMPAIGNS_STORE,
+  CAMPAIGN_MEMORIES_STORE,
   CHATS_STORE,
   IMAGES_STORE,
   MESSAGES_STORE,
@@ -167,6 +168,7 @@ export async function saveCampaignConfiguration(
   campaignId: string,
   defaultProfileId: string,
   overrides: CampaignOverrides,
+  memoryEnabled: boolean,
 ): Promise<CampaignRecord> {
   const database = await openDatabase();
   const transaction = database.transaction(
@@ -190,6 +192,7 @@ export async function saveCampaignConfiguration(
     ...campaignValue,
     defaultProfileId,
     overrides,
+    memoryEnabled,
     updatedAt: Date.now(),
   };
   if (!isCampaignRecord(updated)) {
@@ -210,17 +213,23 @@ export async function deleteCampaign(
   const stores = mode === "delete-chats"
     ? [
         CAMPAIGNS_STORE,
+        CAMPAIGN_MEMORIES_STORE,
         CHATS_STORE,
         MESSAGES_STORE,
         IMAGES_STORE,
         ROLL20_APPROVALS_STORE,
       ]
-    : [CAMPAIGNS_STORE, CHATS_STORE];
+    : [CAMPAIGNS_STORE, CAMPAIGN_MEMORIES_STORE, CHATS_STORE];
   const transaction = database.transaction(stores, "readwrite");
   const chats = transaction.objectStore(CHATS_STORE);
   const affected = await campaignChats(transaction, campaignId);
   const chatIds = affected.map((chat) => chat.id);
   transaction.objectStore(CAMPAIGNS_STORE).delete(campaignId);
+  const memoryStore = transaction.objectStore(CAMPAIGN_MEMORIES_STORE);
+  const memoryKeys = await requestResult(
+    memoryStore.index("campaignId").getAllKeys(campaignId),
+  );
+  for (const key of memoryKeys) memoryStore.delete(key);
   const now = Date.now();
 
   if (mode === "detach-chats") {
@@ -247,6 +256,6 @@ export async function deleteCampaign(
     }
   }
   await transactionComplete(transaction);
-  notifyDurableDataChanged(["campaigns", "chats"]);
+  notifyDurableDataChanged(["campaigns", "campaignMemories", "chats"]);
   return { campaignId, chatIds, mode };
 }
