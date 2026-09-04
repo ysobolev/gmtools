@@ -38,7 +38,6 @@ import {
   getModelDefinition,
   getModelSelectionLabel,
   getRulesetDefinition,
-  getSheetAdapterDefinition,
   isAssistantProfile,
   isCuratedModelId,
   MODELS,
@@ -46,10 +45,8 @@ import {
   PROFILES_STORAGE_KEY,
   RECOMMENDED_MODEL_ID,
   RULESETS,
-  sheetsForRuleset,
   type AssistantProfile,
   type RulesetId,
-  type SheetAdapterId,
 } from "./profile-config";
 
 type SettingsTab = "profiles" | "display" | "behavior" | "authentication";
@@ -74,7 +71,6 @@ function profilesEqual(
     left.id === right.id &&
     left.name === right.name &&
     left.rulesetId === right.rulesetId &&
-    left.sheetAdapterId === right.sheetAdapterId &&
     left.modelSelection.kind === right.modelSelection.kind &&
     (left.modelSelection.kind === "recommended" ||
       (right.modelSelection.kind === "fixed" &&
@@ -157,9 +153,7 @@ function ProfilesSettings(): React.JSX.Element {
   };
 
   const changeRuleset = (rulesetId: RulesetId): void => {
-    const firstSheet = sheetsForRuleset(rulesetId)[0];
-    if (!firstSheet) return;
-    setDraft({ ...draft, rulesetId, sheetAdapterId: firstSheet.id });
+    setDraft({ ...draft, rulesetId });
     setSavedMessage("");
   };
 
@@ -268,8 +262,7 @@ function ProfilesSettings(): React.JSX.Element {
           </div>
           <h2>{isNew ? "Create a profile" : draft.name}</h2>
           <p>
-            Combine game guidance, character-sheet conventions, and a model
-            into a reusable assistant preset.
+            Combine game guidance and a model into a reusable assistant preset.
           </p>
         </div>
 
@@ -286,7 +279,7 @@ function ProfilesSettings(): React.JSX.Element {
               />
             </label>
 
-            <label className="field">
+            <label className="field field-wide">
               <span>Game</span>
               <select
                 onChange={(event) =>
@@ -300,32 +293,6 @@ function ProfilesSettings(): React.JSX.Element {
                   </option>
                 ))}
               </select>
-            </label>
-
-            <label className="field">
-              <span>Character sheet</span>
-              <select
-                onChange={(event) =>
-                  updateDraft({
-                    sheetAdapterId: event.target.value as SheetAdapterId,
-                  })
-                }
-                value={draft.sheetAdapterId}
-              >
-                {sheetsForRuleset(draft.rulesetId).map((sheet) => (
-                  <option key={`${sheet.rulesetId}:${sheet.id}`} value={sheet.id}>
-                    {sheet.label}
-                  </option>
-                ))}
-              </select>
-              <small>
-                {
-                  getSheetAdapterDefinition(
-                    draft.sheetAdapterId,
-                    draft.rulesetId,
-                  ).label
-                } guidance will be included in the system prompt.
-              </small>
             </label>
 
             <label className="field field-wide">

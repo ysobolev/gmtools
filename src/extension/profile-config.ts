@@ -19,19 +19,10 @@ export type ModelSelection =
 export const RULESET_IDS = ["dnd5e", "vtm5", "custom"] as const;
 export type RulesetId = (typeof RULESET_IDS)[number];
 
-export const SHEET_ADAPTER_IDS = [
-  "generic",
-  "roll20-dnd5e-2014",
-  "roll20-dnd5e-2024",
-  "roll20-vtm5",
-] as const;
-export type SheetAdapterId = (typeof SHEET_ADAPTER_IDS)[number];
-
 export interface AssistantProfile {
   readonly id: string;
   readonly name: string;
   readonly rulesetId: RulesetId;
-  readonly sheetAdapterId: SheetAdapterId;
   readonly modelSelection: ModelSelection;
   readonly additionalInstructions: string;
 }
@@ -44,12 +35,6 @@ export interface ModelDefinition {
 
 export interface RulesetDefinition {
   readonly id: RulesetId;
-  readonly label: string;
-}
-
-export interface SheetAdapterDefinition {
-  readonly id: SheetAdapterId;
-  readonly rulesetId: RulesetId;
   readonly label: string;
 }
 
@@ -92,44 +77,10 @@ export const RULESETS: readonly RulesetDefinition[] = [
   { id: "custom", label: "Custom prompt" },
 ];
 
-export const SHEET_ADAPTERS: readonly SheetAdapterDefinition[] = [
-  {
-    id: "roll20-dnd5e-2014",
-    rulesetId: "dnd5e",
-    label: "D&D 5e 2014 by Roll20",
-  },
-  {
-    id: "roll20-dnd5e-2024",
-    rulesetId: "dnd5e",
-    label: "D&D 5e 2024 by Roll20",
-  },
-  {
-    id: "generic",
-    rulesetId: "dnd5e",
-    label: "Other / inspect attributes",
-  },
-  {
-    id: "roll20-vtm5",
-    rulesetId: "vtm5",
-    label: "Vampire 5th Edition by Roll20",
-  },
-  {
-    id: "generic",
-    rulesetId: "vtm5",
-    label: "Other / inspect attributes",
-  },
-  {
-    id: "generic",
-    rulesetId: "custom",
-    label: "Custom / inspect attributes",
-  },
-];
-
 export const DEFAULT_PROFILE: AssistantProfile = {
   id: "general-gm",
   name: "General",
   rulesetId: "custom",
-  sheetAdapterId: "generic",
   modelSelection: { kind: "recommended" },
   additionalInstructions: "",
 };
@@ -173,12 +124,6 @@ export function isAssistantProfile(value: unknown): value is AssistantProfile {
     value.name.trim().length >= 1 &&
     value.name.length <= 80 &&
     includesValue(RULESET_IDS, value.rulesetId) &&
-    includesValue(SHEET_ADAPTER_IDS, value.sheetAdapterId) &&
-    SHEET_ADAPTERS.some(
-      (sheet) =>
-        sheet.id === value.sheetAdapterId &&
-        sheet.rulesetId === value.rulesetId,
-    ) &&
     isModelSelection(value.modelSelection) &&
     typeof value.additionalInstructions === "string" &&
     value.additionalInstructions.length <= 8_000
@@ -236,24 +181,6 @@ export function getRulesetDefinition(
   return RULESETS.find((ruleset) => ruleset.id === rulesetId) ?? RULESETS[0]!;
 }
 
-export function getSheetAdapterDefinition(
-  sheetAdapterId: SheetAdapterId,
-  rulesetId: RulesetId,
-): SheetAdapterDefinition {
-  return (
-    SHEET_ADAPTERS.find(
-      (sheet) =>
-        sheet.id === sheetAdapterId && sheet.rulesetId === rulesetId,
-    ) ?? SHEET_ADAPTERS.find((sheet) => sheet.rulesetId === rulesetId)!
-  );
-}
-
-export function sheetsForRuleset(
-  rulesetId: RulesetId,
-): readonly SheetAdapterDefinition[] {
-  return SHEET_ADAPTERS.filter((sheet) => sheet.rulesetId === rulesetId);
-}
-
 export function createProfile(
   id: string,
   number: number,
@@ -262,7 +189,6 @@ export function createProfile(
     id,
     name: `D&D 5e Profile ${number}`,
     rulesetId: "dnd5e",
-    sheetAdapterId: "roll20-dnd5e-2014",
     modelSelection: { kind: "recommended" },
     additionalInstructions: "",
   };

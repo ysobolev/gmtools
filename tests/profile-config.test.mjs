@@ -34,7 +34,7 @@ test("keeps the General profile available when stored profiles omit it", () => {
   ]);
 });
 
-test("accepts custom models and rejects incompatible game-sheet combinations", () => {
+test("accepts custom models and rejects unknown rulesets", () => {
   assert.equal(
     profiles.isAssistantProfile({
       ...profiles.DEFAULT_PROFILE,
@@ -45,8 +45,7 @@ test("accepts custom models and rejects incompatible game-sheet combinations", (
   assert.equal(
     profiles.isAssistantProfile({
       ...profiles.DEFAULT_PROFILE,
-      rulesetId: "vtm5",
-      sheetAdapterId: "roll20-dnd5e-2014",
+      rulesetId: "unknown",
     }),
     false,
   );
@@ -99,10 +98,4 @@ test("preserves a stored custom model selection", () => {
   };
   const normalized = profiles.normalizeProfiles([custom]);
   assert.deepEqual(normalized[1], custom);
-});
-
-test("offers only sheets compatible with the selected ruleset", () => {
-  const sheets = profiles.sheetsForRuleset("vtm5");
-  assert.ok(sheets.length > 0);
-  assert.ok(sheets.every((sheet) => sheet.rulesetId === "vtm5"));
 });

@@ -6,7 +6,6 @@ import {
   UNBOUND_ROLL20_INSTRUCTIONS,
 } from "./core";
 import { RULESET_INSTRUCTIONS } from "./rulesets";
-import { SHEET_INSTRUCTIONS } from "./sheets";
 
 export function buildProfileInstructions(
   profile: AssistantProfile,
@@ -22,7 +21,6 @@ export function buildProfileInstructions(
       : ROLL20_INSTRUCTIONS,
     GENERAL_CAPABILITY_INSTRUCTIONS,
     RULESET_INSTRUCTIONS[profile.rulesetId],
-    SHEET_INSTRUCTIONS[profile.sheetAdapterId],
     profile.additionalInstructions.trim()
       ? `Additional instructions from the game master:\n${profile.additionalInstructions.trim()}`
       : "",

@@ -14,11 +14,10 @@ const prompts = await import(
   `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
 );
 
-const dnd2024Profile = {
+const dndProfile = {
   id: "waterdeep",
   name: "Waterdeep",
   rulesetId: "dnd5e",
-  sheetAdapterId: "roll20-dnd5e-2024",
   modelSelection: {
     kind: "fixed",
     modelId: "anthropic/claude-sonnet-5",
@@ -26,8 +25,8 @@ const dnd2024Profile = {
   additionalInstructions: "Call the players heroes.",
 };
 
-test("composes base, ruleset, sheet, and user guidance", () => {
-  const prompt = prompts.buildProfileInstructions(dnd2024Profile);
+test("composes base, ruleset, sheet variants, and user guidance", () => {
+  const prompt = prompts.buildProfileInstructions(dndProfile);
 
   assert.match(prompt, /execute_roll20/);
   assert.match(prompt, /Every execute_roll20 call must include a concise/);
@@ -47,6 +46,10 @@ test("composes base, ruleset, sheet, and user guidance", () => {
   assert.match(prompt, /bio, notes, defaulttoken, and gmnotes are callback-only/);
   assert.match(prompt, /object\.get\(property, resolve\)/);
   assert.match(prompt, /Dungeons & Dragons Fifth Edition/);
+  assert.match(prompt, /mixture of both/);
+  assert.match(prompt, /do not infer the target character's sheet solely/);
+  assert.match(prompt, /legacy D&D 5e 2014 OGL sheet/);
+  assert.match(prompt, /strength_mod/);
   assert.match(prompt, /getSheetItem and setSheetItem/);
   assert.match(prompt, /Both functions are asynchronous/);
   assert.match(prompt, /Use Promise\.all for independent reads/);
@@ -82,7 +85,6 @@ test("explains that Roll20 tools require an attached campaign", () => {
       id: "general-gm",
       name: "General",
       rulesetId: "custom",
-      sheetAdapterId: "generic",
       modelSelection: { kind: "recommended" },
       additionalInstructions: "",
     },
