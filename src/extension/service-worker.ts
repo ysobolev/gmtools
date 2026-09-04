@@ -146,6 +146,7 @@ import {
   createOpenRouterWebFetchTool,
   createOpenRouterWebSearchTool,
 } from "./openrouter-tools";
+import { createViewRemoteImageTool } from "./remote-image-view";
 
 const API_KEY_STORAGE_KEY = "openRouterApiKey";
 const USER_ID_STORAGE_KEY = "openRouterUserId";
@@ -2196,6 +2197,9 @@ async function streamChat(
     }),
     web_search: createOpenRouterWebSearchTool(),
     web_fetch: createOpenRouterWebFetchTool(job.unrestrictedWebFetchEnabled),
+    view_remote_image: createViewRemoteImageTool(
+      job.unrestrictedWebFetchEnabled,
+    ),
     execute_roll20: tool({
       description:
         "Execute JavaScript in the campaign's Roll20 Mod sandbox. Include a concise user-facing summary of the concrete action. The code is a function body with access to Roll20 Mod globals such as findObjs, getObj, createObj, Campaign, sendChat, and state. Include an explicit return statement and return only JSON-serializable data. Returned promises are awaited. If the result says retryable is false, do not retry the command.",
@@ -2350,6 +2354,7 @@ async function streamChat(
     "image_generation",
     "inspect_image",
     "web_fetch",
+    "view_remote_image",
   ];
   if (job.campaignId) activeTools.push("execute_roll20");
   if (job.webSearchEnabled) activeTools.unshift("web_search");
