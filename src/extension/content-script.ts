@@ -9,6 +9,9 @@ import {
   parseRoll20ExecuteResponseText,
 } from "../protocol";
 import { EXTENSION_BUILD_ID, EXTENSION_VERSION } from "../build-info";
+import { Roll20ResponseTracker } from "./roll20-response-tracker";
+
+const pendingRoll20Responses = new Roll20ResponseTracker();
 
 function acknowledgement(
   ok: boolean,
@@ -71,19 +74,18 @@ function sendApiCommand(
     return acknowledgement(false, "Open Roll20's Chat tab and try again.");
   }
 
+  const command = formatRoll20ExecuteCommand(request.requestId, request.code, {
+    kind: request.kind,
+    ...(request.expectedCampaignId
+      ? { expectedCampaignId: request.expectedCampaignId }
+      : {}),
+    issuedAt: request.issuedAt,
+    expiresAt: request.expiresAt,
+  });
   const previousValue = input.value;
   try {
-    setNativeValue(
-      input,
-      formatRoll20ExecuteCommand(request.requestId, request.code, {
-        kind: request.kind,
-        ...(request.expectedCampaignId
-          ? { expectedCampaignId: request.expectedCampaignId }
-          : {}),
-        issuedAt: request.issuedAt,
-        expiresAt: request.expiresAt,
-      }),
-    );
+    pendingRoll20Responses.register(request);
+    setNativeValue(input, command);
     button.click();
 
     // Roll20 reads the value synchronously from its send-button handler. Restore
@@ -91,6 +93,7 @@ function sendApiCommand(
     setTimeout(() => setNativeValue(input, previousValue), 0);
     return acknowledgement(true);
   } catch (error) {
+    pendingRoll20Responses.forget(request.requestId);
     return acknowledgement(
       false,
       error instanceof Error ? error.message : "Could not use Roll20 chat.",
@@ -127,12 +130,14 @@ function inspectAddedNode(node: Node): void {
       // the page. Do not let a stale observer consume a response that a newly
       // injected observer can still deliver.
       if (!chrome.runtime.id) continue;
+      if (!pendingRoll20Responses.has(response.requestId)) continue;
       const delivery = chrome.runtime.sendMessage({
         ...response,
         ...(response.type === ROLL20_ACKNOWLEDGEMENT_TYPE
           ? { pageTitle: document.title }
           : {}),
       });
+      pendingRoll20Responses.consume(response);
 
       // MutationObserver callbacks run at the microtask checkpoint, before the
       // next paint, so the marked whisper is removed before normal display.

@@ -153,10 +153,50 @@
   }
 
   // src/build-info.ts
-  var EXTENSION_BUILD_ID = "a567289c8a3a";
+  var EXTENSION_BUILD_ID = "b6918176be45";
   var EXTENSION_VERSION = "0.2.0";
 
+  // src/extension/roll20-response-tracker.ts
+  var RESPONSE_RETENTION_MS = 5 * 60 * 1e3;
+  var MAX_PENDING_REQUESTS = 128;
+  var Roll20ResponseTracker = class {
+    pending = /* @__PURE__ */ new Map();
+    register(request, now = Date.now()) {
+      this.prune(now);
+      this.pending.delete(request.requestId);
+      this.pending.set(request.requestId, {
+        kind: request.kind,
+        expiresAt: Math.max(request.expiresAt, now) + RESPONSE_RETENTION_MS
+      });
+      while (this.pending.size > MAX_PENDING_REQUESTS) {
+        const oldest = this.pending.keys().next().value;
+        if (typeof oldest !== "string") break;
+        this.pending.delete(oldest);
+      }
+    }
+    forget(requestId) {
+      this.pending.delete(requestId);
+    }
+    has(requestId, now = Date.now()) {
+      this.prune(now);
+      return this.pending.has(requestId);
+    }
+    consume(response) {
+      const request = this.pending.get(response.requestId);
+      if (!request) return;
+      if (response.type === ROLL20_EXECUTE_RESPONSE_TYPE || request.kind === "identify" || response.type === ROLL20_ACKNOWLEDGEMENT_TYPE && !response.accepted) {
+        this.pending.delete(response.requestId);
+      }
+    }
+    prune(now) {
+      for (const [requestId, request] of this.pending) {
+        if (request.expiresAt <= now) this.pending.delete(requestId);
+      }
+    }
+  };
+
   // src/extension/content-script.ts
+  var pendingRoll20Responses = new Roll20ResponseTracker();
   function acknowledgement(ok, error) {
     return {
       ok,
@@ -196,21 +236,21 @@
     if (!input || !button) {
       return acknowledgement(false, "Open Roll20's Chat tab and try again.");
     }
+    const command = formatRoll20ExecuteCommand(request.requestId, request.code, {
+      kind: request.kind,
+      ...request.expectedCampaignId ? { expectedCampaignId: request.expectedCampaignId } : {},
+      issuedAt: request.issuedAt,
+      expiresAt: request.expiresAt
+    });
     const previousValue = input.value;
     try {
-      setNativeValue(
-        input,
-        formatRoll20ExecuteCommand(request.requestId, request.code, {
-          kind: request.kind,
-          ...request.expectedCampaignId ? { expectedCampaignId: request.expectedCampaignId } : {},
-          issuedAt: request.issuedAt,
-          expiresAt: request.expiresAt
-        })
-      );
+      pendingRoll20Responses.register(request);
+      setNativeValue(input, command);
       button.click();
       setTimeout(() => setNativeValue(input, previousValue), 0);
       return acknowledgement(true);
     } catch (error) {
+      pendingRoll20Responses.forget(request.requestId);
       return acknowledgement(
         false,
         error instanceof Error ? error.message : "Could not use Roll20 chat."
@@ -232,10 +272,12 @@
       if (!response) continue;
       try {
         if (!chrome.runtime.id) continue;
+        if (!pendingRoll20Responses.has(response.requestId)) continue;
         const delivery = chrome.runtime.sendMessage({
           ...response,
           ...response.type === ROLL20_ACKNOWLEDGEMENT_TYPE ? { pageTitle: document.title } : {}
         });
+        pendingRoll20Responses.consume(response);
         (candidate.closest(".message") ?? candidate).remove();
         void delivery.catch(() => void 0);
       } catch {
