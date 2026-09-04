@@ -36,11 +36,11 @@ import {
 import { countPendingRoll20Approvals } from "./chat-activity";
 import {
   DEFAULT_PROFILE,
-  normalizeProfiles,
-  PROFILES_STORAGE_KEY,
   resolveModelId,
   type AssistantProfile,
 } from "./profile-config";
+import { getProfile } from "./profile-store";
+import { getGlobalPreferences } from "./preferences-store";
 import { buildProfileInstructions } from "./prompts/build-profile-instructions";
 import {
   getChat,
@@ -123,18 +123,6 @@ import {
   EXTENSION_BUILD_ID,
   EXTENSION_VERSION,
 } from "../build-info";
-import {
-  DEBUG_LOGGING_STORAGE_KEY,
-  MAX_STEPS_STORAGE_KEY,
-  REQUIRE_ROLL20_APPROVAL_STORAGE_KEY,
-  UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
-  WEB_SEARCH_STORAGE_KEY,
-  isDebugLoggingEnabled,
-  isRoll20ApprovalRequired,
-  isUnrestrictedWebFetchEnabled,
-  isWebSearchEnabled,
-  normalizeMaxSteps,
-} from "./behavior-settings";
 import {
   configureBrowserSidebar,
   type BrowserSidebarApi,
@@ -983,9 +971,9 @@ function notifyCampaignStatus(status: CampaignStatus): void {
 }
 
 async function campaignDebugLogger(chatId: string): Promise<DebugLogger> {
-  const stored = await chrome.storage.local.get(DEBUG_LOGGING_STORAGE_KEY);
+  const preferences = await getGlobalPreferences();
   return createDebugLogger(
-    isDebugLoggingEnabled(stored[DEBUG_LOGGING_STORAGE_KEY]),
+    preferences.debugLoggingEnabled,
     chatId,
   );
 }
@@ -1120,9 +1108,9 @@ async function loggerForUnexpectedRoll20Result(
   tombstone?: Roll20TimeoutTombstone,
 ): Promise<DebugLogger> {
   if (tombstone?.debug) return tombstone.debug;
-  const stored = await chrome.storage.local.get(DEBUG_LOGGING_STORAGE_KEY);
+  const preferences = await getGlobalPreferences();
   return createDebugLogger(
-    isDebugLoggingEnabled(stored[DEBUG_LOGGING_STORAGE_KEY]),
+    preferences.debugLoggingEnabled,
     chatId,
   );
 }
@@ -2085,16 +2073,10 @@ async function resolveChatProfile(
   chatId: string,
   requestedProfileId: string,
 ): Promise<AssistantProfile> {
-  const stored = await chrome.storage.local.get(PROFILES_STORAGE_KEY);
-  const profiles = normalizeProfiles(stored[PROFILES_STORAGE_KEY]);
-  const profile = profiles.find(
-    (candidate) => candidate.id === requestedProfileId,
-  );
+  const profile = await getProfile(requestedProfileId);
   if (profile) return profile;
 
-  const general =
-    profiles.find((candidate) => candidate.id === DEFAULT_PROFILE.id) ??
-    DEFAULT_PROFILE;
+  const general = await getProfile(DEFAULT_PROFILE.id) ?? DEFAULT_PROFILE;
   const notice: ChatNotice = {
     id: crypto.randomUUID(),
     kind: "profile-fallback",
@@ -2936,27 +2918,16 @@ chrome.runtime.onConnect.addListener((port) => {
         message.chatId,
         message.profileId,
       );
-      const preferences = await chrome.storage.local.get([
-        DEBUG_LOGGING_STORAGE_KEY,
-        MAX_STEPS_STORAGE_KEY,
-        REQUIRE_ROLL20_APPROVAL_STORAGE_KEY,
-        UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
-        WEB_SEARCH_STORAGE_KEY,
-      ]);
+      const preferences = await getGlobalPreferences();
       const debug = createDebugLogger(
-        isDebugLoggingEnabled(preferences[DEBUG_LOGGING_STORAGE_KEY]),
+        preferences.debugLoggingEnabled,
         message.chatId,
       );
-      const maxSteps = normalizeMaxSteps(preferences[MAX_STEPS_STORAGE_KEY]);
-      const unrestrictedWebFetchEnabled = isUnrestrictedWebFetchEnabled(
-        preferences[UNRESTRICTED_WEB_FETCH_STORAGE_KEY],
-      );
-      const webSearchEnabled = isWebSearchEnabled(
-        preferences[WEB_SEARCH_STORAGE_KEY],
-      );
-      const requireRoll20Approval = isRoll20ApprovalRequired(
-        preferences[REQUIRE_ROLL20_APPROVAL_STORAGE_KEY],
-      );
+      const maxSteps = preferences.maximumSteps;
+      const unrestrictedWebFetchEnabled =
+        preferences.unrestrictedWebFetchEnabled;
+      const webSearchEnabled = preferences.webSearchEnabled;
+      const requireRoll20Approval = preferences.requireRoll20Approval;
       const campaignBinding = await getCampaignBinding(message.chatId);
       const campaignRoute = campaignBinding
         ? await getCampaignRoute(campaignBinding.campaignId)

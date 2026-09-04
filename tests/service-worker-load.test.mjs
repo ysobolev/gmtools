@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
+import { IDBFactory } from "fake-indexeddb";
 
 test("the generated Firefox worker starts without browser-global errors", async () => {
   const listeners = new Map();
   const localData = {
-    gmToolsDebugLoggingEnabled: true,
     openRouterPersistAuth: true,
     openRouterApiKey: "sk-or-v1-persisted-test-key",
     openRouterUserId: "user-1",
@@ -35,6 +35,41 @@ test("the generated Firefox worker starts without browser-global errors", async 
   const debugLabels = [];
   const contextMenuItems = new Map();
   const badgeTexts = [];
+  const testIndexedDB = new IDBFactory();
+  const database = await new Promise((resolve, reject) => {
+    const request = testIndexedDB.open("gmToolsChats", 3);
+    request.onupgradeneeded = () => {
+      const chats = request.result.createObjectStore("chats", {
+        keyPath: "id",
+      });
+      chats.createIndex("updatedAt", "updatedAt");
+      chats.createIndex("profileId", "profileId");
+      request.result.createObjectStore("messages", { keyPath: "chatId" });
+      const images = request.result.createObjectStore("images", {
+        keyPath: "id",
+      });
+      images.createIndex("chatId", "chatId");
+      request.result.createObjectStore("profiles", { keyPath: "id" });
+      request.result.createObjectStore("settings", { keyPath: "id" });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction("settings", "readwrite");
+    transaction.objectStore("settings").put({
+      id: "global",
+      displayTheme: "system",
+      debugLoggingEnabled: true,
+      maximumSteps: 24,
+      unrestrictedWebFetchEnabled: false,
+      webSearchEnabled: false,
+      requireRoll20Approval: false,
+    });
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+  database.close();
   const sandbox = {
     AbortController,
     Blob,
@@ -122,6 +157,7 @@ test("the generated Firefox worker starts without browser-global errors", async 
     },
     crypto,
     fetch,
+    indexedDB: testIndexedDB,
     setTimeout,
     clearTimeout,
   };
@@ -256,7 +292,7 @@ test("the generated Firefox worker starts without browser-global errors", async 
       () => undefined,
     );
   }
-  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setTimeout(resolve, 10));
   assert.ok(
     debugLabels.some((label) =>
       label.includes("Unmatched Roll20 result received"),
@@ -293,7 +329,7 @@ test("the generated Firefox worker starts without browser-global errors", async 
       () => undefined,
     );
   }
-  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setTimeout(resolve, 10));
   assert.ok(
     debugLabels.some((label) =>
       label.includes("Late Roll20 result received after timeout"),

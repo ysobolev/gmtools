@@ -1,12 +1,16 @@
-export const CHAT_DATABASE_NAME = "gmToolsChats";
-export const CHAT_DATABASE_VERSION = 2;
-export const ACTIVE_CHAT_STORAGE_KEY = "gmToolsActiveChatId";
+import {
+  CHATS_STORE,
+  IMAGES_STORE,
+  MESSAGES_STORE,
+} from "./indexed-db-migrations";
+import {
+  openDatabase,
+  requestResult,
+  transactionComplete,
+} from "./database";
+
 export const DEFAULT_CHAT_TITLE = "New Chat";
 export const MAX_CHAT_TITLE_LENGTH = 120;
-
-const CHATS_STORE = "chats";
-const MESSAGES_STORE = "messages";
-const IMAGES_STORE = "images";
 
 export interface StoredChatImage {
   readonly id: string;
@@ -63,8 +67,6 @@ export interface StoredChat {
   readonly chat: ChatRecord;
   readonly messages: readonly unknown[];
 }
-
-let databasePromise: Promise<IDBDatabase> | undefined;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -153,64 +155,6 @@ export function createChatRecord(
     createdAt: now,
     updatedAt: now,
   };
-}
-
-function requestResult<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () =>
-      reject(request.error ?? new Error("IndexedDB request failed."));
-  });
-}
-
-function transactionComplete(transaction: IDBTransaction): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () =>
-      reject(transaction.error ?? new Error("IndexedDB transaction failed."));
-    transaction.onabort = () =>
-      reject(transaction.error ?? new Error("IndexedDB transaction aborted."));
-  });
-}
-
-function openDatabase(): Promise<IDBDatabase> {
-  if (databasePromise) return databasePromise;
-  databasePromise = new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(CHAT_DATABASE_NAME, CHAT_DATABASE_VERSION);
-    request.onupgradeneeded = () => {
-      const database = request.result;
-      if (!database.objectStoreNames.contains(CHATS_STORE)) {
-        const chats = database.createObjectStore(CHATS_STORE, { keyPath: "id" });
-        chats.createIndex("updatedAt", "updatedAt");
-      }
-      if (!database.objectStoreNames.contains(MESSAGES_STORE)) {
-        database.createObjectStore(MESSAGES_STORE, { keyPath: "chatId" });
-      }
-      if (!database.objectStoreNames.contains(IMAGES_STORE)) {
-        const images = database.createObjectStore(IMAGES_STORE, {
-          keyPath: "id",
-        });
-        images.createIndex("chatId", "chatId");
-      }
-    };
-    request.onsuccess = () => {
-      const database = request.result;
-      database.onversionchange = () => {
-        database.close();
-        databasePromise = undefined;
-      };
-      resolve(database);
-    };
-    request.onerror = () => {
-      databasePromise = undefined;
-      reject(request.error ?? new Error("Could not open chat storage."));
-    };
-    request.onblocked = () => {
-      databasePromise = undefined;
-      reject(new Error("Chat storage upgrade is blocked by another page."));
-    };
-  });
-  return databasePromise;
 }
 
 export async function putChat(chat: ChatRecord): Promise<void> {

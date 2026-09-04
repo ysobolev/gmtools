@@ -1,5 +1,3 @@
-export const DISPLAY_THEME_STORAGE_KEY = "gmToolsDisplayTheme";
-
 export const DISPLAY_THEMES = ["system", "dark", "light"] as const;
 export type DisplayTheme = (typeof DISPLAY_THEMES)[number];
 

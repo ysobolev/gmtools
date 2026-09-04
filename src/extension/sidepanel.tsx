@@ -44,7 +44,6 @@ import {
   sanitizeStoppedConversation,
 } from "./chat-persistence";
 import {
-  ACTIVE_CHAT_STORAGE_KEY,
   MAX_CHAT_TITLE_LENGTH,
   createChat,
   deleteChat,
@@ -75,18 +74,16 @@ import {
   imageOriginPermission,
 } from "./image-drop";
 import { downloadImage, RemoteImageNetworkError } from "./remote-image";
-import {
-  DEBUG_LOGGING_STORAGE_KEY,
-  isDebugLoggingEnabled,
-} from "./behavior-settings";
 import { createDebugLogger } from "./debug-logger";
 import {
   applyDisplayTheme,
   DEFAULT_DISPLAY_THEME,
-  DISPLAY_THEME_STORAGE_KEY,
-  isDisplayTheme,
   type DisplayTheme,
 } from "./display-settings";
+import { isDurableDataChangedMessage } from "./durable-data-protocol";
+import { getGlobalPreferences } from "./preferences-store";
+import { listProfiles } from "./profile-store";
+import { getActiveChatId, setActiveChatId } from "./session-state";
 import { ExtensionChatTransport } from "./extension-chat-transport";
 import {
   countChatsNeedingAttention,
@@ -98,8 +95,6 @@ import {
 import {
   DEFAULT_PROFILE,
   getModelSelectionLabel,
-  normalizeProfiles,
-  PROFILES_STORAGE_KEY,
   type AssistantProfile,
 } from "./profile-config";
 import {
@@ -434,25 +429,24 @@ function useDisplayTheme(): void {
   const [theme, setTheme] = useState<DisplayTheme>(DEFAULT_DISPLAY_THEME);
 
   useEffect(() => {
-    void chrome.storage.local.get(DISPLAY_THEME_STORAGE_KEY).then((stored) => {
-      const value = stored[DISPLAY_THEME_STORAGE_KEY];
-      if (isDisplayTheme(value)) setTheme(value);
-    });
-    const handleStorageChange = (
-      changes: Record<string, chrome.storage.StorageChange>,
-      areaName: string,
-    ): void => {
-      if (
-        areaName !== "local" ||
-        !(DISPLAY_THEME_STORAGE_KEY in changes)
-      ) {
-        return;
-      }
-      const value = changes[DISPLAY_THEME_STORAGE_KEY]?.newValue;
-      setTheme(isDisplayTheme(value) ? value : DEFAULT_DISPLAY_THEME);
+    let cancelled = false;
+    const loadTheme = (): void => {
+      void getGlobalPreferences().then((preferences) => {
+        if (!cancelled) setTheme(preferences.displayTheme);
+      });
     };
-    chrome.storage.onChanged.addListener(handleStorageChange);
-    return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+    const handleMessage = (message: unknown): void => {
+      if (
+        isDurableDataChangedMessage(message) &&
+        message.stores.includes("settings")
+      ) loadTheme();
+    };
+    loadTheme();
+    chrome.runtime.onMessage.addListener(handleMessage);
+    return () => {
+      cancelled = true;
+      chrome.runtime.onMessage.removeListener(handleMessage);
+    };
   }, []);
 
   useEffect(() => applyDisplayTheme(theme), [theme]);
@@ -1264,9 +1258,9 @@ function ChatComposer({
     setDraggingImages(false);
     // DataTransfer string data is protected outside the synchronous drop job.
     const dropDetails = describeImageDrop(event.dataTransfer);
-    void chrome.storage.local.get(DEBUG_LOGGING_STORAGE_KEY).then((stored) => {
+    void getGlobalPreferences().then((preferences) => {
       createDebugLogger(
-        isDebugLoggingEnabled(stored[DEBUG_LOGGING_STORAGE_KEY]),
+        preferences.debugLoggingEnabled,
         chatId,
       ).group("Image drop payload", dropDetails);
     });
@@ -2055,17 +2049,13 @@ function ChatWorkspace(): React.JSX.Element {
   useEffect(() => {
     let cancelled = false;
     const initialize = async (): Promise<void> => {
-      const stored = await chrome.storage.local.get([
-        PROFILES_STORAGE_KEY,
-        ACTIVE_CHAT_STORAGE_KEY,
+      const [loadedProfiles, activeChatId, existingChats] = await Promise.all([
+        listProfiles(),
+        getActiveChatId(),
+        listChats(),
       ]);
-      const loadedProfiles = normalizeProfiles(stored[PROFILES_STORAGE_KEY]);
-      const activeChatId = stored[ACTIVE_CHAT_STORAGE_KEY];
-      const existingChats = await listChats();
       let loaded =
-        typeof activeChatId === "string"
-          ? await getStoredChat(activeChatId)
-          : undefined;
+        activeChatId ? await getStoredChat(activeChatId) : undefined;
       if (!loaded) {
         const existing = existingChats[0];
         loaded = existing
@@ -2080,40 +2070,40 @@ function ChatWorkspace(): React.JSX.Element {
         messages: loaded.messages,
       });
       const messages = validation.success ? validation.data : [];
-      await chrome.storage.local.set({ [ACTIVE_CHAT_STORAGE_KEY]: chat.id });
+      await setActiveChatId(chat.id);
       if (cancelled) return;
       setProfiles(loadedProfiles);
       setChats(await listChats());
       setCurrentChat({ chat, messages });
     };
 
-    const handleStorageChange = (
-      changes: Record<string, chrome.storage.StorageChange>,
-      areaName: string,
-    ): void => {
-      if (areaName !== "local" || !(PROFILES_STORAGE_KEY in changes)) return;
-      const loadedProfiles = normalizeProfiles(
-        changes[PROFILES_STORAGE_KEY]?.newValue,
-      );
-      setProfiles(loadedProfiles);
-      const current = storedChatRef.current;
-      if (!current) return;
-      void fallbackMissingProfile(current.chat, loadedProfiles).then((chat) => {
-        if (
-          !cancelled &&
-          storedChatRef.current?.chat.id === current.chat.id
-        ) {
-          setCurrentChat({ ...storedChatRef.current, chat });
-          setChats((existing) =>
-            existing.map((candidate) =>
-              candidate.id === chat.id ? chat : candidate,
-            ),
-          );
+    const handleDataChange = (message: unknown): void => {
+      if (!isDurableDataChangedMessage(message)) return;
+      const profilesChanged = message.stores.includes("profiles");
+      const chatsChanged = message.stores.includes("chats");
+      if (!profilesChanged && !chatsChanged) return;
+      void (async () => {
+        const loadedProfiles = profilesChanged ? await listProfiles() : null;
+        if (cancelled) return;
+        if (loadedProfiles) setProfiles(loadedProfiles);
+        if (!chatsChanged) return;
+        const current = storedChatRef.current;
+        const [loadedChats, refreshed] = await Promise.all([
+          listChats(),
+          current ? getStoredChat(current.chat.id) : undefined,
+        ]);
+        if (cancelled) return;
+        setChats(loadedChats);
+        if (current && refreshed) {
+          setCurrentChat({
+            chat: refreshed.chat,
+            messages: current.messages,
+          });
         }
-      });
+      })();
     };
 
-    chrome.storage.onChanged.addListener(handleStorageChange);
+    chrome.runtime.onMessage.addListener(handleDataChange);
     void initialize().catch(() => {
       if (!cancelled) {
         setProfiles([DEFAULT_PROFILE]);
@@ -2121,7 +2111,7 @@ function ChatWorkspace(): React.JSX.Element {
     });
     return () => {
       cancelled = true;
-      chrome.storage.onChanged.removeListener(handleStorageChange);
+      chrome.runtime.onMessage.removeListener(handleDataChange);
     };
   }, [fallbackMissingProfile, setCurrentChat]);
 
@@ -2235,7 +2225,7 @@ function ChatWorkspace(): React.JSX.Element {
       messages: loaded.messages,
     });
     const messages = validation.success ? validation.data : [];
-    await chrome.storage.local.set({ [ACTIVE_CHAT_STORAGE_KEY]: chat.id });
+    await setActiveChatId(chat.id);
     setCurrentChat({ chat, messages });
     setChats(await listChats());
   };

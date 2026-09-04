@@ -1,5 +1,3 @@
-export const PROFILES_STORAGE_KEY = "gmToolsProfiles";
-
 export const MODEL_IDS = [
   "openai/gpt-5.6-sol",
   "openai/gpt-5.6-terra",

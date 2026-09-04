@@ -3,26 +3,27 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   DEFAULT_MAX_STEPS,
-  DEBUG_LOGGING_STORAGE_KEY,
   MAX_MAX_STEPS,
-  MAX_STEPS_STORAGE_KEY,
   MIN_MAX_STEPS,
-  UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
-  WEB_SEARCH_STORAGE_KEY,
-  REQUIRE_ROLL20_APPROVAL_STORAGE_KEY,
-  isDebugLoggingEnabled,
-  isUnrestrictedWebFetchEnabled,
-  isWebSearchEnabled,
-  isRoll20ApprovalRequired,
   normalizeMaxSteps,
 } from "./behavior-settings";
 import {
   applyDisplayTheme,
   DEFAULT_DISPLAY_THEME,
-  DISPLAY_THEME_STORAGE_KEY,
-  isDisplayTheme,
   type DisplayTheme,
 } from "./display-settings";
+import {
+  isDurableDataChangedMessage,
+} from "./durable-data-protocol";
+import {
+  getGlobalPreferences,
+  updateGlobalPreferences,
+} from "./preferences-store";
+import {
+  deleteProfile as deleteStoredProfile,
+  listProfiles,
+  saveProfile as saveStoredProfile,
+} from "./profile-store";
 import {
   AUTH_DISCONNECT_REQUEST,
   AUTH_PERSISTENCE_REQUEST,
@@ -41,8 +42,6 @@ import {
   isAssistantProfile,
   isCuratedModelId,
   MODELS,
-  normalizeProfiles,
-  PROFILES_STORAGE_KEY,
   RECOMMENDED_MODEL_ID,
   RULESETS,
   type AssistantProfile,
@@ -90,25 +89,31 @@ function ProfilesSettings(): React.JSX.Element {
 
   useEffect(() => {
     let cancelled = false;
-    void chrome.storage.local
-      .get(PROFILES_STORAGE_KEY)
-      .then((stored) => {
+    void listProfiles()
+      .then((loadedProfiles) => {
         if (cancelled) return;
-        const loadedProfiles = normalizeProfiles(stored[PROFILES_STORAGE_KEY]);
         const firstProfile = loadedProfiles[0]!;
         setProfiles(loadedProfiles);
         setMode({ kind: "edit", profileId: firstProfile.id });
         setDraft(firstProfile);
-        void chrome.storage.local.set({
-          [PROFILES_STORAGE_KEY]: loadedProfiles,
-        });
       })
       .catch(() => {
         if (cancelled) return;
         setProfiles([DEFAULT_PROFILE]);
       });
+    const handleMessage = (message: unknown): void => {
+      if (
+        !isDurableDataChangedMessage(message) ||
+        !message.stores.includes("profiles")
+      ) return;
+      void listProfiles().then((loadedProfiles) => {
+        if (!cancelled) setProfiles(loadedProfiles);
+      });
+    };
+    chrome.runtime.onMessage.addListener(handleMessage);
     return () => {
       cancelled = true;
+      chrome.runtime.onMessage.removeListener(handleMessage);
     };
   }, []);
 
@@ -177,16 +182,16 @@ function ProfilesSettings(): React.JSX.Element {
     const profile = { ...draft, name, modelSelection };
     if (!isAssistantProfile(profile)) return;
     const creating = mode.kind === "new";
-    const nextProfiles = creating
-      ? [...profiles, profile]
-      : profiles.map((candidate) =>
-          candidate.id === profile.id ? profile : candidate,
-        );
-    setProfiles(nextProfiles);
-    setMode({ kind: "edit", profileId: profile.id });
-    setDraft(profile);
-    setSavedMessage(creating ? "Profile created." : "Changes saved.");
-    void chrome.storage.local.set({ [PROFILES_STORAGE_KEY]: nextProfiles });
+    void saveStoredProfile(profile, { create: creating }).then(async () => {
+      setProfiles(await listProfiles());
+      setMode({ kind: "edit", profileId: profile.id });
+      setDraft(profile);
+      setSavedMessage(creating ? "Profile created." : "Changes saved.");
+    }).catch((error: unknown) => {
+      setSavedMessage(
+        error instanceof Error ? error.message : "Could not save the profile.",
+      );
+    });
   };
 
   const cancelChanges = (): void => {
@@ -200,15 +205,16 @@ function ProfilesSettings(): React.JSX.Element {
       mode.profileId === DEFAULT_PROFILE.id ||
       profiles.length <= 1
     ) return;
-    const nextProfiles = profiles.filter(
-      (profile) => profile.id !== mode.profileId,
-    );
-    if (nextProfiles.length === profiles.length) return;
-    setProfiles(nextProfiles);
-    selectProfile(nextProfiles[0]!);
-    setSavedMessage("Profile deleted.");
-    void chrome.storage.local.set({
-      [PROFILES_STORAGE_KEY]: nextProfiles,
+    const deletedProfileId = mode.profileId;
+    void deleteStoredProfile(deletedProfileId).then(async () => {
+      const nextProfiles = await listProfiles();
+      setProfiles(nextProfiles);
+      selectProfile(nextProfiles[0]!);
+      setSavedMessage("Profile deleted.");
+    }).catch((error: unknown) => {
+      setSavedMessage(
+        error instanceof Error ? error.message : "Could not delete the profile.",
+      );
     });
   };
 
@@ -733,40 +739,34 @@ function OptionsApp(): React.JSX.Element {
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    void chrome.storage.local.get(DISPLAY_THEME_STORAGE_KEY).then((stored) => {
-      const value = stored[DISPLAY_THEME_STORAGE_KEY];
-      if (isDisplayTheme(value)) setTheme(value);
-    });
+    let cancelled = false;
+    const loadPreferences = (): void => {
+      void getGlobalPreferences().then((preferences) => {
+        if (cancelled) return;
+        setTheme(preferences.displayTheme);
+        setDebugLoggingEnabled(preferences.debugLoggingEnabled);
+        setMaxSteps(preferences.maximumSteps);
+        setUnrestrictedWebFetchEnabled(
+          preferences.unrestrictedWebFetchEnabled,
+        );
+        setWebSearchEnabled(preferences.webSearchEnabled);
+        setRequireRoll20Approval(preferences.requireRoll20Approval);
+      });
+    };
+    const handleMessage = (message: unknown): void => {
+      if (
+        isDurableDataChangedMessage(message) &&
+        message.stores.includes("settings")
+      ) loadPreferences();
+    };
+    loadPreferences();
+    chrome.runtime.onMessage.addListener(handleMessage);
+    return () => {
+      cancelled = true;
+      chrome.runtime.onMessage.removeListener(handleMessage);
+    };
   }, []);
   useEffect(() => applyDisplayTheme(theme), [theme]);
-
-  useEffect(() => {
-    void chrome.storage.local
-      .get([
-        DEBUG_LOGGING_STORAGE_KEY,
-        MAX_STEPS_STORAGE_KEY,
-        UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
-        WEB_SEARCH_STORAGE_KEY,
-        REQUIRE_ROLL20_APPROVAL_STORAGE_KEY,
-      ])
-      .then((stored) => {
-        setDebugLoggingEnabled(
-          isDebugLoggingEnabled(stored[DEBUG_LOGGING_STORAGE_KEY]),
-        );
-        setMaxSteps(normalizeMaxSteps(stored[MAX_STEPS_STORAGE_KEY]));
-        setUnrestrictedWebFetchEnabled(
-          isUnrestrictedWebFetchEnabled(
-            stored[UNRESTRICTED_WEB_FETCH_STORAGE_KEY],
-          ),
-        );
-        setWebSearchEnabled(isWebSearchEnabled(stored[WEB_SEARCH_STORAGE_KEY]));
-        setRequireRoll20Approval(
-          isRoll20ApprovalRequired(
-            stored[REQUIRE_ROLL20_APPROVAL_STORAGE_KEY],
-          ),
-        );
-      });
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -795,37 +795,33 @@ function OptionsApp(): React.JSX.Element {
 
   const changeTheme = (nextTheme: DisplayTheme): void => {
     setTheme(nextTheme);
-    void chrome.storage.local.set({ [DISPLAY_THEME_STORAGE_KEY]: nextTheme });
+    void updateGlobalPreferences({ displayTheme: nextTheme });
   };
 
   const changeDebugLogging = (enabled: boolean): void => {
     setDebugLoggingEnabled(enabled);
-    void chrome.storage.local.set({ [DEBUG_LOGGING_STORAGE_KEY]: enabled });
+    void updateGlobalPreferences({ debugLoggingEnabled: enabled });
   };
 
   const changeMaxSteps = (steps: number): void => {
     const normalized = normalizeMaxSteps(steps);
     setMaxSteps(normalized);
-    void chrome.storage.local.set({ [MAX_STEPS_STORAGE_KEY]: normalized });
+    void updateGlobalPreferences({ maximumSteps: normalized });
   };
 
   const changeUnrestrictedWebFetch = (enabled: boolean): void => {
     setUnrestrictedWebFetchEnabled(enabled);
-    void chrome.storage.local.set({
-      [UNRESTRICTED_WEB_FETCH_STORAGE_KEY]: enabled,
-    });
+    void updateGlobalPreferences({ unrestrictedWebFetchEnabled: enabled });
   };
 
   const changeWebSearch = (enabled: boolean): void => {
     setWebSearchEnabled(enabled);
-    void chrome.storage.local.set({ [WEB_SEARCH_STORAGE_KEY]: enabled });
+    void updateGlobalPreferences({ webSearchEnabled: enabled });
   };
 
   const changeRequireRoll20Approval = (enabled: boolean): void => {
     setRequireRoll20Approval(enabled);
-    void chrome.storage.local.set({
-      [REQUIRE_ROLL20_APPROVAL_STORAGE_KEY]: enabled,
-    });
+    void updateGlobalPreferences({ requireRoll20Approval: enabled });
   };
 
   const changePersistence = (enabled: boolean): void => {
@@ -864,7 +860,7 @@ function OptionsApp(): React.JSX.Element {
     {
       id: "profiles",
       label: "Profiles",
-      description: "Games, sheets, and models",
+      description: "Games, guidance, and models",
     },
     {
       id: "display",
