@@ -287,19 +287,24 @@ function Roll20Status({
       ? "Working"
       : receipt.status === "completed"
         ? "Completed"
-        : "Failed";
+        : receipt.status === "timed-out"
+          ? "Timed out; outcome unknown"
+          : "Failed";
   return (
     <ul className="tool-receipts inline">
       <li
         aria-label={`${label}: ${receipt.summary}`}
         className={`tool-receipt ${receipt.status}`}
+        title={receipt.status === "timed-out" ? label : undefined}
       >
         <span aria-hidden="true" className="tool-receipt-icon">
           {receipt.status === "working"
             ? "…"
             : receipt.status === "completed"
               ? "✓"
-              : "✕"}
+              : receipt.status === "timed-out"
+                ? "?"
+                : "✕"}
         </span>
         <span>{receipt.summary}</span>
       </li>

@@ -202,6 +202,37 @@ test("creates failed receipts from bridge and script failures", () => {
   );
 });
 
+test("distinguishes an unknown timeout outcome from a failure", () => {
+  assert.deepEqual(
+    getRoll20Receipts(
+      assistant([
+        {
+          type: "tool-execute_roll20",
+          toolCallId: "tool-1",
+          state: "output-available",
+          input: { summary: "moving Flippy north", code: "return 1;" },
+          output: {
+            ok: false,
+            error: {
+              code: "ROLL20_EXECUTION_TIMEOUT",
+              message: "Roll20 did not return a result within 45 seconds.",
+              retryable: false,
+              executionState: "unknown",
+            },
+          },
+        },
+      ]),
+    ),
+    [
+      {
+        toolCallId: "tool-1",
+        summary: "moving Flippy north",
+        status: "timed-out",
+      },
+    ],
+  );
+});
+
 test("omits active calls and historical calls without summaries", () => {
   assert.deepEqual(
     getRoll20Receipts(

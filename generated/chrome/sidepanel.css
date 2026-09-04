@@ -1057,6 +1057,10 @@ h1 {
   color: #cb5b42;
 }
 
+.tool-receipt.timed-out .tool-receipt-icon {
+  color: #d2a24f;
+}
+
 @keyframes receipt-pulse {
   50% {
     opacity: 0.4;

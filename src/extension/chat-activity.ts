@@ -8,7 +8,7 @@ export interface ChatActivity {
 export interface Roll20Receipt {
   readonly toolCallId: string;
   readonly summary: string;
-  readonly status: "working" | "completed" | "failed";
+  readonly status: "working" | "completed" | "failed" | "timed-out";
 }
 
 export type AssistantContentBlock =
@@ -37,6 +37,16 @@ function explicitlyReportsFailure(value: unknown): boolean {
   );
 }
 
+function reportsUnknownExecutionState(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const error = (value as Record<string, unknown>).error;
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as Record<string, unknown>).executionState === "unknown"
+  );
+}
+
 function getRoll20Status(
   part: UIMessage["parts"][number],
 ): Roll20Receipt | undefined {
@@ -61,7 +71,11 @@ function getRoll20Status(
     return {
       toolCallId: part.toolCallId,
       summary,
-      status: explicitlyReportsFailure(part.output) ? "failed" : "completed",
+      status: reportsUnknownExecutionState(part.output)
+        ? "timed-out"
+        : explicitlyReportsFailure(part.output)
+          ? "failed"
+          : "completed",
     };
   }
   if (
