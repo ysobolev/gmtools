@@ -12,6 +12,8 @@ test("the generated Firefox worker starts without browser-global errors", async 
     openRouterUserId: "user-1",
   };
   const sessionData = {};
+  let persistentWriteGate = null;
+  let persistentWriteStarted = null;
   const getStored = (data, keys) => {
     const requested = typeof keys === "string" ? [keys] : keys;
     return Object.fromEntries(
@@ -74,7 +76,16 @@ test("the generated Firefox worker starts without browser-global errors", async 
         local: {
           get: async (keys) => getStored(localData, keys),
           remove: async (keys) => removeStored(localData, keys),
-          set: async (values) => Object.assign(localData, values),
+          set: async (values) => {
+            if (
+              persistentWriteGate &&
+              values.openRouterPersistAuth === true
+            ) {
+              persistentWriteStarted?.();
+              await persistentWriteGate;
+            }
+            Object.assign(localData, values);
+          },
         },
         session: {
           get: async (keys) => getStored(sessionData, keys),
@@ -141,6 +152,45 @@ test("the generated Firefox worker starts without browser-global errors", async 
   assert.equal("openRouterApiKey" in sessionData, false);
   assert.equal("openRouterApiKey" in localData, false);
   assert.equal("openRouterPersistAuth" in localData, false);
+
+  sessionData.openRouterApiKey = "sk-or-v1-race-test-key";
+  let releasePersistentWrite;
+  persistentWriteGate = new Promise((resolve) => {
+    releasePersistentWrite = resolve;
+  });
+  const writeStarted = new Promise((resolve) => {
+    persistentWriteStarted = resolve;
+  });
+  const persistenceResponse = new Promise((resolve) => {
+    for (const listener of listeners.get("message")) {
+      listener(
+        { type: "GMTOOLS_AUTH_PERSISTENCE", enabled: true },
+        optionsSender,
+        resolve,
+      );
+    }
+  });
+  await writeStarted;
+  const overlappingLogoutResponse = new Promise((resolve) => {
+    for (const listener of listeners.get("message")) {
+      listener(
+        { type: "GMTOOLS_AUTH_DISCONNECT" },
+        optionsSender,
+        resolve,
+      );
+    }
+  });
+  releasePersistentWrite();
+  await persistenceResponse;
+  const overlappingLogout = await overlappingLogoutResponse;
+  assert.equal(overlappingLogout.ok, true);
+  assert.equal(overlappingLogout.status.connected, false);
+  assert.equal(overlappingLogout.status.persistent, false);
+  assert.equal("openRouterApiKey" in sessionData, false);
+  assert.equal("openRouterApiKey" in localData, false);
+  assert.equal("openRouterPersistAuth" in localData, false);
+  persistentWriteGate = null;
+  persistentWriteStarted = null;
 
   const contentScriptHandled = listeners.get("message").some((listener) =>
     listener(

@@ -351,6 +351,18 @@ async function restorePersistentAuth(): Promise<void> {
 
 const authRestoration = restorePersistentAuth().catch(() => undefined);
 
+let authMutationQueue: Promise<void> = Promise.resolve();
+let authGeneration = 0;
+
+function runAuthMutation<T>(mutation: () => Promise<T>): Promise<T> {
+  const result = authMutationQueue.then(mutation, mutation);
+  authMutationQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 async function readStoredAuth(): Promise<StoredAuth> {
   await authRestoration;
   return chrome.storage.session.get([...AUTH_STORAGE_KEYS]);
@@ -401,44 +413,49 @@ async function notifyAuthState(status: AuthStatus): Promise<void> {
 }
 
 async function clearAuth(): Promise<void> {
+  authGeneration += 1;
   for (const controller of activeChatControllers) controller.abort();
   for (const controller of pendingConversationStarts.values()) {
     controller.abort();
   }
-  await authRestoration;
-  await Promise.all([
-    chrome.storage.session.remove([...AUTH_STORAGE_KEYS]),
-    chrome.storage.local.remove([
-      ...AUTH_STORAGE_KEYS,
-      PERSIST_AUTH_STORAGE_KEY,
-    ]),
-  ]);
-  await notifyAuthState({ connected: false, persistent: false });
+  await runAuthMutation(async () => {
+    await authRestoration;
+    await Promise.all([
+      chrome.storage.session.remove([...AUTH_STORAGE_KEYS]),
+      chrome.storage.local.remove([
+        ...AUTH_STORAGE_KEYS,
+        PERSIST_AUTH_STORAGE_KEY,
+      ]),
+    ]);
+    await notifyAuthState({ connected: false, persistent: false });
+  });
 }
 
 async function setAuthPersistence(enabled: boolean): Promise<AuthStatus> {
-  if (!enabled) {
-    await chrome.storage.local.remove([...AUTH_STORAGE_KEYS]);
-    await chrome.storage.local.set({ [PERSIST_AUTH_STORAGE_KEY]: false });
-  } else {
-    const stored = await readStoredAuth();
-    await chrome.storage.local.set({
-      [PERSIST_AUTH_STORAGE_KEY]: true,
-      ...(typeof stored.openRouterApiKey === "string"
-        ? { [API_KEY_STORAGE_KEY]: stored.openRouterApiKey }
-        : {}),
-      ...(typeof stored.openRouterUserId === "string"
-        ? { [USER_ID_STORAGE_KEY]: stored.openRouterUserId }
-        : {}),
-      ...(typeof stored.openRouterKeyInfo === "object" &&
-      stored.openRouterKeyInfo !== null
-        ? { [KEY_INFO_STORAGE_KEY]: stored.openRouterKeyInfo }
-        : {}),
-    });
-  }
-  const status = await getAuthStatus();
-  await notifyAuthState(status);
-  return status;
+  return runAuthMutation(async () => {
+    if (!enabled) {
+      await chrome.storage.local.remove([...AUTH_STORAGE_KEYS]);
+      await chrome.storage.local.set({ [PERSIST_AUTH_STORAGE_KEY]: false });
+    } else {
+      const stored = await readStoredAuth();
+      await chrome.storage.local.set({
+        [PERSIST_AUTH_STORAGE_KEY]: true,
+        ...(typeof stored.openRouterApiKey === "string"
+          ? { [API_KEY_STORAGE_KEY]: stored.openRouterApiKey }
+          : {}),
+        ...(typeof stored.openRouterUserId === "string"
+          ? { [USER_ID_STORAGE_KEY]: stored.openRouterUserId }
+          : {}),
+        ...(typeof stored.openRouterKeyInfo === "object" &&
+        stored.openRouterKeyInfo !== null
+          ? { [KEY_INFO_STORAGE_KEY]: stored.openRouterKeyInfo }
+          : {}),
+      });
+    }
+    const status = await getAuthStatus();
+    await notifyAuthState(status);
+    return status;
+  });
 }
 
 async function exchangeAuthorizationCode(
@@ -480,6 +497,7 @@ let connectionAttempt: Promise<AuthStatus> | null = null;
 async function connectOpenRouter(): Promise<AuthStatus> {
   if (connectionAttempt) return connectionAttempt;
 
+  const connectionGeneration = authGeneration;
   connectionAttempt = (async () => {
     const callbackUrl = chrome.identity.getRedirectURL("openrouter");
     const pkce = await createPkcePair();
@@ -492,25 +510,30 @@ async function connectOpenRouter(): Promise<AuthStatus> {
     const code = parseAuthorizationCallback(redirectedUrl, callbackUrl);
     const token = await exchangeAuthorizationCode(code, pkce.verifier);
     const keyInfo = await fetchKeyInfo(token.key);
-    await chrome.storage.session.set({
-      [API_KEY_STORAGE_KEY]: token.key,
-      ...(token.userId ? { [USER_ID_STORAGE_KEY]: token.userId } : {}),
-      [KEY_INFO_STORAGE_KEY]: keyInfo,
-    });
-    const persistence = await chrome.storage.local.get(
-      PERSIST_AUTH_STORAGE_KEY,
-    );
-    if (persistence[PERSIST_AUTH_STORAGE_KEY] === true) {
-      await chrome.storage.local.set({
+    return runAuthMutation(async () => {
+      if (connectionGeneration !== authGeneration) {
+        throw new Error("OpenRouter authorization was cancelled by logout.");
+      }
+      await chrome.storage.session.set({
         [API_KEY_STORAGE_KEY]: token.key,
         ...(token.userId ? { [USER_ID_STORAGE_KEY]: token.userId } : {}),
         [KEY_INFO_STORAGE_KEY]: keyInfo,
       });
-    }
+      const persistence = await chrome.storage.local.get(
+        PERSIST_AUTH_STORAGE_KEY,
+      );
+      if (persistence[PERSIST_AUTH_STORAGE_KEY] === true) {
+        await chrome.storage.local.set({
+          [API_KEY_STORAGE_KEY]: token.key,
+          ...(token.userId ? { [USER_ID_STORAGE_KEY]: token.userId } : {}),
+          [KEY_INFO_STORAGE_KEY]: keyInfo,
+        });
+      }
 
-    const status = await getAuthStatus();
-    await notifyAuthState(status);
-    return status;
+      const status = await getAuthStatus();
+      await notifyAuthState(status);
+      return status;
+    });
   })();
 
   try {
