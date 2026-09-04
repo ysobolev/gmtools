@@ -302,3 +302,24 @@ test("validates campaign status messages", () => {
     true,
   );
 });
+
+test("validates campaign deletion requests and responses", () => {
+  assert.equal(protocol.isCampaignDeleteRequest({
+    type: protocol.CAMPAIGN_DELETE_REQUEST,
+    campaignId: "campaign-1",
+    mode: "detach-chats",
+  }), true);
+  assert.equal(protocol.isCampaignDeleteRequest({
+    type: protocol.CAMPAIGN_DELETE_REQUEST,
+    campaignId: "campaign-1",
+    mode: "erase-everything",
+  }), false);
+  assert.equal(protocol.isCampaignDeleteResponse({
+    ok: true,
+    result: {
+      campaignId: "campaign-1",
+      chatIds: ["chat-1"],
+      mode: "delete-chats",
+    },
+  }), true);
+});

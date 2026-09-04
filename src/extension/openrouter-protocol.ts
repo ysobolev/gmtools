@@ -11,6 +11,7 @@ export const CAMPAIGN_CANDIDATES_REQUEST =
   "GMTOOLS_CAMPAIGN_CANDIDATES" as const;
 export const CAMPAIGN_ATTACH_REQUEST = "GMTOOLS_CAMPAIGN_ATTACH" as const;
 export const CAMPAIGN_DETACH_REQUEST = "GMTOOLS_CAMPAIGN_DETACH" as const;
+export const CAMPAIGN_DELETE_REQUEST = "GMTOOLS_CAMPAIGN_DELETE" as const;
 export const CAMPAIGN_STATUS_CHANGED =
   "GMTOOLS_CAMPAIGN_STATUS_CHANGED" as const;
 
@@ -101,6 +102,23 @@ export interface CampaignAttachRequest {
   readonly chatId: string;
   readonly candidate: CampaignCandidate;
 }
+
+export interface CampaignDeleteRequest {
+  readonly type: typeof CAMPAIGN_DELETE_REQUEST;
+  readonly campaignId: string;
+  readonly mode: "detach-chats" | "delete-chats";
+}
+
+export type CampaignDeleteResponse =
+  | {
+      readonly ok: true;
+      readonly result: {
+        readonly campaignId: string;
+        readonly chatIds: readonly string[];
+        readonly mode: "detach-chats" | "delete-chats";
+      };
+    }
+  | { readonly ok: false; readonly error: string };
 
 export interface CampaignStatusChangedMessage {
   readonly type: typeof CAMPAIGN_STATUS_CHANGED;
@@ -364,6 +382,33 @@ export function isCampaignAttachRequest(
     value.type === CAMPAIGN_ATTACH_REQUEST &&
     typeof value.chatId === "string" &&
     isCampaignCandidate(value.candidate)
+  );
+}
+
+export function isCampaignDeleteRequest(
+  value: unknown,
+): value is CampaignDeleteRequest {
+  return (
+    isRecord(value) &&
+    value.type === CAMPAIGN_DELETE_REQUEST &&
+    typeof value.campaignId === "string" &&
+    value.campaignId.length > 0 &&
+    (value.mode === "detach-chats" || value.mode === "delete-chats")
+  );
+}
+
+export function isCampaignDeleteResponse(
+  value: unknown,
+): value is CampaignDeleteResponse {
+  if (!isRecord(value) || typeof value.ok !== "boolean") return false;
+  if (!value.ok) return typeof value.error === "string";
+  return (
+    isRecord(value.result) &&
+    typeof value.result.campaignId === "string" &&
+    Array.isArray(value.result.chatIds) &&
+    value.result.chatIds.every((chatId) => typeof chatId === "string") &&
+    (value.result.mode === "detach-chats" ||
+      value.result.mode === "delete-chats")
   );
 }
 

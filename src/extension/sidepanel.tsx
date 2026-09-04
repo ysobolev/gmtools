@@ -1662,6 +1662,30 @@ function ChatScreen({
     };
   }, [chatId]);
 
+  useEffect(() => {
+    setCampaignStatus((current) => {
+      if (!chat.campaignId || !chat.campaignName) {
+        return current.state === "unbound"
+          ? current
+          : { chatId, state: "unbound" };
+      }
+      if (
+        current.campaignId === chat.campaignId &&
+        current.name === chat.campaignName
+      ) {
+        return current;
+      }
+      return current.campaignId === chat.campaignId
+        ? { ...current, name: chat.campaignName }
+        : {
+            chatId,
+            state: "disconnected",
+            campaignId: chat.campaignId,
+            name: chat.campaignName,
+          };
+    });
+  }, [chat.campaignId, chat.campaignName, chatId]);
+
   const refreshStoredMessages = useCallback(async (): Promise<void> => {
     const stored = await getStoredChat(chatId);
     if (!stored) return;
@@ -2140,6 +2164,20 @@ function ChatWorkspace(): React.JSX.Element {
             chat: refreshed.chat,
             messages: current.messages,
           });
+        } else if (current && !refreshed) {
+          const replacement = loadedChats[0]
+            ? await getStoredChat(loadedChats[0].id)
+            : await createChat(DEFAULT_PROFILE.id);
+          if (!replacement || cancelled) return;
+          const validation = await safeValidateUIMessages<UIMessage>({
+            messages: replacement.messages,
+          });
+          await setActiveChatId(replacement.chat.id);
+          setCurrentChat({
+            chat: replacement.chat,
+            messages: validation.success ? validation.data : [],
+          });
+          if (loadedChats.length === 0) setChats(await listChats());
         }
       })();
     };
@@ -2286,7 +2324,7 @@ function ChatWorkspace(): React.JSX.Element {
   };
 
   const createNewChat = (): void => {
-    void createChat(storedChat.chat.profileId).then(async (created) => {
+    void createChat(DEFAULT_PROFILE.id).then(async (created) => {
       await activateStoredChat(created);
       setDrawerOpen(false);
     });
@@ -2332,7 +2370,7 @@ function ChatWorkspace(): React.JSX.Element {
       await activateStoredChat(next);
       return;
     }
-    const replacement = await createChat(storedChat.chat.profileId);
+    const replacement = await createChat(DEFAULT_PROFILE.id);
     await activateStoredChat(replacement);
     setDrawerOpen(false);
     showTransientNotice(

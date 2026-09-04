@@ -59,6 +59,7 @@ test("a fresh database runs every structural migration", async () => {
   const name = `gmtools-test-fresh-${crypto.randomUUID()}`;
   const database = await openVersion(name, migrations.CHAT_DATABASE_VERSION);
   assert.deepEqual([...database.objectStoreNames], [
+    "campaigns",
     "chats",
     "images",
     "messages",
@@ -72,6 +73,7 @@ test("a fresh database runs every structural migration", async () => {
     "readonly",
   );
   assert.equal(transaction.objectStore("chats").indexNames.contains("profileId"), true);
+  assert.equal(transaction.objectStore("chats").indexNames.contains("campaignId"), true);
   assert.equal(
     (await requestResult(transaction.objectStore("profiles").get("general-gm"))).name,
     "General",

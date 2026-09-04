@@ -10,11 +10,13 @@ import {
   transactionComplete,
 } from "./database";
 import {
+  CAMPAIGNS_STORE,
   CHATS_STORE,
   PROFILES_STORE,
 } from "./indexed-db-migrations";
 import { isChatRecord, type ChatNotice, type ChatRecord } from "./chat-store";
 import { notifyDurableDataChanged } from "./durable-data-protocol";
+import { isCampaignRecord } from "./campaign-config";
 
 const MAX_PROFILES = 50;
 
@@ -68,7 +70,7 @@ export async function deleteProfile(profileId: string): Promise<void> {
   }
   const database = await openDatabase();
   const transaction = database.transaction(
-    [PROFILES_STORE, CHATS_STORE],
+    [PROFILES_STORE, CHATS_STORE, CAMPAIGNS_STORE],
     "readwrite",
   );
   const profiles = transaction.objectStore(PROFILES_STORE);
@@ -100,6 +102,18 @@ export async function deleteProfile(profileId: string): Promise<void> {
       updatedAt: now,
     } satisfies ChatRecord);
   }
+  const campaigns = transaction.objectStore(CAMPAIGNS_STORE);
+  const affectedCampaigns: unknown[] = await requestResult(
+    campaigns.index("defaultProfileId").getAll(profileId),
+  );
+  for (const value of affectedCampaigns) {
+    if (!isCampaignRecord(value)) continue;
+    campaigns.put({
+      ...value,
+      defaultProfileId: DEFAULT_PROFILE.id,
+      updatedAt: now,
+    });
+  }
   await transactionComplete(transaction);
-  notifyDurableDataChanged(["profiles", "chats"]);
+  notifyDurableDataChanged(["profiles", "chats", "campaigns"]);
 }

@@ -42,6 +42,13 @@ import {
 import { getProfile } from "./profile-store";
 import { getGlobalPreferences } from "./preferences-store";
 import {
+  attachChatToCampaign,
+  deleteCampaign,
+  getCampaign,
+  updateObservedCampaignName,
+} from "./campaign-store";
+import { resolveCampaignBehavior } from "./campaign-config";
+import {
   claimRoll20Approval,
   resolveRoll20ApprovalExecution,
   saveConversationInputWithApprovals,
@@ -102,6 +109,7 @@ import {
   isAuthRequest,
   isCampaignAttachRequest,
   isCampaignCandidatesRequest,
+  isCampaignDeleteRequest,
   isCampaignStatusRequest,
   isChatActivitiesRequest,
   isChatControlRequest,
@@ -723,6 +731,45 @@ chrome.runtime.onMessage.addListener(
 );
 
 chrome.runtime.onMessage.addListener(
+  (message: unknown, sender, sendResponse): boolean | undefined => {
+    if (!isCampaignDeleteRequest(message) || !isTrustedExtensionSender(sender)) {
+      return;
+    }
+    void (async () => {
+      const affectedChats = (await listChats()).filter(
+        (chat) => chat.campaignId === message.campaignId,
+      );
+      const busy = affectedChats.some(
+        (chat) =>
+          conversationJobs.has(chat.id) || pendingConversationStarts.has(chat.id),
+      );
+      if (busy) {
+        throw new Error(
+          "Wait for active responses in this campaign before deleting it.",
+        );
+      }
+      const result = await deleteCampaign(message.campaignId, message.mode);
+      const bindings = await getCampaignBindings();
+      for (const chatId of result.chatIds) {
+        delete bindings[chatId];
+        pendingApprovalChatIds.delete(chatId);
+        notifyCampaignStatus({ chatId, state: "unbound" });
+      }
+      await chrome.storage.session.set({
+        [CAMPAIGN_BINDINGS_STORAGE_KEY]: bindings,
+      });
+      await removeCampaignRoute(message.campaignId);
+      return result;
+    })()
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error: unknown) =>
+        sendResponse({ ok: false, error: errorMessage(error) }),
+      );
+    return true;
+  },
+);
+
+chrome.runtime.onMessage.addListener(
   (message: unknown, sender, sendResponse): void => {
     if (!isChatActivitiesRequest(message) || !isTrustedExtensionSender(sender)) {
       return;
@@ -815,6 +862,12 @@ function campaignNameFromPageTitle(pageTitle?: string): string {
   return name || "Roll20 campaign";
 }
 
+function renamedCampaignFromPageTitle(pageTitle: string): string | undefined {
+  if (!/\s*[|\u2013\u2014-]\s*Roll20\s*$/i.test(pageTitle)) return undefined;
+  const name = campaignNameFromPageTitle(pageTitle);
+  return name === "Roll20 campaign" ? undefined : name;
+}
+
 function isCampaignBinding(value: unknown): value is CampaignBinding {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
@@ -885,17 +938,21 @@ async function setCampaignBinding(
   chatId: string,
   binding: CampaignBinding,
 ): Promise<void> {
+  await attachChatToCampaign(chatId, binding);
   const bindings = await getCampaignBindings();
-  if (!bindings[chatId]) {
-    await chrome.storage.session.set({
-      [CAMPAIGN_BINDINGS_STORAGE_KEY]: { ...bindings, [chatId]: binding },
-    });
+  for (const [boundChatId, existing] of Object.entries(bindings)) {
+    if (existing.campaignId === binding.campaignId) {
+      bindings[boundChatId] = { ...existing, name: binding.name };
+    }
   }
-  await updateChatCampaign(chatId, {
-    campaignId: binding.campaignId,
-    campaignName: binding.name,
-    campaignModVersion: binding.modVersion,
-  }).catch(() => undefined);
+  await chrome.storage.session.set({
+    [CAMPAIGN_BINDINGS_STORAGE_KEY]: { ...bindings, [chatId]: binding },
+  });
+  for (const job of conversationJobs.values()) {
+    if (job.campaignId === binding.campaignId) {
+      job.campaignName = binding.name;
+    }
+  }
 }
 
 async function removeCampaignBinding(chatId: string): Promise<void> {
@@ -907,6 +964,42 @@ async function removeCampaignBinding(chatId: string): Promise<void> {
     });
   }
   await updateChatCampaign(chatId, undefined).catch(() => undefined);
+}
+
+async function recordObservedCampaignName(
+  campaignId: string,
+  name: string,
+): Promise<void> {
+  const changed = await updateObservedCampaignName(campaignId, name);
+  if (!changed) return;
+  const bindings = await getCampaignBindings();
+  let bindingsChanged = false;
+  for (const [chatId, binding] of Object.entries(bindings)) {
+    if (binding.campaignId !== campaignId || binding.name === name) continue;
+    bindings[chatId] = { ...binding, name };
+    bindingsChanged = true;
+  }
+  if (bindingsChanged) {
+    await chrome.storage.session.set({
+      [CAMPAIGN_BINDINGS_STORAGE_KEY]: bindings,
+    });
+  }
+  for (const job of conversationJobs.values()) {
+    if (job.campaignId === campaignId) job.campaignName = name;
+  }
+}
+
+async function recordCampaignTitleForRoutedTab(
+  tabId: number,
+  title: string,
+): Promise<void> {
+  const name = renamedCampaignFromPageTitle(title);
+  if (!name) return;
+  const route = Object.entries(await getCampaignRoutes()).find(
+    ([, candidate]) => candidate.tabId === tabId,
+  );
+  if (!route) return;
+  await recordObservedCampaignName(route[0], name);
 }
 
 function isCampaignRoute(value: unknown): value is CampaignRoute {
@@ -1376,6 +1469,11 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   );
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (typeof changeInfo.title === "string") {
+    void recordCampaignTitleForRoutedTab(tabId, changeInfo.title).catch(
+      () => undefined,
+    );
+  }
   if (
     typeof changeInfo.url === "string" &&
     !changeInfo.url.startsWith(ROLL20_EDITOR_URL_PREFIX)
@@ -1634,6 +1732,7 @@ async function locateBoundCampaign(
         const identity = await discoverCampaignInTab(tab, debug);
         if (identity.isGM && identity.campaignId === binding.campaignId) {
           await setCampaignRoute(binding.campaignId, identity.tabId);
+          await recordObservedCampaignName(binding.campaignId, identity.name);
           debug.group("Roll20 campaign route selected", {
             "Campaign ID": binding.campaignId,
             "Campaign name": binding.name,
@@ -1667,7 +1766,7 @@ async function locateBoundCampaign(
     if (job) {
       job.targetTabId = identity?.tabId;
       job.campaignId = binding.campaignId;
-      job.campaignName = binding.name;
+      job.campaignName = identity?.name ?? binding.name;
     }
     return identity;
   } finally {
@@ -1701,7 +1800,7 @@ async function resolveCampaignStatus(chatId: string): Promise<CampaignStatus> {
         chatId,
         state: "connected",
         campaignId: existing.campaignId,
-        name: existing.name,
+        name: identity.name,
       };
     }
     return {
@@ -2993,17 +3092,23 @@ chrome.runtime.onConnect.addListener((port) => {
         message.chatId,
         message.profileId,
       );
-      const preferences = await getGlobalPreferences();
+      const campaignBinding = await getCampaignBinding(message.chatId);
+      const [preferences, campaign] = await Promise.all([
+        getGlobalPreferences(),
+        campaignBinding
+          ? getCampaign(campaignBinding.campaignId)
+          : Promise.resolve(undefined),
+      ]);
+      const campaignBehavior = resolveCampaignBehavior(preferences, campaign);
       const debug = createDebugLogger(
         preferences.debugLoggingEnabled,
         message.chatId,
       );
       const maxSteps = preferences.maximumSteps;
       const unrestrictedWebFetchEnabled =
-        preferences.unrestrictedWebFetchEnabled;
-      const webSearchEnabled = preferences.webSearchEnabled;
-      const requireRoll20Approval = preferences.requireRoll20Approval;
-      const campaignBinding = await getCampaignBinding(message.chatId);
+        campaignBehavior.unrestrictedWebFetchEnabled;
+      const webSearchEnabled = campaignBehavior.webSearchEnabled;
+      const requireRoll20Approval = campaignBehavior.requireRoll20Approval;
       const campaignRoute = campaignBinding
         ? await getCampaignRoute(campaignBinding.campaignId)
         : undefined;

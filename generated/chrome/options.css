@@ -479,6 +479,59 @@ p {
   font-size: 11px;
 }
 
+.field .warning-note {
+  color: #d0af72;
+}
+
+.campaign-empty-state {
+  min-height: 190px;
+}
+
+.campaign-delete-backdrop {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  padding: 48px 20px;
+  place-items: start center;
+  background: rgb(5 7 10 / 64%);
+}
+
+.campaign-delete-dialog {
+  width: min(470px, 100%);
+  padding: 24px;
+  border: 1px solid #4a4244;
+  border-radius: 13px;
+  background: #191d26;
+  box-shadow: 0 26px 70px rgb(0 0 0 / 45%);
+}
+
+.campaign-delete-dialog h2 {
+  margin-bottom: 8px;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.campaign-delete-dialog p {
+  color: #9aa2ae;
+  font-size: 12px;
+}
+
+.campaign-delete-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 20px;
+}
+
+.campaign-delete-actions button {
+  min-height: 39px;
+  padding: 0 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 750;
+}
+
 .section-loading {
   display: grid;
   min-height: 280px;
@@ -872,6 +925,24 @@ p {
 
 :root[data-theme="light"] .mode-badge {
   background: #e8e3dc;
+  color: #666269;
+}
+
+:root[data-theme="light"] .field .warning-note {
+  color: #9a6820;
+}
+
+:root[data-theme="light"] .campaign-delete-backdrop {
+  background: rgb(58 48 42 / 38%);
+}
+
+:root[data-theme="light"] .campaign-delete-dialog {
+  border-color: #d8d1c8;
+  background: #fffdfa;
+  box-shadow: 0 24px 60px rgb(75 57 44 / 22%);
+}
+
+:root[data-theme="light"] .campaign-delete-dialog p {
   color: #666269;
 }
 

@@ -1,5 +1,5 @@
 import "./configure-csp";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   DEFAULT_MAX_STEPS,
@@ -25,11 +25,24 @@ import {
   saveProfile as saveStoredProfile,
 } from "./profile-store";
 import {
+  listCampaigns,
+  saveCampaignConfiguration,
+} from "./campaign-store";
+import {
+  DEFAULT_CAMPAIGN_OVERRIDES,
+  type CampaignOverride,
+  type CampaignOverrides,
+  type CampaignRecord,
+} from "./campaign-config";
+import { listChats } from "./chat-store";
+import {
   AUTH_DISCONNECT_REQUEST,
   AUTH_PERSISTENCE_REQUEST,
   AUTH_STATUS_REQUEST,
+  CAMPAIGN_DELETE_REQUEST,
   isAuthResponse,
   isAuthStateChangedMessage,
+  isCampaignDeleteResponse,
   type AuthRequest,
   type AuthStatus,
 } from "./openrouter-protocol";
@@ -48,7 +61,12 @@ import {
   type RulesetId,
 } from "./profile-config";
 
-type SettingsTab = "profiles" | "display" | "behavior" | "authentication";
+type SettingsTab =
+  | "profiles"
+  | "campaigns"
+  | "display"
+  | "behavior"
+  | "authentication";
 type EditorMode =
   | { readonly kind: "new" }
   | { readonly kind: "edit"; readonly profileId: string };
@@ -462,6 +480,303 @@ function ProfilesSettings(): React.JSX.Element {
   );
 }
 
+interface CampaignDraft {
+  readonly defaultProfileId: string;
+  readonly overrides: CampaignOverrides;
+}
+
+function campaignDraft(record: CampaignRecord): CampaignDraft {
+  return {
+    defaultProfileId: record.defaultProfileId,
+    overrides: { ...record.overrides },
+  };
+}
+
+function campaignDraftsEqual(
+  left: CampaignDraft,
+  right: CampaignDraft,
+): boolean {
+  return (
+    left.defaultProfileId === right.defaultProfileId &&
+    left.overrides.unrestrictedWebFetch ===
+      right.overrides.unrestrictedWebFetch &&
+    left.overrides.webSearch === right.overrides.webSearch &&
+    left.overrides.requireRoll20Approval ===
+      right.overrides.requireRoll20Approval
+  );
+}
+
+function CampaignsSettings({
+  active,
+  globalUnrestrictedWebFetch,
+  globalWebSearch,
+  globalRequireRoll20Approval,
+}: {
+  readonly active: boolean;
+  readonly globalUnrestrictedWebFetch: boolean;
+  readonly globalWebSearch: boolean;
+  readonly globalRequireRoll20Approval: boolean;
+}): React.JSX.Element {
+  const [campaigns, setCampaigns] = useState<CampaignRecord[] | null>(null);
+  const [profiles, setProfiles] = useState<AssistantProfile[]>([DEFAULT_PROFILE]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  const [draft, setDraft] = useState<CampaignDraft>({
+    defaultProfileId: DEFAULT_PROFILE.id,
+    overrides: DEFAULT_CAMPAIGN_OVERRIDES,
+  });
+  const [savedMessage, setSavedMessage] = useState("");
+  const [deletePrompt, setDeletePrompt] = useState<{
+    readonly campaign: CampaignRecord;
+    readonly chatCount: number;
+  } | null>(null);
+
+  const refresh = async (): Promise<void> => {
+    const [loadedCampaigns, loadedProfiles] = await Promise.all([
+      listCampaigns(),
+      listProfiles(),
+    ]);
+    const selected = loadedCampaigns.find(
+      (campaign) => campaign.campaignId === selectedIdRef.current,
+    ) ?? loadedCampaigns[0];
+    selectedIdRef.current = selected?.campaignId ?? null;
+    setCampaigns(loadedCampaigns);
+    setProfiles(loadedProfiles);
+    setSelectedId(selectedIdRef.current);
+    if (selected) setDraft(campaignDraft(selected));
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    void refresh();
+    const handleMessage = (message: unknown): void => {
+      if (
+        !isDurableDataChangedMessage(message) ||
+        !message.stores.some((store) =>
+          store === "campaigns" || store === "profiles"
+        )
+      ) return;
+      if (cancelled) return;
+      if (message.stores.includes("campaigns")) {
+        void refresh();
+      } else {
+        void listProfiles().then((loadedProfiles) => {
+          if (!cancelled) setProfiles(loadedProfiles);
+        });
+      }
+    };
+    chrome.runtime.onMessage.addListener(handleMessage);
+    return () => {
+      cancelled = true;
+      chrome.runtime.onMessage.removeListener(handleMessage);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (active) void refresh();
+  }, [active]);
+
+  const selected = campaigns?.find(
+    (campaign) => campaign.campaignId === selectedId,
+  );
+  const dirty = selected ? !campaignDraftsEqual(draft, campaignDraft(selected)) : false;
+
+  const chooseCampaign = (campaign: CampaignRecord): void => {
+    selectedIdRef.current = campaign.campaignId;
+    setSelectedId(campaign.campaignId);
+    setDraft(campaignDraft(campaign));
+    setSavedMessage("");
+  };
+
+  const setOverride = (
+    key: keyof CampaignOverrides,
+    value: CampaignOverride,
+  ): void => {
+    setDraft({
+      ...draft,
+      overrides: { ...draft.overrides, [key]: value },
+    });
+    setSavedMessage("");
+  };
+
+  const save = (event: FormEvent): void => {
+    event.preventDefault();
+    if (!selected) return;
+    void saveCampaignConfiguration(
+      selected.campaignId,
+      draft.defaultProfileId,
+      draft.overrides,
+    ).then(async () => {
+      await refresh();
+      setSavedMessage("Changes saved.");
+    }).catch((error: unknown) => {
+      setSavedMessage(
+        error instanceof Error ? error.message : "Could not save the campaign.",
+      );
+    });
+  };
+
+  const beginDelete = (): void => {
+    if (!selected) return;
+    void listChats().then((chats) => {
+      setDeletePrompt({
+        campaign: selected,
+        chatCount: chats.filter((chat) => chat.campaignId === selected.campaignId)
+          .length,
+      });
+    });
+  };
+
+  const confirmDelete = (mode: "detach-chats" | "delete-chats"): void => {
+    if (!deletePrompt) return;
+    void chrome.runtime.sendMessage({
+      type: CAMPAIGN_DELETE_REQUEST,
+      campaignId: deletePrompt.campaign.campaignId,
+      mode,
+    }).then(async (response: unknown) => {
+      if (!isCampaignDeleteResponse(response)) {
+        throw new Error("The extension returned an invalid response.");
+      }
+      if (!response.ok) throw new Error(response.error);
+      setDeletePrompt(null);
+      setSavedMessage("");
+      await refresh();
+    }).catch((error: unknown) => {
+      setSavedMessage(
+        error instanceof Error ? error.message : "Could not delete the campaign.",
+      );
+      setDeletePrompt(null);
+    });
+  };
+
+  if (!campaigns) {
+    return <div className="section-loading"><p>Loading campaigns…</p></div>;
+  }
+  if (campaigns.length === 0 || !selected) {
+    return (
+      <section className="settings-panel simple-panel campaign-empty-state">
+        <div className="settings-panel-heading">
+          <p className="section-label">Campaign overrides</p>
+          <h2>Campaigns</h2>
+          <p>Campaigns appear here after you attach a chat from the side panel.</p>
+        </div>
+      </section>
+    );
+  }
+
+  const overrideOptions = (globalDescription: string): React.JSX.Element => (
+    <>
+      <option value="inherit">Use global setting ({globalDescription})</option>
+      <option value="enabled">Enabled</option>
+      <option value="disabled">Disabled</option>
+    </>
+  );
+
+  return (
+    <div className="profile-workspace">
+      <aside className="profile-sidebar">
+        <div className="sidebar-heading">
+          <div>
+            <p className="section-label">Campaign overrides</p>
+            <h2>Campaigns</h2>
+          </div>
+        </div>
+        <nav className="profile-list" aria-label="Known campaigns">
+          {campaigns.map((campaign) => (
+            <button
+              className={campaign.campaignId === selectedId
+                ? "profile-item selected"
+                : "profile-item"}
+              key={campaign.campaignId}
+              onClick={() => chooseCampaign(campaign)}
+              type="button"
+            >
+              <span className="profile-item-topline"><strong>{campaign.name}</strong></span>
+              <span>{profiles.find((profile) => profile.id === campaign.defaultProfileId)?.name ?? "General"} by default</span>
+            </button>
+          ))}
+        </nav>
+        <p className="sidebar-note">
+          Names follow Roll20 automatically. Overrides apply only to chats
+          attached to that campaign.
+        </p>
+      </aside>
+
+      <section className="editor-panel">
+        <div className="editor-heading">
+          <div className="editor-status-line">
+            <span className="mode-badge">Campaign settings</span>
+            {dirty ? <span className="unsaved-badge">Unsaved changes</span> : null}
+          </div>
+          <h2>{selected.name}</h2>
+          <p>Override global behavior and choose defaults for new empty chats.</p>
+        </div>
+        <form className="profile-form" onSubmit={save}>
+          <div className="form-grid">
+            <label className="field field-wide">
+              <span>Default profile for empty chats</span>
+              <select
+                onChange={(event) => {
+                  setDraft({ ...draft, defaultProfileId: event.target.value });
+                  setSavedMessage("");
+                }}
+                value={draft.defaultProfileId}
+              >
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>{profile.name}</option>
+                ))}
+              </select>
+              <small>Applied when an empty chat is attached. Existing conversations keep their profile.</small>
+            </label>
+            <label className="field field-wide">
+              <span>Fetch from any web domain</span>
+              <select value={draft.overrides.unrestrictedWebFetch} onChange={(event) => setOverride("unrestrictedWebFetch", event.target.value as CampaignOverride)}>
+                {overrideOptions(globalUnrestrictedWebFetch ? "enabled" : "disabled")}
+              </select>
+              <small className="warning-note">Allows the model to access any website. Untrusted sites may expose the model to malicious or misleading content.</small>
+            </label>
+            <label className="field field-wide">
+              <span>Web search</span>
+              <select value={draft.overrides.webSearch} onChange={(event) => setOverride("webSearch", event.target.value as CampaignOverride)}>
+                {overrideOptions(globalWebSearch ? "enabled" : "disabled")}
+              </select>
+              <small className="warning-note">Search results can contain untrusted content that influences model actions.</small>
+            </label>
+            <label className="field field-wide">
+              <span>Require approval for Roll20 execution</span>
+              <select value={draft.overrides.requireRoll20Approval} onChange={(event) => setOverride("requireRoll20Approval", event.target.value as CampaignOverride)}>
+                {overrideOptions(globalRequireRoll20Approval ? "required" : "not required")}
+              </select>
+            </label>
+          </div>
+          <div className="form-actions">
+            <button className="danger-button" onClick={beginDelete} type="button">Delete campaign</button>
+            <div className="save-actions">
+              {savedMessage ? <span className="saved-message" role="status">{savedMessage}</span> : null}
+              {dirty ? <button className="secondary-button" onClick={() => setDraft(campaignDraft(selected))} type="button">Cancel</button> : null}
+              <button className="primary-button" disabled={!dirty} type="submit">Save changes</button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      {deletePrompt ? (
+        <div className="campaign-delete-backdrop">
+          <section aria-modal="true" className="campaign-delete-dialog" role="alertdialog">
+            <h2>Delete {deletePrompt.campaign.name}?</h2>
+            <p>This campaign has {deletePrompt.chatCount} attached {deletePrompt.chatCount === 1 ? "chat" : "chats"}.</p>
+            <div className="campaign-delete-actions">
+              <button className="primary-button" onClick={() => confirmDelete("detach-chats")} type="button">Detach and keep chats</button>
+              <button className="danger-button" onClick={() => confirmDelete("delete-chats")} type="button">Delete chats too</button>
+              <button className="secondary-button" onClick={() => setDeletePrompt(null)} type="button">Cancel</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function DisplaySettings({
   theme,
   onChange,
@@ -863,6 +1178,11 @@ function OptionsApp(): React.JSX.Element {
       description: "Games, guidance, and models",
     },
     {
+      id: "campaigns",
+      label: "Campaigns",
+      description: "Defaults and behavior overrides",
+    },
+    {
       id: "display",
       label: "Display",
       description: "Theme and appearance",
@@ -912,6 +1232,14 @@ function OptionsApp(): React.JSX.Element {
         <div className="settings-content">
           <div hidden={activeTab !== "profiles"}>
             <ProfilesSettings />
+          </div>
+          <div hidden={activeTab !== "campaigns"}>
+            <CampaignsSettings
+              active={activeTab === "campaigns"}
+              globalRequireRoll20Approval={requireRoll20Approval}
+              globalUnrestrictedWebFetch={unrestrictedWebFetchEnabled}
+              globalWebSearch={webSearchEnabled}
+            />
           </div>
           <div hidden={activeTab !== "display"}>
             <DisplaySettings onChange={changeTheme} theme={theme} />

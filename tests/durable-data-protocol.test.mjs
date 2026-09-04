@@ -17,7 +17,7 @@ test("recognizes bounded durable-data invalidation messages", () => {
   assert.equal(
     protocol.isDurableDataChangedMessage({
       type: protocol.DURABLE_DATA_CHANGED,
-      stores: ["profiles", "chats"],
+      stores: ["profiles", "chats", "campaigns"],
     }),
     true,
   );
