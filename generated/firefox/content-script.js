@@ -153,7 +153,7 @@
   }
 
   // src/build-info.ts
-  var EXTENSION_BUILD_ID = "693f4845afa5";
+  var EXTENSION_BUILD_ID = "04864534b32a";
   var EXTENSION_VERSION = "0.2.0";
 
   // src/extension/roll20-response-tracker.ts
@@ -165,8 +165,11 @@
       this.prune(now);
       this.pending.delete(request.requestId);
       this.pending.set(request.requestId, {
+        acknowledged: false,
         kind: request.kind,
-        expiresAt: Math.max(request.expiresAt, now) + RESPONSE_RETENTION_MS
+        expiresAt: Math.max(request.expiresAt, now) + RESPONSE_RETENTION_MS,
+        responded: false,
+        settled: false
       });
       while (this.pending.size > MAX_PENDING_REQUESTS) {
         const oldest = this.pending.keys().next().value;
@@ -183,10 +186,21 @@
     }
     consume(response) {
       const request = this.pending.get(response.requestId);
-      if (!request) return;
-      if (response.type === ROLL20_EXECUTE_RESPONSE_TYPE || request.kind === "identify" || response.type === ROLL20_ACKNOWLEDGEMENT_TYPE && !response.accepted) {
-        this.pending.delete(response.requestId);
+      if (!request) return false;
+      if (response.type === ROLL20_ACKNOWLEDGEMENT_TYPE) {
+        if (request.acknowledged || request.settled) return false;
+        request.acknowledged = true;
+        if (request.kind === "identify" || !response.accepted) {
+          request.settled = true;
+        } else if (request.responded) {
+          request.settled = true;
+        }
+      } else if (response.type === ROLL20_EXECUTE_RESPONSE_TYPE) {
+        if (request.responded || request.settled) return false;
+        request.responded = true;
+        if (request.acknowledged) request.settled = true;
       }
+      return true;
     }
     prune(now) {
       for (const [requestId, request] of this.pending) {
@@ -273,13 +287,13 @@
       try {
         if (!chrome.runtime.id) continue;
         if (!pendingRoll20Responses.has(response.requestId)) continue;
-        const delivery = chrome.runtime.sendMessage({
+        const shouldDeliver = pendingRoll20Responses.consume(response);
+        const delivery = shouldDeliver ? chrome.runtime.sendMessage({
           ...response,
           ...response.type === ROLL20_ACKNOWLEDGEMENT_TYPE ? { pageTitle: document.title } : {}
-        });
-        pendingRoll20Responses.consume(response);
+        }) : void 0;
         (candidate.closest(".message") ?? candidate).remove();
-        void delivery.catch(() => void 0);
+        void delivery?.catch(() => void 0);
       } catch {
       }
     }

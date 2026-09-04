@@ -41,22 +41,38 @@ test("retains an accepted execution until its result arrives", () => {
   const tracker = new Roll20ResponseTracker();
   tracker.register(request(), 1_000);
 
-  tracker.consume(acknowledgement());
+  assert.equal(tracker.consume(acknowledgement()), true);
+  assert.equal(tracker.consume(acknowledgement()), false);
   assert.equal(tracker.has(requestId, 1_000), true);
-  tracker.consume(response);
-  assert.equal(tracker.has(requestId, 1_000), false);
+  assert.equal(tracker.consume(response), true);
+  assert.equal(tracker.has(requestId, 1_000), true);
+  assert.equal(tracker.consume(response), false);
+  assert.equal(tracker.consume(acknowledgement()), false);
 });
 
-test("finishes tracking after identification or a rejected execution", () => {
+test("keeps settled identification and rejected execution tombstones", () => {
   const identification = new Roll20ResponseTracker();
   identification.register(request("identify"), 1_000);
-  identification.consume(acknowledgement());
-  assert.equal(identification.has(requestId, 1_000), false);
+  assert.equal(identification.consume(acknowledgement()), true);
+  assert.equal(identification.has(requestId, 1_000), true);
+  assert.equal(identification.consume(acknowledgement()), false);
 
   const rejected = new Roll20ResponseTracker();
   rejected.register(request(), 1_000);
-  rejected.consume(acknowledgement(false));
-  assert.equal(rejected.has(requestId, 1_000), false);
+  assert.equal(rejected.consume(acknowledgement(false)), true);
+  assert.equal(rejected.has(requestId, 1_000), true);
+  assert.equal(rejected.consume(acknowledgement(false)), false);
+});
+
+test("delivers reordered responses once and retains a settled tombstone", () => {
+  const tracker = new Roll20ResponseTracker();
+  tracker.register(request(), 1_000);
+
+  assert.equal(tracker.consume(response), true);
+  assert.equal(tracker.consume(response), false);
+  assert.equal(tracker.consume(acknowledgement()), true);
+  assert.equal(tracker.consume(acknowledgement()), false);
+  assert.equal(tracker.has(requestId, 1_000), true);
 });
 
 test("expires abandoned request identifiers", () => {

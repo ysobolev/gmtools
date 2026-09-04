@@ -166,6 +166,7 @@ interface PendingRoll20Execution {
   readonly dispatchedAt: number;
   readonly expectedCampaignId: string;
   acknowledged: boolean;
+  outcome?: Roll20ExecutionOutcome;
 }
 
 const pendingRoll20Executions = new Map<string, PendingRoll20Execution>();
@@ -1104,6 +1105,12 @@ chrome.runtime.onMessage.addListener((message: unknown, sender): void => {
       return;
     }
     pending.acknowledged = true;
+    if (pending.outcome !== undefined) {
+      const outcome = pending.outcome;
+      removePendingRoll20Execution(message.requestId);
+      pending.resolve(outcome);
+      return;
+    }
     beginRoll20ExecutionTimeout(message.requestId, pending);
     return;
   }
@@ -1123,11 +1130,11 @@ chrome.runtime.onMessage.addListener((message: unknown, sender): void => {
     "Mod version": message.modVersion,
     Outcome: message.outcome,
   });
-  removePendingRoll20Execution(message.requestId);
   if (
     message.protocolVersion !== ROLL20_PROTOCOL_VERSION ||
     message.campaignId !== pending.expectedCampaignId
   ) {
+    removePendingRoll20Execution(message.requestId);
     pending.reject(
       new Roll20CompatibilityError(
         message.campaignId !== pending.expectedCampaignId
@@ -1138,9 +1145,14 @@ chrome.runtime.onMessage.addListener((message: unknown, sender): void => {
     return;
   }
   if (!pending.acknowledged) {
-    pending.reject(new Error("Roll20 returned a result without acknowledging the command."));
+    pending.outcome = message.outcome;
+    pending.debug.group("Roll20 result awaiting acknowledgement", {
+      "Tool call ID": pending.toolCallId,
+      "Bridge request ID": message.requestId,
+    });
     return;
   }
+  removePendingRoll20Execution(message.requestId);
   pending.resolve(message.outcome);
 });
 

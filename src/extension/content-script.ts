@@ -131,18 +131,20 @@ function inspectAddedNode(node: Node): void {
       // injected observer can still deliver.
       if (!chrome.runtime.id) continue;
       if (!pendingRoll20Responses.has(response.requestId)) continue;
-      const delivery = chrome.runtime.sendMessage({
-        ...response,
-        ...(response.type === ROLL20_ACKNOWLEDGEMENT_TYPE
-          ? { pageTitle: document.title }
-          : {}),
-      });
-      pendingRoll20Responses.consume(response);
+      const shouldDeliver = pendingRoll20Responses.consume(response);
+      const delivery = shouldDeliver
+        ? chrome.runtime.sendMessage({
+            ...response,
+            ...(response.type === ROLL20_ACKNOWLEDGEMENT_TYPE
+              ? { pageTitle: document.title }
+              : {}),
+          })
+        : undefined;
 
       // MutationObserver callbacks run at the microtask checkpoint, before the
       // next paint, so the marked whisper is removed before normal display.
       (candidate.closest(".message") ?? candidate).remove();
-      void delivery.catch(() => undefined);
+      void delivery?.catch(() => undefined);
     } catch {
       // Leave the message in place when this content-script context is stale.
     }
