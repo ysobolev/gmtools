@@ -456,11 +456,15 @@ function useDisplayTheme(): void {
 function LoginScreen({
   connecting,
   error,
+  keepSignedIn,
   onConnect,
+  onKeepSignedInChange,
 }: {
   readonly connecting: boolean;
   readonly error: string | null;
+  readonly keepSignedIn: boolean;
   readonly onConnect: () => void;
+  readonly onKeepSignedInChange: (enabled: boolean) => void;
 }): React.JSX.Element {
   return (
     <main className="login-shell">
@@ -483,6 +487,21 @@ function LoginScreen({
           </p>
         </div>
         {error ? <p className="error-banner" role="alert">{error}</p> : null}
+        <label className="login-persistence">
+          <input
+            checked={keepSignedIn}
+            disabled={connecting}
+            onChange={(event) => onKeepSignedInChange(event.target.checked)}
+            type="checkbox"
+          />
+          <span>
+            <strong>Keep me signed in</strong>
+            <small>
+              Stores your OpenRouter credential in this browser profile. Avoid
+              this on shared devices. You can change this later in Settings.
+            </small>
+          </span>
+        </label>
         <button
           className="primary-button"
           disabled={connecting}
@@ -491,10 +510,6 @@ function LoginScreen({
         >
           {connecting ? "Connecting…" : "Connect OpenRouter"}
         </button>
-        <p className="privacy-note">
-          Credentials stay in browser memory unless you enable persistent login
-          in Settings.
-        </p>
       </section>
     </main>
   );
@@ -2442,6 +2457,7 @@ function App(): React.JSX.Element {
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [keepSignedIn, setKeepSignedIn] = useState(false);
 
   useEffect(() => {
     const port = chrome.runtime.connect({ name: PANEL_PRESENCE_PORT_NAME });
@@ -2458,7 +2474,10 @@ function App(): React.JSX.Element {
     let cancelled = false;
     void sendAuthRequest({ type: AUTH_STATUS_REQUEST })
       .then((status) => {
-        if (!cancelled) setAuthStatus(status);
+        if (!cancelled) {
+          setAuthStatus(status);
+          if (!status.connected) setKeepSignedIn(status.persistent);
+        }
       })
       .catch((requestError: unknown) => {
         if (!cancelled) {
@@ -2472,7 +2491,12 @@ function App(): React.JSX.Element {
       });
 
     const handleMessage = (message: unknown): void => {
-      if (isAuthStateChangedMessage(message)) setAuthStatus(message.status);
+      if (isAuthStateChangedMessage(message)) {
+        setAuthStatus(message.status);
+        if (!message.status.connected) {
+          setKeepSignedIn(message.status.persistent);
+        }
+      }
     };
     chrome.runtime.onMessage.addListener(handleMessage);
     return () => {
@@ -2484,7 +2508,10 @@ function App(): React.JSX.Element {
   const connect = (): void => {
     setConnecting(true);
     setError(null);
-    void sendAuthRequest({ type: AUTH_CONNECT_REQUEST })
+    void sendAuthRequest({
+      type: AUTH_CONNECT_REQUEST,
+      persistent: keepSignedIn,
+    })
       .then(setAuthStatus)
       .catch((requestError: unknown) =>
         setError(
@@ -2499,7 +2526,13 @@ function App(): React.JSX.Element {
   if (!authStatus) return <LoadingScreen />;
   if (!authStatus.connected) {
     return (
-      <LoginScreen connecting={connecting} error={error} onConnect={connect} />
+      <LoginScreen
+        connecting={connecting}
+        error={error}
+        keepSignedIn={keepSignedIn}
+        onConnect={connect}
+        onKeepSignedInChange={setKeepSignedIn}
+      />
     );
   }
   return <ChatWorkspace />;

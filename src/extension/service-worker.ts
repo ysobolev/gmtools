@@ -661,7 +661,7 @@ async function fetchKeyInfo(apiKey: string): Promise<OpenRouterKeyInfo> {
 
 let connectionAttempt: Promise<AuthStatus> | null = null;
 
-async function connectOpenRouter(): Promise<AuthStatus> {
+async function connectOpenRouter(persistent: boolean): Promise<AuthStatus> {
   if (connectionAttempt) return connectionAttempt;
 
   const connectionGeneration = authGeneration;
@@ -690,15 +690,16 @@ async function connectOpenRouter(): Promise<AuthStatus> {
         ...(token.userId ? { [USER_ID_STORAGE_KEY]: token.userId } : {}),
         [KEY_INFO_STORAGE_KEY]: keyInfo,
       });
-      const persistence = await chrome.storage.local.get(
-        PERSIST_AUTH_STORAGE_KEY,
-      );
-      if (persistence[PERSIST_AUTH_STORAGE_KEY] === true) {
+      if (persistent) {
         await chrome.storage.local.set({
+          [PERSIST_AUTH_STORAGE_KEY]: true,
           [API_KEY_STORAGE_KEY]: token.key,
           ...(token.userId ? { [USER_ID_STORAGE_KEY]: token.userId } : {}),
           [KEY_INFO_STORAGE_KEY]: keyInfo,
         });
+      } else {
+        await chrome.storage.local.remove([...AUTH_STORAGE_KEYS]);
+        await chrome.storage.local.set({ [PERSIST_AUTH_STORAGE_KEY]: false });
       }
 
       const status = await getAuthStatus();
@@ -717,7 +718,10 @@ async function connectOpenRouter(): Promise<AuthStatus> {
 async function handleAuthRequest(message: AuthRequest): Promise<AuthResponse> {
   try {
     if (message.type === AUTH_CONNECT_REQUEST) {
-      return { ok: true, status: await connectOpenRouter() };
+      return {
+        ok: true,
+        status: await connectOpenRouter(message.persistent),
+      };
     }
     if (message.type === AUTH_DISCONNECT_REQUEST) {
       await clearAuth();

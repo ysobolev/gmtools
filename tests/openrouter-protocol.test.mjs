@@ -17,6 +17,17 @@ const protocol = await import(
 test("validates credential persistence requests", () => {
   assert.equal(
     protocol.isAuthRequest({
+      type: protocol.AUTH_CONNECT_REQUEST,
+      persistent: true,
+    }),
+    true,
+  );
+  assert.equal(
+    protocol.isAuthRequest({ type: protocol.AUTH_CONNECT_REQUEST }),
+    false,
+  );
+  assert.equal(
+    protocol.isAuthRequest({
       type: protocol.AUTH_PERSISTENCE_REQUEST,
       enabled: true,
     }),

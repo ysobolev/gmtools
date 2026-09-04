@@ -177,9 +177,31 @@ h1 {
   opacity: 0.58;
 }
 
-.privacy-note {
-  text-align: center;
-  font-size: 11px !important;
+.login-persistence {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.login-persistence input {
+  margin: 3px 0 0;
+  accent-color: #c9573f;
+}
+
+.login-persistence span {
+  display: grid;
+  gap: 3px;
+}
+
+.login-persistence strong {
+  font-size: 13px;
+}
+
+.login-persistence small {
+  color: #aab1bd;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .error-banner,
@@ -1461,6 +1483,7 @@ h1 {
 :root[data-theme="light"] .loading-shell,
 :root[data-theme="light"] .intro,
 :root[data-theme="light"] .login-card p,
+:root[data-theme="light"] .login-persistence small,
 :root[data-theme="light"] .empty-state p,
 :root[data-theme="light"] .composer-meta {
   color: #747178;

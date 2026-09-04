@@ -46,7 +46,10 @@ export interface AuthStatus {
 
 export type AuthRequest =
   | { readonly type: typeof AUTH_STATUS_REQUEST }
-  | { readonly type: typeof AUTH_CONNECT_REQUEST }
+  | {
+      readonly type: typeof AUTH_CONNECT_REQUEST;
+      readonly persistent: boolean;
+    }
   | { readonly type: typeof AUTH_DISCONNECT_REQUEST }
   | {
       readonly type: typeof AUTH_PERSISTENCE_REQUEST;
@@ -498,7 +501,8 @@ export function isAuthRequest(value: unknown): value is AuthRequest {
   if (!isRecord(value)) return false;
   return (
     value.type === AUTH_STATUS_REQUEST ||
-    value.type === AUTH_CONNECT_REQUEST ||
+    (value.type === AUTH_CONNECT_REQUEST &&
+      typeof value.persistent === "boolean") ||
     value.type === AUTH_DISCONNECT_REQUEST ||
     (value.type === AUTH_PERSISTENCE_REQUEST &&
       typeof value.enabled === "boolean")
