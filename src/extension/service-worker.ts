@@ -2503,12 +2503,12 @@ async function streamChat(
       }),
       execute: async ({ memoryId }) => {
         if (!job.campaignId) throw new Error("This chat has no campaign memory.");
-        await deleteCampaignMemory(job.campaignId, memoryId);
+        const memory = await deleteCampaignMemory(job.campaignId, memoryId);
         debug.group("Campaign memory deleted", {
           "Campaign ID": job.campaignId,
           "Memory ID": memoryId,
         });
-        return { id: memoryId, deleted: true };
+        return { id: memoryId, deleted: true, content: memory.content };
       },
     }),
     execute_roll20: tool({

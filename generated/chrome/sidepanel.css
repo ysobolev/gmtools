@@ -1133,6 +1133,49 @@ h1 {
   color: #d2a24f;
 }
 
+.memory-receipt {
+  margin: 9px 0;
+  padding: 10px 11px;
+  border: 1px solid #3d4f46;
+  border-radius: 9px;
+  background: #1b2420;
+  color: #c9d2cc;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.memory-receipt-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  color: #82bd94;
+}
+
+.memory-receipt-heading span {
+  font-size: 0.56rem;
+}
+
+.memory-receipt p {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.memory-receipt-toggle {
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #9da9a1;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.memory-receipt-toggle:hover {
+  color: #c9d2cc;
+}
+
 .roll20-approval {
   margin: 9px 0;
   padding: 11px;
@@ -1533,6 +1576,24 @@ h1 {
   border-color: #d5b979;
   background: #fff8e8;
   color: #3f3a32;
+}
+
+:root[data-theme="light"] .memory-receipt {
+  border-color: #c7d7cb;
+  background: #f3f8f4;
+  color: #39443c;
+}
+
+:root[data-theme="light"] .memory-receipt-heading {
+  color: #347047;
+}
+
+:root[data-theme="light"] .memory-receipt-toggle {
+  color: #5d6b61;
+}
+
+:root[data-theme="light"] .memory-receipt-toggle:hover {
+  color: #263b2d;
 }
 
 :root[data-theme="light"] .roll20-approval-heading strong {

@@ -88,7 +88,11 @@ test("stores, deduplicates, searches, updates, and deletes campaign memories", a
     "Lady Veyra now trusts the city watch.",
   );
   assert.match(updated.content, /now trusts/);
-  await memories.deleteCampaignMemory("memory-campaign-1", first.memory.id);
+  const deleted = await memories.deleteCampaignMemory(
+    "memory-campaign-1",
+    first.memory.id,
+  );
+  assert.equal(deleted.content, "Lady Veyra now trusts the city watch.");
   assert.equal(await memories.countCampaignMemories("memory-campaign-1"), 1);
 });
 

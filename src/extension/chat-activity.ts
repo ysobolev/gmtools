@@ -24,13 +24,54 @@ export interface Roll20ApprovalRequest {
   readonly code: string;
 }
 
+export interface MemoryReceipt {
+  readonly toolCallId: string;
+  readonly action: "stored" | "already-stored" | "updated" | "deleted";
+  readonly content: string;
+}
+
 export type AssistantContentBlock =
   | { readonly type: "text"; readonly text: string }
   | {
       readonly type: "roll20-approval";
       readonly approval: Roll20ApprovalRequest;
     }
-  | { readonly type: "roll20-status"; readonly receipt: Roll20Receipt };
+  | { readonly type: "roll20-status"; readonly receipt: Roll20Receipt }
+  | { readonly type: "memory-receipt"; readonly receipt: MemoryReceipt };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function getMemoryReceipt(
+  part: UIMessage["parts"][number],
+): MemoryReceipt | undefined {
+  if (
+    !isToolUIPart(part) ||
+    part.state !== "output-available" ||
+    part.preliminary === true ||
+    !isRecord(part.output) ||
+    typeof part.output.content !== "string"
+  ) {
+    return undefined;
+  }
+  const content = part.output.content.trim();
+  if (!content) return undefined;
+  if (part.type === "tool-memory_store") {
+    return {
+      toolCallId: part.toolCallId,
+      action: part.output.created === false ? "already-stored" : "stored",
+      content,
+    };
+  }
+  if (part.type === "tool-memory_update") {
+    return { toolCallId: part.toolCallId, action: "updated", content };
+  }
+  if (part.type === "tool-memory_delete") {
+    return { toolCallId: part.toolCallId, action: "deleted", content };
+  }
+  return undefined;
+}
 
 function getRoll20ApprovalRequest(
   part: UIMessage["parts"][number],
@@ -161,7 +202,14 @@ export function getAssistantContentBlocks(
       continue;
     }
     const receipt = getRoll20Status(part);
-    if (receipt) blocks.push({ type: "roll20-status", receipt });
+    if (receipt) {
+      blocks.push({ type: "roll20-status", receipt });
+      continue;
+    }
+    const memoryReceipt = getMemoryReceipt(part);
+    if (memoryReceipt) {
+      blocks.push({ type: "memory-receipt", receipt: memoryReceipt });
+    }
   }
   return blocks;
 }

@@ -189,7 +189,7 @@ export async function deleteCampaignMemory(
   campaignId: string,
   memoryId: string,
   requireEnabled = true,
-): Promise<void> {
+): Promise<CampaignMemoryRecord> {
   const database = await openDatabase();
   const transaction = database.transaction(
     [CAMPAIGN_MEMORIES_STORE, CAMPAIGNS_STORE],
@@ -205,6 +205,7 @@ export async function deleteCampaignMemory(
   store.delete(memoryId);
   await transactionComplete(transaction);
   notifyDurableDataChanged(["campaignMemories"]);
+  return value;
 }
 
 function queryTokens(value: string): string[] {

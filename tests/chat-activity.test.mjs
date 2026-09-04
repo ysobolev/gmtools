@@ -326,6 +326,101 @@ test("places an active Roll20 call inline with a working status", () => {
   assert.equal(hasActiveRoll20Status(message), true);
 });
 
+test("preserves completed campaign memory mutations as inline receipts", () => {
+  assert.deepEqual(
+    getAssistantContentBlocks(
+      assistant([
+        { type: "text", text: "I’ll remember that." },
+        {
+          type: "tool-memory_store",
+          toolCallId: "memory-1",
+          state: "output-available",
+          input: { content: "The chapel bell rings at midnight." },
+          output: {
+            id: "stored-memory",
+            created: true,
+            content: "The chapel bell rings at midnight.",
+          },
+        },
+        {
+          type: "tool-memory_update",
+          toolCallId: "memory-2",
+          state: "output-available",
+          input: {
+            memoryId: "stored-memory",
+            content: "The bell rings at dawn.",
+          },
+          output: {
+            id: "stored-memory",
+            content: "The bell rings at dawn.",
+            updatedAt: 1,
+          },
+        },
+        {
+          type: "tool-memory_delete",
+          toolCallId: "memory-3",
+          state: "output-available",
+          input: { memoryId: "stored-memory" },
+          output: {
+            id: "stored-memory",
+            deleted: true,
+            content: "The bell rings at dawn.",
+          },
+        },
+      ]),
+    ),
+    [
+      { type: "text", text: "I’ll remember that." },
+      {
+        type: "memory-receipt",
+        receipt: {
+          toolCallId: "memory-1",
+          action: "stored",
+          content: "The chapel bell rings at midnight.",
+        },
+      },
+      {
+        type: "memory-receipt",
+        receipt: {
+          toolCallId: "memory-2",
+          action: "updated",
+          content: "The bell rings at dawn.",
+        },
+      },
+      {
+        type: "memory-receipt",
+        receipt: {
+          toolCallId: "memory-3",
+          action: "deleted",
+          content: "The bell rings at dawn.",
+        },
+      },
+    ],
+  );
+});
+
+test("does not show campaign memory searches as receipts", () => {
+  assert.deepEqual(
+    getAssistantContentBlocks(
+      assistant([
+        {
+          type: "tool-memory_search",
+          toolCallId: "memory-search",
+          state: "output-available",
+          input: { query: "chapel" },
+          output: {
+            memories: [{
+              id: "memory-1",
+              content: "The chapel is abandoned.",
+            }],
+          },
+        },
+      ]),
+    ),
+    [],
+  );
+});
+
 test("exposes pending Roll20 approval details inline", () => {
   const message = assistant([
     {

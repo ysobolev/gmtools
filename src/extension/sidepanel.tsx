@@ -34,6 +34,7 @@ import {
   getAssistantContentBlocks,
   getChatActivity,
   hasActiveRoll20Status,
+  type MemoryReceipt,
   type Roll20ApprovalRequest,
   type Roll20Receipt,
 } from "./chat-activity";
@@ -333,6 +334,47 @@ function Roll20Status({
         <span>{receipt.summary}</span>
       </li>
     </ul>
+  );
+}
+
+const MEMORY_RECEIPT_PREVIEW_LENGTH = 180;
+
+function MemoryStatus({
+  receipt,
+}: {
+  readonly receipt: MemoryReceipt;
+}): React.JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  const label =
+    receipt.action === "stored"
+      ? "Memory saved"
+      : receipt.action === "already-stored"
+        ? "Memory already saved"
+        : receipt.action === "updated"
+          ? "Memory updated"
+          : "Memory deleted";
+  const long = receipt.content.length > MEMORY_RECEIPT_PREVIEW_LENGTH;
+  const preview = long
+    ? `${receipt.content.slice(0, MEMORY_RECEIPT_PREVIEW_LENGTH).trimEnd()}…`
+    : receipt.content;
+  return (
+    <section className={`memory-receipt ${receipt.action}`}>
+      <div className="memory-receipt-heading">
+        <span aria-hidden="true">◆</span>
+        <strong>{label}</strong>
+      </div>
+      <p>{expanded ? receipt.content : preview}</p>
+      {long ? (
+        <button
+          aria-expanded={expanded}
+          className="memory-receipt-toggle"
+          onClick={() => setExpanded((value) => !value)}
+          type="button"
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      ) : null}
+    </section>
   );
 }
 
@@ -883,6 +925,14 @@ const ConversationPane = memo(function ConversationPane({
                     if (block.type === "roll20-status") {
                       return (
                         <Roll20Status
+                          key={block.receipt.toolCallId}
+                          receipt={block.receipt}
+                        />
+                      );
+                    }
+                    if (block.type === "memory-receipt") {
+                      return (
+                        <MemoryStatus
                           key={block.receipt.toolCallId}
                           receipt={block.receipt}
                         />
