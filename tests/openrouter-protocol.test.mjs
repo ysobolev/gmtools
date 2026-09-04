@@ -304,6 +304,18 @@ test("validates campaign status messages", () => {
 });
 
 test("validates campaign deletion requests and responses", () => {
+  assert.equal(protocol.isCampaignDeletePreviewRequest({
+    type: protocol.CAMPAIGN_DELETE_PREVIEW_REQUEST,
+    campaignId: "campaign-1",
+  }), true);
+  assert.equal(protocol.isCampaignDeletePreviewResponse({
+    ok: true,
+    preview: {
+      chatCount: 3,
+      activeChatCount: 1,
+      pendingApprovalChatCount: 1,
+    },
+  }), true);
   assert.equal(protocol.isCampaignDeleteRequest({
     type: protocol.CAMPAIGN_DELETE_REQUEST,
     campaignId: "campaign-1",

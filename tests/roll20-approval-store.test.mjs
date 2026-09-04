@@ -216,3 +216,33 @@ test("unapproved execution remains available when approval is disabled", async (
     false,
   );
 });
+
+test("canceling approvals removes unresolved cards and durable approval state", async () => {
+  const chatId = await createAttachedChat("campaign-6");
+  const requested = approvalMessage({
+    approvalId: "approval-6",
+    toolCallId: "tool-6",
+  });
+  await approvals.saveMessagesAndRegisterRoll20Approvals(
+    chatId,
+    "campaign-6",
+    [requested],
+  );
+  await chats.updateChatPendingRoll20Approvals(chatId, 1);
+
+  await approvals.cancelRoll20Approvals(chatId);
+
+  const stored = await chats.getStoredChat(chatId);
+  assert.equal(stored.chat.pendingRoll20Approvals, undefined);
+  assert.deepEqual(stored.messages, []);
+  await assert.rejects(
+    approvals.claimRoll20Approval(
+      chatId,
+      "campaign-6",
+      "tool-6",
+      requested.parts[0].input,
+      true,
+    ),
+    /already resolved/,
+  );
+});

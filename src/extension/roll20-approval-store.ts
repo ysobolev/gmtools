@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { sanitizeStoppedConversation } from "./chat-persistence";
 import {
   openDatabase,
   requestResult,
@@ -373,5 +374,36 @@ export async function resolveRoll20ApprovalExecution(
   if (isApprovalRecord(value) && value.state === "executing") {
     approvals.put({ ...value, state, updatedAt: Date.now() });
   }
+  await transactionComplete(transaction);
+}
+
+export async function cancelRoll20Approvals(chatId: string): Promise<void> {
+  const database = await openDatabase();
+  const transaction = database.transaction(
+    [CHATS_STORE, MESSAGES_STORE, ROLL20_APPROVALS_STORE],
+    "readwrite",
+  );
+  const chat = await requireChat(transaction, chatId);
+  const messagesStore = transaction.objectStore(MESSAGES_STORE);
+  const storedValue: unknown = await requestResult(messagesStore.get(chatId));
+  const storedMessages =
+    isRecord(storedValue) && Array.isArray(storedValue.messages)
+      ? storedValue.messages as UIMessage[]
+      : [];
+  const messages = chat.pendingRoll20Approvals
+    ? sanitizeStoppedConversation(storedMessages)
+    : storedMessages;
+  const { pendingRoll20Approvals: _pending, ...updatedChat } = chat;
+  const now = Date.now();
+  transaction.objectStore(CHATS_STORE).put({ ...updatedChat, updatedAt: now });
+  messagesStore.put({ chatId, messages, updatedAt: now } satisfies ChatMessagesRecord);
+  transaction.objectStore(ROLL20_APPROVALS_STORE).index("chatId").openKeyCursor(
+    IDBKeyRange.only(chatId),
+  ).onsuccess = (event) => {
+    const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
+    if (!cursor) return;
+    transaction.objectStore(ROLL20_APPROVALS_STORE).delete(cursor.primaryKey);
+    cursor.continue();
+  };
   await transactionComplete(transaction);
 }

@@ -49,6 +49,7 @@ import {
 } from "./campaign-store";
 import { resolveCampaignBehavior } from "./campaign-config";
 import {
+  cancelRoll20Approvals,
   claimRoll20Approval,
   resolveRoll20ApprovalExecution,
   saveConversationInputWithApprovals,
@@ -88,6 +89,7 @@ import {
   CAMPAIGN_ATTACH_REQUEST,
   CAMPAIGN_CANDIDATES_REQUEST,
   CAMPAIGN_DETACH_REQUEST,
+  CAMPAIGN_DELETE_PREVIEW_REQUEST,
   CAMPAIGN_STATUS_CHANGED,
   CAMPAIGN_STATUS_REQUEST,
   CHAT_ACTIVITY_CHANGED,
@@ -110,6 +112,7 @@ import {
   isCampaignAttachRequest,
   isCampaignCandidatesRequest,
   isCampaignDeleteRequest,
+  isCampaignDeletePreviewRequest,
   isCampaignStatusRequest,
   isChatActivitiesRequest,
   isChatControlRequest,
@@ -317,6 +320,10 @@ interface ConversationJob {
 
 const conversationJobs = new Map<string, ConversationJob>();
 const pendingConversationStarts = new Map<string, AbortController>();
+const pendingConversationSubscribers = new Map<
+  string,
+  { readonly port: chrome.runtime.Port; readonly requestId: string }
+>();
 const pendingApprovalChatIds = new Set<string>();
 const openPanelPorts = new Set<chrome.runtime.Port>();
 const intentionalAbortReasons = new WeakSet<object>();
@@ -732,20 +739,43 @@ chrome.runtime.onMessage.addListener(
 
 chrome.runtime.onMessage.addListener(
   (message: unknown, sender, sendResponse): boolean | undefined => {
-    if (!isCampaignDeleteRequest(message) || !isTrustedExtensionSender(sender)) {
+    if (
+      (!isCampaignDeleteRequest(message) &&
+        !isCampaignDeletePreviewRequest(message)) ||
+      !isTrustedExtensionSender(sender)
+    ) {
       return;
     }
     void (async () => {
       const affectedChats = (await listChats()).filter(
         (chat) => chat.campaignId === message.campaignId,
       );
-      const busy = affectedChats.some(
-        (chat) =>
-          conversationJobs.has(chat.id) || pendingConversationStarts.has(chat.id),
-      );
-      if (busy) {
-        throw new Error(
-          "Wait for active responses in this campaign before deleting it.",
+      const chatIds = new Set(affectedChats.map((chat) => chat.id));
+      if (message.type === CAMPAIGN_DELETE_PREVIEW_REQUEST) {
+        const activeChatIds = new Set<string>();
+        for (const chatId of chatIds) {
+          const job = conversationJobs.get(chatId);
+          if ((job && !job.terminal) || pendingConversationStarts.has(chatId)) {
+            activeChatIds.add(chatId);
+          }
+        }
+        return {
+          preview: {
+            chatCount: affectedChats.length,
+            activeChatCount: activeChatIds.size,
+            pendingApprovalChatCount: affectedChats.filter(
+              (chat) =>
+                Boolean(chat.pendingRoll20Approvals) ||
+                pendingApprovalChatIds.has(chat.id),
+            ).length,
+          },
+        };
+      }
+
+      await stopCampaignChats(affectedChats.map((chat) => chat.id));
+      if (message.mode === "detach-chats") {
+        await Promise.all(
+          affectedChats.map((chat) => cancelRoll20Approvals(chat.id)),
         );
       }
       const result = await deleteCampaign(message.campaignId, message.mode);
@@ -754,20 +784,60 @@ chrome.runtime.onMessage.addListener(
         delete bindings[chatId];
         pendingApprovalChatIds.delete(chatId);
         notifyCampaignStatus({ chatId, state: "unbound" });
+        if (message.mode === "detach-chats") {
+          await notifyChatMessagesChanged(chatId);
+        }
       }
       await chrome.storage.session.set({
         [CAMPAIGN_BINDINGS_STORAGE_KEY]: bindings,
       });
       await removeCampaignRoute(message.campaignId);
-      return result;
+      return { result };
     })()
-      .then((result) => sendResponse({ ok: true, result }))
+      .then((response) => sendResponse({ ok: true, ...response }))
       .catch((error: unknown) =>
         sendResponse({ ok: false, error: errorMessage(error) }),
       );
     return true;
   },
 );
+
+async function stopCampaignChats(chatIds: readonly string[]): Promise<void> {
+  const finalizations: Promise<void>[] = [];
+  for (const chatId of chatIds) {
+    const pendingStart = pendingConversationStarts.get(chatId);
+    if (pendingStart) {
+      abortIntentionally(pendingStart, "The campaign was deleted.");
+      pendingConversationStarts.delete(chatId);
+      const subscriber = pendingConversationSubscribers.get(chatId);
+      if (subscriber) {
+        postToPort(subscriber.port, {
+          type: CHAT_COMPLETE,
+          requestId: subscriber.requestId,
+        });
+        pendingConversationSubscribers.delete(chatId);
+      }
+    }
+    const job = conversationJobs.get(chatId);
+    if (!job) continue;
+    if (!job.terminal) {
+      abortIntentionally(job.abortController, "The campaign was deleted.");
+      finalizations.push(
+        finalizeAbortedJob(job).then(() => {
+          broadcastJob(job, (requestId) => ({
+            type: CHAT_COMPLETE,
+            requestId,
+          }));
+        }),
+      );
+    } else {
+      setJobActivity(job, "idle");
+      conversationJobs.delete(chatId);
+    }
+  }
+  await Promise.all(finalizations);
+  refreshTaskAction();
+}
 
 chrome.runtime.onMessage.addListener(
   (message: unknown, sender, sendResponse): void => {
@@ -3045,6 +3115,10 @@ chrome.runtime.onConnect.addListener((port) => {
     }
     const abortController = new AbortController();
     pendingConversationStarts.set(message.chatId, abortController);
+    pendingConversationSubscribers.set(message.chatId, {
+      port,
+      requestId: message.requestId,
+    });
     refreshTaskAction();
     startingChatId = message.chatId;
     attachedRequestId = message.requestId;
@@ -3179,6 +3253,7 @@ chrome.runtime.onConnect.addListener((port) => {
     }).finally(() => {
       if (pendingConversationStarts.get(message.chatId) === abortController) {
         pendingConversationStarts.delete(message.chatId);
+        pendingConversationSubscribers.delete(message.chatId);
       }
       refreshTaskAction();
       if (startingChatId === message.chatId) startingChatId = null;

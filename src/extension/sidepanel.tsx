@@ -2048,6 +2048,7 @@ function ChatScreen({
 function ChatWorkspace(): React.JSX.Element {
   const [profiles, setProfiles] = useState<AssistantProfile[] | null>(null);
   const [chats, setChats] = useState<ChatRecord[]>([]);
+  const chatsRef = useRef<ChatRecord[]>([]);
   const [chatActivities, setChatActivities] = useState<
     Record<string, ChatActivityStatus>
   >({});
@@ -2093,6 +2094,10 @@ function ChatWorkspace(): React.JSX.Element {
       window.clearTimeout(noticeTimeoutRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    chatsRef.current = chats;
+  }, [chats]);
 
   const fallbackMissingProfile = useCallback(async (
     chat: ChatRecord,
@@ -2158,6 +2163,10 @@ function ChatWorkspace(): React.JSX.Element {
           current ? getStoredChat(current.chat.id) : undefined,
         ]);
         if (cancelled) return;
+        const loadedChatIds = new Set(loadedChats.map((chat) => chat.id));
+        for (const previous of chatsRef.current) {
+          if (!loadedChatIds.has(previous.id)) draftsRef.current.delete(previous.id);
+        }
         setChats(loadedChats);
         if (current && refreshed) {
           setCurrentChat({

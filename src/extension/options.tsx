@@ -34,15 +34,16 @@ import {
   type CampaignOverrides,
   type CampaignRecord,
 } from "./campaign-config";
-import { listChats } from "./chat-store";
 import {
   AUTH_DISCONNECT_REQUEST,
   AUTH_PERSISTENCE_REQUEST,
   AUTH_STATUS_REQUEST,
   CAMPAIGN_DELETE_REQUEST,
+  CAMPAIGN_DELETE_PREVIEW_REQUEST,
   isAuthResponse,
   isAuthStateChangedMessage,
   isCampaignDeleteResponse,
+  isCampaignDeletePreviewResponse,
   type AuthRequest,
   type AuthStatus,
 } from "./openrouter-protocol";
@@ -529,7 +530,11 @@ function CampaignsSettings({
   const [deletePrompt, setDeletePrompt] = useState<{
     readonly campaign: CampaignRecord;
     readonly chatCount: number;
+    readonly activeChatCount: number;
+    readonly pendingApprovalChatCount: number;
   } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const refresh = async (): Promise<void> => {
     const [loadedCampaigns, loadedProfiles] = await Promise.all([
@@ -618,17 +623,32 @@ function CampaignsSettings({
 
   const beginDelete = (): void => {
     if (!selected) return;
-    void listChats().then((chats) => {
+    setDeleteError(null);
+    void chrome.runtime.sendMessage({
+      type: CAMPAIGN_DELETE_PREVIEW_REQUEST,
+      campaignId: selected.campaignId,
+    }).then((response: unknown) => {
+      if (!isCampaignDeletePreviewResponse(response)) {
+        throw new Error("The extension returned an invalid response.");
+      }
+      if (!response.ok) throw new Error(response.error);
       setDeletePrompt({
         campaign: selected,
-        chatCount: chats.filter((chat) => chat.campaignId === selected.campaignId)
-          .length,
+        ...response.preview,
       });
+    }).catch((error: unknown) => {
+      setSavedMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not inspect the campaign.",
+      );
     });
   };
 
   const confirmDelete = (mode: "detach-chats" | "delete-chats"): void => {
     if (!deletePrompt) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
     void chrome.runtime.sendMessage({
       type: CAMPAIGN_DELETE_REQUEST,
       campaignId: deletePrompt.campaign.campaignId,
@@ -642,11 +662,10 @@ function CampaignsSettings({
       setSavedMessage("");
       await refresh();
     }).catch((error: unknown) => {
-      setSavedMessage(
+      setDeleteError(
         error instanceof Error ? error.message : "Could not delete the campaign.",
       );
-      setDeletePrompt(null);
-    });
+    }).finally(() => setDeleteBusy(false));
   };
 
   if (!campaigns) {
@@ -765,10 +784,15 @@ function CampaignsSettings({
           <section aria-modal="true" className="campaign-delete-dialog" role="alertdialog">
             <h2>Delete {deletePrompt.campaign.name}?</h2>
             <p>This campaign has {deletePrompt.chatCount} attached {deletePrompt.chatCount === 1 ? "chat" : "chats"}.</p>
+            <ul className="campaign-delete-impact">
+              <li>{deletePrompt.activeChatCount} active {deletePrompt.activeChatCount === 1 ? "chat" : "chats"} will be stopped.</li>
+              <li>{deletePrompt.pendingApprovalChatCount} {deletePrompt.pendingApprovalChatCount === 1 ? "chat has" : "chats have"} pending approvals that will be canceled.</li>
+            </ul>
+            {deleteError ? <p className="campaign-delete-error" role="alert">{deleteError}</p> : null}
             <div className="campaign-delete-actions">
-              <button className="primary-button" onClick={() => confirmDelete("detach-chats")} type="button">Detach and keep chats</button>
-              <button className="danger-button" onClick={() => confirmDelete("delete-chats")} type="button">Delete chats too</button>
-              <button className="secondary-button" onClick={() => setDeletePrompt(null)} type="button">Cancel</button>
+              <button className="primary-button" disabled={deleteBusy} onClick={() => confirmDelete("detach-chats")} type="button">Detach and keep chats</button>
+              <button className="danger-button" disabled={deleteBusy} onClick={() => confirmDelete("delete-chats")} type="button">Delete chats too</button>
+              <button className="secondary-button" disabled={deleteBusy} onClick={() => setDeletePrompt(null)} type="button">Cancel</button>
             </div>
           </section>
         </div>

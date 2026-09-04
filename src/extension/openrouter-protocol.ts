@@ -12,6 +12,8 @@ export const CAMPAIGN_CANDIDATES_REQUEST =
 export const CAMPAIGN_ATTACH_REQUEST = "GMTOOLS_CAMPAIGN_ATTACH" as const;
 export const CAMPAIGN_DETACH_REQUEST = "GMTOOLS_CAMPAIGN_DETACH" as const;
 export const CAMPAIGN_DELETE_REQUEST = "GMTOOLS_CAMPAIGN_DELETE" as const;
+export const CAMPAIGN_DELETE_PREVIEW_REQUEST =
+  "GMTOOLS_CAMPAIGN_DELETE_PREVIEW" as const;
 export const CAMPAIGN_STATUS_CHANGED =
   "GMTOOLS_CAMPAIGN_STATUS_CHANGED" as const;
 
@@ -108,6 +110,22 @@ export interface CampaignDeleteRequest {
   readonly campaignId: string;
   readonly mode: "detach-chats" | "delete-chats";
 }
+
+export interface CampaignDeletePreviewRequest {
+  readonly type: typeof CAMPAIGN_DELETE_PREVIEW_REQUEST;
+  readonly campaignId: string;
+}
+
+export type CampaignDeletePreviewResponse =
+  | {
+      readonly ok: true;
+      readonly preview: {
+        readonly chatCount: number;
+        readonly activeChatCount: number;
+        readonly pendingApprovalChatCount: number;
+      };
+    }
+  | { readonly ok: false; readonly error: string };
 
 export type CampaignDeleteResponse =
   | {
@@ -394,6 +412,33 @@ export function isCampaignDeleteRequest(
     typeof value.campaignId === "string" &&
     value.campaignId.length > 0 &&
     (value.mode === "detach-chats" || value.mode === "delete-chats")
+  );
+}
+
+export function isCampaignDeletePreviewRequest(
+  value: unknown,
+): value is CampaignDeletePreviewRequest {
+  return (
+    isRecord(value) &&
+    value.type === CAMPAIGN_DELETE_PREVIEW_REQUEST &&
+    typeof value.campaignId === "string" &&
+    value.campaignId.length > 0
+  );
+}
+
+export function isCampaignDeletePreviewResponse(
+  value: unknown,
+): value is CampaignDeletePreviewResponse {
+  if (!isRecord(value) || typeof value.ok !== "boolean") return false;
+  if (!value.ok) return typeof value.error === "string";
+  if (!isRecord(value.preview)) return false;
+  return [
+    value.preview.chatCount,
+    value.preview.activeChatCount,
+    value.preview.pendingApprovalChatCount,
+  ].every(
+    (count) =>
+      typeof count === "number" && Number.isInteger(count) && count >= 0,
   );
 }
 
