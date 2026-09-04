@@ -160,6 +160,10 @@ import {
   createOpenRouterWebFetchTool,
   createOpenRouterWebSearchTool,
 } from "./openrouter-tools";
+import {
+  createOpenRouterModelSettings,
+  createOpenRouterSessionHeaders,
+} from "./openrouter-cache";
 import { createViewRemoteImageTool } from "./remote-image-view";
 
 const API_KEY_STORAGE_KEY = "openRouterApiKey";
@@ -2307,6 +2311,7 @@ async function streamChat(
     compatibility: "strict",
     appName: "GM Tools for VTT",
     appUrl: "https://github.com/ysobolev/gmtools",
+    headers: createOpenRouterSessionHeaders(job.chatId),
   });
   const tools = {
     image_generation: createOpenRouterImageGenerationTool(),
@@ -2708,7 +2713,7 @@ async function streamChat(
   }
   if (job.webSearchEnabled) activeTools.unshift("web_search");
   const result = streamText({
-    model: openrouter(modelId),
+    model: openrouter(modelId, createOpenRouterModelSettings(modelId)),
     system: [
       buildProfileInstructions(profile, {
         roll20Available: Boolean(job.campaignId),
