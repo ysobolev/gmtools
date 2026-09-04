@@ -4,7 +4,7 @@
   "description": "An AI sidebar assistant for virtual tabletop game masters, with Roll20 integration.",
   "version": "0.2.0",
   "homepage_url": "https://github.com/ysobolev/gmtools",
-  "permissions": ["identity", "storage", "scripting"],
+  "permissions": ["contextMenus", "identity", "storage", "scripting"],
   "host_permissions": [
     "https://app.roll20.net/*",
     "https://openrouter.ai/*"

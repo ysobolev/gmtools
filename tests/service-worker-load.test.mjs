@@ -33,6 +33,8 @@ test("the generated Firefox worker starts without browser-global errors", async 
     },
   });
   const debugLabels = [];
+  const contextMenuItems = new Map();
+  const badgeTexts = [];
   const sandbox = {
     AbortController,
     Blob,
@@ -54,6 +56,24 @@ test("the generated Firefox worker starts without browser-global errors", async 
     chrome: {
       action: {
         onClicked: event("action-clicked"),
+        setBadgeBackgroundColor: async () => undefined,
+        setBadgeText: async ({ text }) => badgeTexts.push(text),
+      },
+      contextMenus: {
+        create: (item, callback) => {
+          contextMenuItems.set(item.id, item);
+          callback?.();
+        },
+        onClicked: event("context-menu-clicked"),
+        remove: (id, callback) => {
+          contextMenuItems.delete(id);
+          callback?.();
+        },
+        update: (id, changes, callback) => {
+          const item = contextMenuItems.get(id);
+          if (item) contextMenuItems.set(id, { ...item, ...changes });
+          callback?.();
+        },
       },
       identity: {},
       runtime: {
@@ -113,6 +133,18 @@ test("the generated Firefox worker starts without browser-global errors", async 
   assert.equal(sessionData.openRouterApiKey, localData.openRouterApiKey);
   assert.ok(listeners.get("message")?.length > 0);
   assert.ok(listeners.get("connect")?.length > 0);
+  assert.equal(badgeTexts.at(-1), "");
+
+  for (const listener of listeners.get("installed")) listener();
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(contextMenuItems.get("gmtools-stop-all-tasks"))),
+    {
+      id: "gmtools-stop-all-tasks",
+      title: "Stop all tasks",
+      contexts: ["action"],
+      enabled: false,
+    },
+  );
 
   const optionsSender = {
     id: "extension-id",

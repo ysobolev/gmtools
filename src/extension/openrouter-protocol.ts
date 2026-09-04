@@ -15,6 +15,7 @@ export const CAMPAIGN_STATUS_CHANGED =
   "GMTOOLS_CAMPAIGN_STATUS_CHANGED" as const;
 
 export const CHAT_PORT_NAME = "GMTOOLS_OPENROUTER_CHAT" as const;
+export const PANEL_PRESENCE_PORT_NAME = "GMTOOLS_PANEL_PRESENCE" as const;
 export const CHAT_START = "GMTOOLS_CHAT_START" as const;
 export const CHAT_CONTINUE = "GMTOOLS_CHAT_CONTINUE" as const;
 export const CHAT_RESUME = "GMTOOLS_CHAT_RESUME" as const;

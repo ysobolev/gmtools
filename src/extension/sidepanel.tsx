@@ -105,6 +105,7 @@ import {
   CHAT_ACTIVITIES_REQUEST,
   CHAT_CLEAR,
   CHAT_COMMIT,
+  PANEL_PRESENCE_PORT_NAME,
   isAuthResponse,
   isAuthStateChangedMessage,
   isCampaignStatusChangedMessage,
@@ -2211,6 +2212,17 @@ function App(): React.JSX.Element {
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const port = chrome.runtime.connect({ name: PANEL_PRESENCE_PORT_NAME });
+    return () => {
+      try {
+        port.disconnect();
+      } catch {
+        // Reloading the extension may invalidate the panel context first.
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

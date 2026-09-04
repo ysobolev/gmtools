@@ -28,6 +28,7 @@ test("registers and builds both browser extensions", async () => {
       "http://*/*",
       "https://*/*",
     ]);
+    assert.ok(manifest.permissions.includes("contextMenus"));
     await Promise.all(
       [
         "content-script.js",

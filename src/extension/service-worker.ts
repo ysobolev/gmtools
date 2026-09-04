@@ -83,6 +83,7 @@ import {
   CHAT_CONTINUATION_CHANGED,
   CHAT_ERROR,
   CHAT_PORT_NAME,
+  PANEL_PRESENCE_PORT_NAME,
   CHAT_RESUME,
   CHAT_RESUME_QUERY,
   CHAT_START,
@@ -300,7 +301,66 @@ interface ConversationJob {
 
 const conversationJobs = new Map<string, ConversationJob>();
 const pendingConversationStarts = new Map<string, AbortController>();
+const openPanelPorts = new Set<chrome.runtime.Port>();
 const intentionalAbortReasons = new WeakSet<object>();
+const STOP_ALL_TASKS_MENU_ID = "gmtools-stop-all-tasks";
+
+function activeTaskCount(): number {
+  const chatIds = new Set<string>();
+  for (const [chatId, controller] of pendingConversationStarts) {
+    if (!controller.signal.aborted) chatIds.add(chatId);
+  }
+  for (const job of conversationJobs.values()) {
+    if (!job.terminal && !job.abortController.signal.aborted) {
+      chatIds.add(job.chatId);
+    }
+  }
+  return chatIds.size;
+}
+
+function refreshTaskAction(): void {
+  const count = activeTaskCount();
+  void chrome.action.setBadgeBackgroundColor({ color: "#b3261e" })
+    .catch(() => undefined);
+  void chrome.action.setBadgeText({
+    text: count > 0 && openPanelPorts.size === 0 ? String(count) : "",
+  })
+    .catch(() => undefined);
+  chrome.contextMenus.update(
+    STOP_ALL_TASKS_MENU_ID,
+    { enabled: count > 0 },
+    () => void chrome.runtime.lastError,
+  );
+}
+
+function installStopAllTasksMenu(): void {
+  chrome.contextMenus.remove(STOP_ALL_TASKS_MENU_ID, () => {
+    void chrome.runtime.lastError;
+    chrome.contextMenus.create(
+      {
+        id: STOP_ALL_TASKS_MENU_ID,
+        title: "Stop all tasks",
+        contexts: ["action"],
+        enabled: activeTaskCount() > 0,
+      },
+      () => void chrome.runtime.lastError,
+    );
+  });
+}
+
+function stopAllTasks(): void {
+  const controllers = new Set<AbortController>();
+  for (const controller of pendingConversationStarts.values()) {
+    controllers.add(controller);
+  }
+  for (const job of conversationJobs.values()) {
+    if (!job.terminal) controllers.add(job.abortController);
+  }
+  for (const controller of controllers) {
+    abortIntentionally(controller, "All tasks were stopped.");
+  }
+  refreshTaskAction();
+}
 
 function abortIntentionally(
   controller: AbortController,
@@ -339,12 +399,18 @@ const refreshSidebarAction = configureBrowserSidebar(
 chrome.runtime.onInstalled.addListener(() => {
   refreshSidebarAction();
   restrictExtensionStorage(chrome.storage);
+  installStopAllTasksMenu();
 });
 chrome.runtime.onStartup.addListener(() => {
   refreshSidebarAction();
   restrictExtensionStorage(chrome.storage);
 });
 restrictExtensionStorage(chrome.storage);
+refreshTaskAction();
+
+chrome.contextMenus.onClicked.addListener((info) => {
+  if (info.menuItemId === STOP_ALL_TASKS_MENU_ID) stopAllTasks();
+});
 
 function isTrustedExtensionSender(
   sender:
@@ -681,6 +747,7 @@ chrome.runtime.onMessage.addListener(
       }
       pendingConversationStarts.delete(message.chatId);
       conversationJobs.delete(message.chatId);
+      refreshTaskAction();
     } else if (message.type === CHAT_COMMIT && job?.terminal) {
       setJobActivity(job, "idle");
       conversationJobs.delete(message.chatId);
@@ -2564,6 +2631,7 @@ function setJobActivity(
 function finishJob(job: ConversationJob, terminal: ConversationTerminal): void {
   if (job.terminal) return;
   job.terminal = terminal;
+  refreshTaskAction();
   setJobActivity(job, terminal.type === "complete" ? "unread" : "idle");
   broadcastJob(job, (requestId) =>
     terminal.type === "complete"
@@ -2598,6 +2666,7 @@ function finalizeAbortedJob(job: ConversationJob): Promise<void> {
     if (conversationJobs.get(job.chatId) === job) {
       conversationJobs.delete(job.chatId);
     }
+    refreshTaskAction();
     job.debug.group("Conversation stopped", {});
   })();
   return job.abortFinalization;
@@ -2642,7 +2711,20 @@ async function keepServiceWorkerAlive<T>(operation: Promise<T>): Promise<T> {
 }
 
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== CHAT_PORT_NAME || !isTrustedExtensionSender(port.sender)) {
+  if (!isTrustedExtensionSender(port.sender)) {
+    port.disconnect();
+    return;
+  }
+  if (port.name === PANEL_PRESENCE_PORT_NAME) {
+    openPanelPorts.add(port);
+    refreshTaskAction();
+    port.onDisconnect.addListener(() => {
+      openPanelPorts.delete(port);
+      refreshTaskAction();
+    });
+    return;
+  }
+  if (port.name !== CHAT_PORT_NAME) {
     port.disconnect();
     return;
   }
@@ -2673,6 +2755,7 @@ chrome.runtime.onConnect.addListener((port) => {
           abortIntentionally(pendingStart, "The conversation was stopped.");
         }
       }
+      refreshTaskAction();
       return;
     }
 
@@ -2723,6 +2806,7 @@ chrome.runtime.onConnect.addListener((port) => {
     }
     const abortController = new AbortController();
     pendingConversationStarts.set(message.chatId, abortController);
+    refreshTaskAction();
     startingChatId = message.chatId;
     attachedRequestId = message.requestId;
 
@@ -2812,6 +2896,7 @@ chrome.runtime.onConnect.addListener((port) => {
         activity: { chatId: message.chatId, state: "idle" },
       };
       conversationJobs.set(job.chatId, job);
+      refreshTaskAction();
       attachedJob = job;
       startingChatId = null;
       attachedRequestId = message.requestId;
@@ -2852,6 +2937,7 @@ chrome.runtime.onConnect.addListener((port) => {
       if (pendingConversationStarts.get(message.chatId) === abortController) {
         pendingConversationStarts.delete(message.chatId);
       }
+      refreshTaskAction();
       if (startingChatId === message.chatId) startingChatId = null;
     });
   });

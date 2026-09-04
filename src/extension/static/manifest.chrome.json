@@ -5,7 +5,13 @@
   "version": "0.2.0",
   "homepage_url": "https://github.com/ysobolev/gmtools",
   "minimum_chrome_version": "114",
-  "permissions": ["sidePanel", "identity", "storage", "scripting"],
+  "permissions": [
+    "sidePanel",
+    "contextMenus",
+    "identity",
+    "storage",
+    "scripting"
+  ],
   "host_permissions": [
     "https://app.roll20.net/*",
     "https://openrouter.ai/*"
