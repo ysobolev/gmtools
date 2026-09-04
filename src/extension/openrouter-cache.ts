@@ -1,9 +1,13 @@
 export const OPENROUTER_SESSION_HEADER = "x-session-id";
+export const OPENROUTER_APP_CATEGORIES = "personal-agent,game";
 
-export function createOpenRouterSessionHeaders(
+export function createOpenRouterRequestHeaders(
   chatId: string,
 ): Record<string, string> {
-  return { [OPENROUTER_SESSION_HEADER]: chatId };
+  return {
+    [OPENROUTER_SESSION_HEADER]: chatId,
+    "X-OpenRouter-Categories": OPENROUTER_APP_CATEGORIES,
+  };
 }
 
 export function createOpenRouterModelSettings(modelId: string):

@@ -14,9 +14,10 @@ const cache = await import(
   `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
 );
 
-test("uses the chat id as the OpenRouter sticky-session key", () => {
-  assert.deepEqual(cache.createOpenRouterSessionHeaders("chat-123"), {
+test("adds OpenRouter session and app-attribution headers", () => {
+  assert.deepEqual(cache.createOpenRouterRequestHeaders("chat-123"), {
     "x-session-id": "chat-123",
+    "X-OpenRouter-Categories": "personal-agent,game",
   });
 });
 

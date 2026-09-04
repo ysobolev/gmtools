@@ -162,7 +162,7 @@ import {
 } from "./openrouter-tools";
 import {
   createOpenRouterModelSettings,
-  createOpenRouterSessionHeaders,
+  createOpenRouterRequestHeaders,
 } from "./openrouter-cache";
 import { createViewRemoteImageTool } from "./remote-image-view";
 
@@ -2315,7 +2315,7 @@ async function streamChat(
     compatibility: "strict",
     appName: "GM Tools for VTT",
     appUrl: "https://github.com/ysobolev/gmtools",
-    headers: createOpenRouterSessionHeaders(job.chatId),
+    headers: createOpenRouterRequestHeaders(job.chatId),
   });
   const tools = {
     image_generation: createOpenRouterImageGenerationTool(),
