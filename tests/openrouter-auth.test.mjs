@@ -17,12 +17,22 @@ const auth = await import(
 test("creates the documented S256 OpenRouter authorization URL", () => {
   const callback = "https://extension-id.chromiumapp.org/openrouter";
   const challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
-  const url = new URL(auth.createAuthorizationUrl(callback, challenge));
+  const url = new URL(
+    auth.createAuthorizationUrl(
+      callback,
+      challenge,
+      auth.createOpenRouterKeyLabel("Chrome"),
+    ),
+  );
 
   assert.equal(url.origin + url.pathname, "https://openrouter.ai/auth");
   assert.equal(url.searchParams.get("callback_url"), callback);
   assert.equal(url.searchParams.get("code_challenge"), challenge);
   assert.equal(url.searchParams.get("code_challenge_method"), "S256");
+  assert.equal(
+    url.searchParams.get("key_label"),
+    "GM Tools for VTT (Chrome)",
+  );
 });
 
 test("derives the RFC 7636 S256 challenge", async () => {

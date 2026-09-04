@@ -1,4 +1,9 @@
 export const OPENROUTER_AUTH_URL = "https://openrouter.ai/auth";
+export const OPENROUTER_KEY_LABEL = "GM Tools for VTT";
+
+export function createOpenRouterKeyLabel(browserName: string): string {
+  return `${OPENROUTER_KEY_LABEL} (${browserName})`;
+}
 export const OPENROUTER_TOKEN_URL =
   "https://openrouter.ai/api/v1/auth/keys";
 export const OPENROUTER_KEY_INFO_URL = "https://openrouter.ai/api/v1/key";
@@ -44,11 +49,13 @@ export async function createS256Challenge(verifier: string): Promise<string> {
 export function createAuthorizationUrl(
   callbackUrl: string,
   challenge: string,
+  keyLabel: string,
 ): string {
   const url = new URL(OPENROUTER_AUTH_URL);
   url.searchParams.set("callback_url", callbackUrl);
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("code_challenge_method", "S256");
+  url.searchParams.set("key_label", keyLabel);
   return url.toString();
 }
 

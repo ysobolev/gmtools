@@ -16,11 +16,13 @@ async function sourceFiles(path) {
 const packageJson = JSON.parse(await readFile("package.json", "utf8"));
 const extensionBuilds = [
   {
+    browser: "Chrome",
     outdir: "generated/chrome",
     target: "chrome114",
     manifest: "src/extension/static/manifest.chrome.json",
   },
   {
+    browser: "Firefox",
     outdir: "generated/firefox",
     target: "firefox140",
     manifest: "src/extension/static/manifest.firefox.json",
@@ -64,7 +66,12 @@ await Promise.all(
 await mkdir("generated/roll20-mod", { recursive: true });
 
 await Promise.all([
-  ...extensionBuilds.flatMap(({ outdir, target, manifest }) => [
+  ...extensionBuilds.flatMap(({ browser, outdir, target, manifest }) => {
+    const browserDefines = {
+      ...extensionDefines,
+      __GMTOOLS_BROWSER_NAME__: JSON.stringify(browser),
+    };
+    return [
     build({
       entryPoints: ["src/extension/content-script.ts"],
       outdir,
@@ -72,7 +79,7 @@ await Promise.all([
       format: "iife",
       platform: "browser",
       target,
-      define: extensionDefines,
+      define: browserDefines,
       banner: generatedBanner,
     }),
     build({
@@ -88,7 +95,7 @@ await Promise.all([
       target,
       jsx: "automatic",
       define: {
-        ...extensionDefines,
+        ...browserDefines,
         "process.env.NODE_ENV": '"production"',
       },
       minify: true,
@@ -99,7 +106,8 @@ await Promise.all([
     copyFile("src/extension/static/options.css", `${outdir}/options.css`),
     copyFile("src/extension/static/sidepanel.html", `${outdir}/sidepanel.html`),
     copyFile("src/extension/static/sidepanel.css", `${outdir}/sidepanel.css`),
-  ]),
+    ];
+  }),
   build({
     entryPoints: ["src/roll20-mod/GMToolsPoc.ts"],
     outfile: "generated/roll20-mod/GMToolsPoc.js",

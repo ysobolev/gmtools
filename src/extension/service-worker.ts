@@ -15,6 +15,7 @@ import {
   OPENROUTER_KEY_INFO_URL,
   OPENROUTER_TOKEN_URL,
   createAuthorizationUrl,
+  createOpenRouterKeyLabel,
   createPkcePair,
   parseAuthorizationCallback,
   parseKeyInfoResponse,
@@ -117,7 +118,11 @@ import {
   type Roll20ExecutionOutcome,
   type SendAcknowledgement,
 } from "../protocol";
-import { EXTENSION_BUILD_ID, EXTENSION_VERSION } from "../build-info";
+import {
+  EXTENSION_BROWSER_NAME,
+  EXTENSION_BUILD_ID,
+  EXTENSION_VERSION,
+} from "../build-info";
 import {
   DEBUG_LOGGING_STORAGE_KEY,
   MAX_STEPS_STORAGE_KEY,
@@ -640,7 +645,11 @@ async function connectOpenRouter(): Promise<AuthStatus> {
     const callbackUrl = chrome.identity.getRedirectURL("openrouter");
     const pkce = await createPkcePair();
     const redirectedUrl = await chrome.identity.launchWebAuthFlow({
-      url: createAuthorizationUrl(callbackUrl, pkce.challenge),
+      url: createAuthorizationUrl(
+        callbackUrl,
+        pkce.challenge,
+        createOpenRouterKeyLabel(EXTENSION_BROWSER_NAME),
+      ),
       interactive: true,
     });
     if (!redirectedUrl) throw new Error("OpenRouter authorization was cancelled.");
