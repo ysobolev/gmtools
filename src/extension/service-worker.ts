@@ -51,7 +51,11 @@ import {
   generatedImageSystemContext,
   imageDataPartForModel,
 } from "./chat-images";
-import { normalizeGeneratedImages } from "./chat-image-normalization";
+import {
+  createGeneratedImageBudget,
+  normalizeGeneratedImageChunk,
+  type GeneratedImageToStore,
+} from "./chat-image-normalization";
 import { KeyedExecutionQueue } from "./keyed-execution-queue";
 import {
   AUTH_CONNECT_REQUEST,
@@ -1951,10 +1955,7 @@ async function streamChat(
     messages: untrustedMessages,
   });
   if (!validation.success) throw new Error("The chat history is invalid.");
-  const conversationMessages = await normalizeConversationImages(
-    job,
-    validation.data,
-  );
+  const conversationMessages = validation.data;
   await persistConversationInput(job, conversationMessages);
 
   const stored = await readStoredAuth();
@@ -2283,7 +2284,13 @@ async function streamChat(
     onError: userFacingModelError,
   });
 
-  for await (const chunk of stream as ReadableStream<UIMessageChunk>) {
+  const generatedImageBudget = createGeneratedImageBudget();
+  for await (const rawChunk of stream as ReadableStream<UIMessageChunk>) {
+    const chunk = await normalizeGeneratedImageChunk(
+      rawChunk,
+      generatedImageBudget,
+      (generated) => persistGeneratedImage(job, generated),
+    );
     job.chunks.push(chunk);
     broadcastJob(job, (requestId) => ({
       type: CHAT_CHUNK,
@@ -2344,41 +2351,29 @@ async function persistConversationInput(
   }
 }
 
-async function normalizeConversationImages(
+async function persistGeneratedImage(
   job: ConversationJob,
-  messages: readonly UIMessage[],
-): Promise<UIMessage[]> {
-  return normalizeGeneratedImages(
-    messages,
-    async (generated) => {
-      const stored = await saveChatImageBlob(job.chatId, {
-        id: generated.imageId,
-        filename: generated.filename,
-        mediaType: generated.mediaType,
-        blob: new Blob([new Uint8Array(generated.bytes)], {
-          type: generated.mediaType,
-        }),
-      });
-      job.debug.group("Generated image normalized", {
-        "Image ID": stored.id,
-        Filename: stored.filename,
-        "Size (bytes)": stored.size,
-      });
-      return {
-        imageId: stored.id,
-        filename: stored.filename,
-        mediaType: stored.mediaType,
-        size: stored.size,
-      };
-    },
-    (error, messageId, partIndex) => {
-      job.debug.group("Generated image normalization failed", {
-        "Message ID": messageId,
-        "Part index": partIndex,
-        Error: modelErrorDebugDetails(error),
-      });
-    },
-  );
+  generated: GeneratedImageToStore,
+) {
+  const stored = await saveChatImageBlob(job.chatId, {
+    id: generated.imageId,
+    filename: generated.filename,
+    mediaType: generated.mediaType,
+    blob: new Blob([new Uint8Array(generated.bytes)], {
+      type: generated.mediaType,
+    }),
+  });
+  job.debug.group("Generated image normalized", {
+    "Image ID": stored.id,
+    Filename: stored.filename,
+    "Size (bytes)": stored.size,
+  });
+  return {
+    imageId: stored.id,
+    filename: stored.filename,
+    mediaType: stored.mediaType,
+    size: stored.size,
+  };
 }
 
 async function persistCompletedConversation(
@@ -2391,15 +2386,11 @@ async function persistCompletedConversation(
       job.chunks,
     );
     if (!messages) return undefined;
-    const normalizedMessages = await normalizeConversationImages(
-      job,
-      messages,
-    );
-    await saveChatMessages(job.chatId, normalizedMessages);
+    await saveChatMessages(job.chatId, messages);
     job.debug.group("Conversation saved", {
-      "Message count": normalizedMessages.length,
+      "Message count": messages.length,
     });
-    return normalizedMessages;
+    return messages;
   } catch (error) {
     job.debug.group("Conversation save failed", {
       Error: modelErrorDebugDetails(error),

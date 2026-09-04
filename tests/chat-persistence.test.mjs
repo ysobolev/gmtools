@@ -54,3 +54,24 @@ test("does not produce a durable response when no assistant message exists", asy
     undefined,
   );
 });
+
+test("reconstructs a generated-image reference without raw image data", async () => {
+  const image = {
+    imageId: "generated:image-1",
+    filename: "generated-image.png",
+    mediaType: "image/png",
+    size: 3,
+  };
+  const messages = await persistence.reconstructCompletedConversation([], [
+    { type: "start", messageId: "assistant-1" },
+    { type: "data-generated-image", id: image.imageId, data: image },
+    { type: "finish", finishReason: "stop" },
+  ]);
+
+  assert.deepEqual(messages?.[0]?.parts, [{
+    type: "data-generated-image",
+    id: image.imageId,
+    data: image,
+  }]);
+  assert.doesNotMatch(JSON.stringify(messages), /data:image/);
+});

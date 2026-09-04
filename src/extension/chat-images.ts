@@ -108,7 +108,10 @@ export function createGeneratedImagePart(
   };
 }
 
-export function getGeneratedImageData(part: unknown): GeneratedImageData | null {
+export function getGeneratedImageData(
+  part: unknown,
+  maximumBytes = Number.POSITIVE_INFINITY,
+): GeneratedImageData | null {
   if (typeof part !== "object" || part === null) return null;
   const record = part as Record<string, unknown>;
   if (
@@ -121,21 +124,34 @@ export function getGeneratedImageData(part: unknown): GeneratedImageData | null 
   }
   const prefix = `data:${record.mediaType};base64,`;
   if (!record.url.startsWith(prefix)) return null;
+  const maximumEncodedLength = Math.ceil(maximumBytes / 3) * 4;
+  if (record.url.length - prefix.length > maximumEncodedLength) {
+    throw new Error(
+      `A generated image exceeded the ${maximumBytes / 1024 / 1024} MB size limit and was discarded.`,
+    );
+  }
+  const encoded = record.url.slice(prefix.length);
+  let binary: string;
   try {
-    const binary = atob(record.url.slice(prefix.length));
-    const extension = IMAGE_FILE_EXTENSIONS[record.mediaType];
-    const filename =
-      typeof record.filename === "string" && record.filename.trim()
-        ? record.filename.trim()
-        : `generated-image${extension}`;
-    return {
-      bytes: Uint8Array.from(binary, (character) => character.charCodeAt(0)),
-      filename,
-      mediaType: record.mediaType,
-    };
+    binary = atob(encoded);
   } catch {
     return null;
   }
+  if (binary.length > maximumBytes) {
+    throw new Error(
+      `A generated image exceeded the ${maximumBytes / 1024 / 1024} MB size limit and was discarded.`,
+    );
+  }
+  const extension = IMAGE_FILE_EXTENSIONS[record.mediaType];
+  const filename =
+    typeof record.filename === "string" && record.filename.trim()
+      ? record.filename.trim()
+      : `generated-image${extension}`;
+  return {
+    bytes: Uint8Array.from(binary, (character) => character.charCodeAt(0)),
+    filename,
+    mediaType: record.mediaType,
+  };
 }
 
 export function uploadedImagePrompt(reference: UploadedImageReference): string {
