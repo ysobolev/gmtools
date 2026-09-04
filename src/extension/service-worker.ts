@@ -2632,7 +2632,11 @@ function finishJob(job: ConversationJob, terminal: ConversationTerminal): void {
   if (job.terminal) return;
   job.terminal = terminal;
   refreshTaskAction();
-  setJobActivity(job, terminal.type === "complete" ? "unread" : "idle");
+  setJobActivity(
+    job,
+    terminal.type === "complete" ? "unread" : "error",
+    terminal.type === "error" ? terminal.error : undefined,
+  );
   broadcastJob(job, (requestId) =>
     terminal.type === "complete"
       ? { type: CHAT_COMPLETE, requestId }

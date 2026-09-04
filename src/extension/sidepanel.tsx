@@ -83,6 +83,7 @@ import {
 } from "./display-settings";
 import { ExtensionChatTransport } from "./extension-chat-transport";
 import {
+  countChatsNeedingAttention,
   createChatDraftStore,
   groupChatsByCampaign,
   nextChatIdAfterDeletion,
@@ -1386,7 +1387,9 @@ function ChatDrawer({
                             ? "Working"
                             : activity.state === "unread"
                               ? "New response"
-                              : "Thinking"}
+                              : activity.state === "error"
+                                ? "Failed"
+                                : "Thinking"}
                         </span>
                       ) : null}
                     </button>
@@ -1473,6 +1476,7 @@ function ChatDrawer({
 
 function ChatScreen({
   activeProfile,
+  attentionCount,
   chat,
   initialDraft,
   initialMessages,
@@ -1487,6 +1491,7 @@ function ChatScreen({
   profiles,
 }: {
   readonly activeProfile: AssistantProfile;
+  readonly attentionCount: number;
   readonly chat: ChatRecord;
   readonly initialDraft: string;
   readonly initialMessages: UIMessage[];
@@ -1724,13 +1729,20 @@ function ChatScreen({
       <header className="chat-header">
         <div className="chat-title-row">
           <button
-            aria-label="Open chats"
+            aria-label={attentionCount > 0
+              ? `Open chats, ${attentionCount} need attention`
+              : "Open chats"}
             className="chat-menu-button"
             onClick={onOpenChatDrawer}
             title="Open chats"
             type="button"
           >
             <span aria-hidden="true">☰</span>
+            {attentionCount > 0 ? (
+              <span className="chat-menu-badge" aria-hidden="true">
+                {attentionCount > 9 ? "9+" : attentionCount}
+              </span>
+            ) : null}
           </button>
           <div className="campaign-title-group">
             <h1
@@ -2098,7 +2110,9 @@ function ChatWorkspace(): React.JSX.Element {
   const switchChat = (chatId: string): void => {
     if (chatId === storedChat.chat.id) return;
     void (async () => {
-      await acknowledgeCompletedChat(chatId);
+      if (chatActivities[chatId]?.state !== "error") {
+        await acknowledgeCompletedChat(chatId);
+      }
       const loaded = await getStoredChat(chatId);
       if (loaded) {
         await activateStoredChat(loaded);
@@ -2171,6 +2185,11 @@ function ChatWorkspace(): React.JSX.Element {
     <div className="chat-workspace">
       <ChatScreen
         activeProfile={activeProfile}
+        attentionCount={countChatsNeedingAttention(
+          chats,
+          chatActivities,
+          storedChat.chat.id,
+        )}
         chat={storedChat.chat}
         initialDraft={draftsRef.current.get(storedChat.chat.id)}
         initialMessages={storedChat.messages}

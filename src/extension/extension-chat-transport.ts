@@ -1,6 +1,7 @@
 import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
 import {
   CHAT_ABORT,
+  CHAT_COMMIT,
   CHAT_COMPLETE,
   CHAT_CONTINUE,
   CHAT_ERROR,
@@ -82,6 +83,9 @@ export class ExtensionChatTransport implements ChatTransport<UIMessage> {
             finish(() => controller.close());
           } else if (value.type === CHAT_ERROR) {
             finish(() => controller.error(new Error(value.error)));
+            void chrome.runtime
+              .sendMessage({ type: CHAT_COMMIT, chatId })
+              .catch(() => undefined);
           } else {
             controller.enqueue(value.chunk);
           }

@@ -56,6 +56,31 @@ test("selects the next displayed chat after deletion", () => {
   assert.equal(chatUi.nextChatIdAfterDeletion([chat("only")], "only"), undefined);
 });
 
+test("counts only non-current chats that need attention", () => {
+  const paused = {
+    ...chat("paused"),
+    continuation: {
+      reason: "step-limit",
+      afterMessageId: "assistant-1",
+      stepLimit: 16,
+      createdAt: 2,
+    },
+  };
+  assert.equal(
+    chatUi.countChatsNeedingAttention(
+      [chat("current"), chat("thinking"), chat("unread"), chat("failed"), paused],
+      {
+        current: { chatId: "current", state: "unread" },
+        thinking: { chatId: "thinking", state: "thinking" },
+        unread: { chatId: "unread", state: "unread" },
+        failed: { chatId: "failed", state: "error" },
+      },
+      "current",
+    ),
+    3,
+  );
+});
+
 test("merges live and chat-derived campaign candidates by campaign ID", () => {
   const candidates = chatUi.mergeCampaignCandidates(
     [{

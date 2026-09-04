@@ -1,5 +1,8 @@
 import type { ChatRecord } from "./chat-store";
-import type { CampaignCandidate } from "./openrouter-protocol";
+import type {
+  CampaignCandidate,
+  ChatActivityStatus,
+} from "./openrouter-protocol";
 
 export interface CampaignChatGroup {
   readonly key: string;
@@ -85,6 +88,19 @@ export function nextChatIdAfterDeletion(
   if (remaining.length === 0) return undefined;
   if (deletedIndex < 0) return remaining[0]?.id;
   return remaining[Math.min(deletedIndex, remaining.length - 1)]?.id;
+}
+
+export function countChatsNeedingAttention(
+  chats: readonly ChatRecord[],
+  activities: Readonly<Record<string, ChatActivityStatus>>,
+  activeChatId: string,
+): number {
+  return chats.filter((chat) =>
+    chat.id !== activeChatId &&
+    (activities[chat.id]?.state === "unread" ||
+      activities[chat.id]?.state === "error" ||
+      chat.continuation !== undefined)
+  ).length;
 }
 
 export function mergeCampaignCandidates(

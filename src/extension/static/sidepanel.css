@@ -359,6 +359,15 @@ h1 {
   animation: none;
 }
 
+.chat-drawer-activity.error {
+  color: #df8a78 !important;
+}
+
+.chat-drawer-activity.error > span {
+  background: #db765d;
+  animation: none;
+}
+
 @keyframes drawer-activity-pulse {
   50% {
     opacity: 0.35;
@@ -518,6 +527,7 @@ h1 {
 }
 
 .chat-menu-button {
+  position: relative;
   display: grid;
   width: 24px;
   height: 24px;
@@ -530,6 +540,23 @@ h1 {
   line-height: 1;
   margin-left: -9px;
   opacity: 1;
+}
+
+.chat-menu-badge {
+  position: absolute;
+  top: -4px;
+  right: -5px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border: 2px solid #20242b;
+  border-radius: 999px;
+  background: #db765d;
+  color: #fff;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 10px;
+  text-align: center;
 }
 
 .chat-settings-button {
@@ -1390,6 +1417,10 @@ h1 {
 :root[data-theme="light"] .composer-area {
   border-color: #ddd7ce;
   background: rgb(250 248 244 / 92%);
+}
+
+:root[data-theme="light"] .chat-menu-badge {
+  border-color: #faf8f4;
 }
 
 :root[data-theme="light"] .remote-image-permission {
