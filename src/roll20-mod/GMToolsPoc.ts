@@ -125,7 +125,7 @@ function executeCode(
 ): void {
   try {
     const evaluate = eval;
-    const result: unknown = evaluate(`(function () {\n${code}\n})()`);
+    const result: unknown = evaluate(`(async function () {\n${code}\n})()`);
     if (
       typeof result === "object" &&
       result !== null &&

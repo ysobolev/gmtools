@@ -87,6 +87,7 @@ test("the Mod script executes GM code and returns its result privately", async (
     state.GMTools.campaignId,
   );
   handlers.get("chat:message")(message);
+  await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(sentMessages.length, 2);
   assert.equal(readAcknowledgement(sentMessages[0]).accepted, true);
@@ -119,7 +120,7 @@ test("the Mod script awaits promises returned by executed code", async () => {
   const { handlers, sentMessages, state } = await loadMod();
   const { message } = executeMessage('return Promise.resolve({ value: "later" });', state.GMTools.campaignId);
   handlers.get("chat:message")(message);
-  await Promise.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(readOutcome(sentMessages[1]), {
     ok: true,
@@ -127,10 +128,26 @@ test("the Mod script awaits promises returned by executed code", async () => {
   });
 });
 
+test("the Mod script supports top-level await in executed code", async () => {
+  const { handlers, sentMessages, state } = await loadMod();
+  const { message } = executeMessage(
+    'const value = await Promise.resolve("awaited"); return { value };',
+    state.GMTools.campaignId,
+  );
+  handlers.get("chat:message")(message);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(readOutcome(sentMessages[1]), {
+    ok: true,
+    result: { value: "awaited" },
+  });
+});
+
 test("the Mod script returns execution errors", async () => {
   const { handlers, sentMessages, state } = await loadMod();
   const { message } = executeMessage('throw new TypeError("broken token");', state.GMTools.campaignId);
   handlers.get("chat:message")(message);
+  await new Promise((resolve) => setImmediate(resolve));
 
   const outcome = readOutcome(sentMessages[1]);
   assert.equal(outcome.ok, false);
@@ -142,6 +159,7 @@ test("the Mod script reports results that cannot survive JSON transport", async 
   const { handlers, sentMessages, state } = await loadMod();
   const { message } = executeMessage("return function unavailable() {}; ", state.GMTools.campaignId);
   handlers.get("chat:message")(message);
+  await new Promise((resolve) => setImmediate(resolve));
 
   const outcome = readOutcome(sentMessages[1]);
   assert.equal(outcome.ok, false);

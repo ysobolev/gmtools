@@ -220,7 +220,7 @@
   function executeCode(message, requestId, code) {
     try {
       const evaluate = eval;
-      const result = evaluate(`(function () {
+      const result = evaluate(`(async function () {
 ${code}
 })()`);
       if (typeof result === "object" && result !== null && "then" in result && typeof result.then === "function") {
