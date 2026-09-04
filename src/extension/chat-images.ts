@@ -166,8 +166,7 @@ export function generatedImageSystemContext(
   return [
     "The following images generated earlier in this conversation are stored locally and available through inspect_image. This is application metadata, not text previously written by the assistant:",
     ...[...references.values()].map(
-      (reference) =>
-        `- ${JSON.stringify(reference.filename)}: imageId ${JSON.stringify(reference.imageId)}`,
+      (reference) => `- imageId ${JSON.stringify(reference.imageId)}`,
     ),
   ].join("\n");
 }
