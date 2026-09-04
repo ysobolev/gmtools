@@ -9,9 +9,11 @@ import {
   MIN_MAX_STEPS,
   UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
   WEB_SEARCH_STORAGE_KEY,
+  REQUIRE_ROLL20_APPROVAL_STORAGE_KEY,
   isDebugLoggingEnabled,
   isUnrestrictedWebFetchEnabled,
   isWebSearchEnabled,
+  isRoll20ApprovalRequired,
   normalizeMaxSteps,
 } from "./behavior-settings";
 import {
@@ -622,19 +624,23 @@ function AuthenticationSettings({
 function BehaviorSettings({
   debugLoggingEnabled,
   maxSteps,
+  requireRoll20Approval,
   unrestrictedWebFetchEnabled,
   webSearchEnabled,
   onDebugLoggingChange,
   onMaxStepsChange,
+  onRequireRoll20ApprovalChange,
   onUnrestrictedWebFetchChange,
   onWebSearchChange,
 }: {
   readonly debugLoggingEnabled: boolean;
   readonly maxSteps: number;
+  readonly requireRoll20Approval: boolean;
   readonly unrestrictedWebFetchEnabled: boolean;
   readonly webSearchEnabled: boolean;
   readonly onDebugLoggingChange: (enabled: boolean) => void;
   readonly onMaxStepsChange: (steps: number) => void;
+  readonly onRequireRoll20ApprovalChange: (enabled: boolean) => void;
   readonly onUnrestrictedWebFetchChange: (enabled: boolean) => void;
   readonly onWebSearchChange: (enabled: boolean) => void;
 }): React.JSX.Element {
@@ -689,6 +695,24 @@ function BehaviorSettings({
 
         <label className="toggle-card behavior-card">
           <input
+            checked={requireRoll20Approval}
+            onChange={(event) =>
+              onRequireRoll20ApprovalChange(event.target.checked)
+            }
+            type="checkbox"
+          />
+          <span>
+            <strong>Require approval for Roll20 execution</strong>
+            <small>
+              Pauses every model-requested Roll20 command so you can review its
+              action and generated JavaScript before it runs. Campaign
+              discovery and compatibility checks do not require approval.
+            </small>
+          </span>
+        </label>
+
+        <label className="toggle-card behavior-card">
+          <input
             checked={unrestrictedWebFetchEnabled}
             onChange={(event) =>
               onUnrestrictedWebFetchChange(event.target.checked)
@@ -735,6 +759,7 @@ function OptionsApp(): React.JSX.Element {
   const [unrestrictedWebFetchEnabled, setUnrestrictedWebFetchEnabled] =
     useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [requireRoll20Approval, setRequireRoll20Approval] = useState(false);
   const [maxSteps, setMaxSteps] = useState(DEFAULT_MAX_STEPS);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
@@ -755,6 +780,7 @@ function OptionsApp(): React.JSX.Element {
         MAX_STEPS_STORAGE_KEY,
         UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
         WEB_SEARCH_STORAGE_KEY,
+        REQUIRE_ROLL20_APPROVAL_STORAGE_KEY,
       ])
       .then((stored) => {
         setDebugLoggingEnabled(
@@ -767,6 +793,11 @@ function OptionsApp(): React.JSX.Element {
           ),
         );
         setWebSearchEnabled(isWebSearchEnabled(stored[WEB_SEARCH_STORAGE_KEY]));
+        setRequireRoll20Approval(
+          isRoll20ApprovalRequired(
+            stored[REQUIRE_ROLL20_APPROVAL_STORAGE_KEY],
+          ),
+        );
       });
   }, []);
 
@@ -821,6 +852,13 @@ function OptionsApp(): React.JSX.Element {
   const changeWebSearch = (enabled: boolean): void => {
     setWebSearchEnabled(enabled);
     void chrome.storage.local.set({ [WEB_SEARCH_STORAGE_KEY]: enabled });
+  };
+
+  const changeRequireRoll20Approval = (enabled: boolean): void => {
+    setRequireRoll20Approval(enabled);
+    void chrome.storage.local.set({
+      [REQUIRE_ROLL20_APPROVAL_STORAGE_KEY]: enabled,
+    });
   };
 
   const changePersistence = (enabled: boolean): void => {
@@ -921,8 +959,10 @@ function OptionsApp(): React.JSX.Element {
               maxSteps={maxSteps}
               onDebugLoggingChange={changeDebugLogging}
               onMaxStepsChange={changeMaxSteps}
+              onRequireRoll20ApprovalChange={changeRequireRoll20Approval}
               onUnrestrictedWebFetchChange={changeUnrestrictedWebFetch}
               onWebSearchChange={changeWebSearch}
+              requireRoll20Approval={requireRoll20Approval}
               unrestrictedWebFetchEnabled={unrestrictedWebFetchEnabled}
               webSearchEnabled={webSearchEnabled}
             />

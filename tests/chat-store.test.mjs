@@ -58,6 +58,14 @@ test("rejects malformed durable chat records", () => {
   assert.equal(chats.isChatRecord({ ...chat, notices: [{}] }), false);
   assert.equal(chats.isChatRecord({ ...chat, updatedAt: -1 }), false);
   assert.equal(
+    chats.isChatRecord({ ...chat, pendingRoll20Approvals: 2 }),
+    true,
+  );
+  assert.equal(
+    chats.isChatRecord({ ...chat, pendingRoll20Approvals: 0 }),
+    false,
+  );
+  assert.equal(
     chats.isChatRecord({
       ...chat,
       continuation: {

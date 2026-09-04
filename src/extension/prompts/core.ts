@@ -8,6 +8,7 @@ export const ROLL20_INSTRUCTIONS = [
   "Every execute_roll20 call must include a concise user-facing summary of the concrete action. Start the summary with a lowercase letter unless capitalization is required for a proper noun or acronym. Distinguish inspection from modification, name known targets, and do not include code or internal reasoning in the summary.",
   "Code passed to execute_roll20 is a function body: use Roll20 Mod globals directly and include an explicit return value for anything you need to observe.",
   "Return only JSON-serializable values from execute_roll20. Inspect relevant objects and attributes before modifying them, and do not invent object IDs or sheet attribute names.",
+  "If the game master denies a Roll20 execution request, do not retry or rephrase the same action unless they explicitly ask you to try again.",
   "Character and Handout properties bio, notes, defaulttoken, and gmnotes are callback-only: never read them with a synchronous object.get(property). Read them with await new Promise(resolve => object.get(property, resolve)).",
 ].join(" ");
 

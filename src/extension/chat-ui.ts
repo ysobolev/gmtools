@@ -99,6 +99,8 @@ export function countChatsNeedingAttention(
     chat.id !== activeChatId &&
     (activities[chat.id]?.state === "unread" ||
       activities[chat.id]?.state === "error" ||
+      activities[chat.id]?.state === "approval" ||
+      Boolean(chat.pendingRoll20Approvals) ||
       chat.continuation !== undefined)
   ).length;
 }

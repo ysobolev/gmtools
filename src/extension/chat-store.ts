@@ -47,6 +47,7 @@ export interface ChatRecord {
   readonly campaignName?: string;
   readonly campaignModVersion?: string;
   readonly continuation?: ChatContinuation;
+  readonly pendingRoll20Approvals?: number;
   readonly notices: readonly ChatNotice[];
   readonly createdAt: number;
   readonly updatedAt: number;
@@ -113,6 +114,10 @@ export function isChatRecord(value: unknown): value is ChatRecord {
       typeof value.campaignModVersion === "string") &&
     (value.continuation === undefined ||
       isChatContinuation(value.continuation)) &&
+    (value.pendingRoll20Approvals === undefined ||
+      (typeof value.pendingRoll20Approvals === "number" &&
+        Number.isInteger(value.pendingRoll20Approvals) &&
+        value.pendingRoll20Approvals > 0)) &&
     Array.isArray(value.notices) &&
     value.notices.every(isChatNotice) &&
     isFiniteTimestamp(value.createdAt) &&
@@ -449,6 +454,22 @@ export async function updateChatContinuation(
   return updated;
 }
 
+export async function updateChatPendingRoll20Approvals(
+  chatId: string,
+  count: number,
+): Promise<ChatRecord> {
+  const chat = await getChat(chatId);
+  if (!chat) throw new Error("The chat no longer exists.");
+  const updated: ChatRecord = count > 0
+    ? { ...chat, pendingRoll20Approvals: count, updatedAt: Date.now() }
+    : (() => {
+        const { pendingRoll20Approvals: _pending, ...remaining } = chat;
+        return { ...remaining, updatedAt: Date.now() };
+      })();
+  await putChat(updated);
+  return updated;
+}
+
 export async function updateChatCampaign(
   chatId: string,
   campaign:
@@ -461,6 +482,12 @@ export async function updateChatCampaign(
 ): Promise<void> {
   const chat = await getChat(chatId);
   if (!chat) return;
+  const {
+    campaignId: _campaignId,
+    campaignName: _campaignName,
+    campaignModVersion: _campaignModVersion,
+    ...chatWithoutCampaign
+  } = chat;
   const updated: ChatRecord = campaign
     ? {
         ...chat,
@@ -469,14 +496,6 @@ export async function updateChatCampaign(
         campaignModVersion: campaign.campaignModVersion,
         updatedAt: Date.now(),
       }
-    : {
-        id: chat.id,
-        title: chat.title,
-        profileId: chat.profileId,
-        notices: chat.notices,
-        ...(chat.continuation ? { continuation: chat.continuation } : {}),
-        createdAt: chat.createdAt,
-        updatedAt: Date.now(),
-      };
+    : { ...chatWithoutCampaign, updatedAt: Date.now() };
   await putChat(updated);
 }

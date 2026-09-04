@@ -368,6 +368,15 @@ h1 {
   animation: none;
 }
 
+.chat-drawer-activity.approval {
+  color: #e2bd69 !important;
+}
+
+.chat-drawer-activity.approval > span {
+  background: #e2ad45;
+  animation: none;
+}
+
 @keyframes drawer-activity-pulse {
   50% {
     opacity: 0.35;
@@ -1085,12 +1094,108 @@ h1 {
   animation: receipt-pulse 1.1s infinite ease-in-out;
 }
 
+.tool-receipt.approved .tool-receipt-icon {
+  color: #d2a24f;
+  animation: receipt-pulse 1.1s infinite ease-in-out;
+}
+
+.tool-receipt.denied .tool-receipt-icon {
+  color: #a1a7b0;
+}
+
 .tool-receipt.failed .tool-receipt-icon {
   color: #cb5b42;
 }
 
 .tool-receipt.timed-out .tool-receipt-icon {
   color: #d2a24f;
+}
+
+.roll20-approval {
+  margin: 9px 0;
+  padding: 11px;
+  border: 1px solid #675537;
+  border-radius: 9px;
+  background: #211e19;
+  color: #dcd7ce;
+}
+
+.roll20-approval-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.roll20-approval-heading strong {
+  color: #edcf83;
+  font-size: 0.8rem;
+}
+
+.roll20-approval-heading span {
+  overflow: hidden;
+  color: #9d968a;
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roll20-approval p {
+  margin: 7px 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.roll20-approval details {
+  color: #a9a298;
+  font-size: 0.7rem;
+}
+
+.roll20-approval summary {
+  cursor: pointer;
+}
+
+.roll20-approval pre {
+  max-height: 240px;
+  margin: 7px 0 0;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid #39372f;
+  border-radius: 6px;
+  background: #131511;
+  color: #d6d8d1;
+  font-size: 0.66rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.roll20-approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.roll20-approval-actions button {
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid #57534b;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.roll20-approval-actions .deny {
+  background: transparent;
+  color: #bbb4aa;
+}
+
+.roll20-approval-actions .allow {
+  border-color: #9b664d;
+  background: #9c4e3d;
+  color: #fff8f2;
 }
 
 @keyframes receipt-pulse {
@@ -1399,6 +1504,38 @@ h1 {
   border-color: #b99a5a;
   background: #fff2cf;
   color: #604817;
+}
+
+:root[data-theme="light"] .roll20-approval {
+  border-color: #d5b979;
+  background: #fff8e8;
+  color: #3f3a32;
+}
+
+:root[data-theme="light"] .roll20-approval-heading strong {
+  color: #735718;
+}
+
+:root[data-theme="light"] .roll20-approval-heading span,
+:root[data-theme="light"] .roll20-approval details {
+  color: #716858;
+}
+
+:root[data-theme="light"] .roll20-approval pre {
+  border-color: #d9d0bf;
+  background: #f4efe5;
+  color: #34312d;
+}
+
+:root[data-theme="light"] .roll20-approval-actions .deny {
+  border-color: #bdb5aa;
+  color: #514c45;
+}
+
+:root[data-theme="light"] .roll20-approval-actions .allow {
+  border-color: #944d3c;
+  background: #a85543;
+  color: #fff;
 }
 
 :root[data-theme="light"] .login-card {

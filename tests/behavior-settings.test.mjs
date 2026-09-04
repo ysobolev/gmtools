@@ -35,6 +35,13 @@ test("enables web search only for an explicit true preference", () => {
   assert.equal(behavior.isWebSearchEnabled(undefined), false);
 });
 
+test("requires Roll20 approval only for an explicit true preference", () => {
+  assert.equal(behavior.isRoll20ApprovalRequired(true), true);
+  assert.equal(behavior.isRoll20ApprovalRequired(false), false);
+  assert.equal(behavior.isRoll20ApprovalRequired("true"), false);
+  assert.equal(behavior.isRoll20ApprovalRequired(undefined), false);
+});
+
 test("normalizes the maximum steps preference", () => {
   assert.equal(behavior.normalizeMaxSteps(undefined), 24);
   assert.equal(behavior.normalizeMaxSteps(8), 8);

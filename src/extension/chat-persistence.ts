@@ -165,6 +165,9 @@ export async function reconstructCompletedConversation(
   chunks: readonly UIMessageChunk[],
 ): Promise<UIMessage[] | undefined> {
   let completedAssistantMessage: UIMessage | undefined;
+  const finalInputMessage = inputMessages.at(-1);
+  const continuedAssistantMessage =
+    finalInputMessage?.role === "assistant" ? finalInputMessage : undefined;
   const replay = new ReadableStream<UIMessageChunk>({
     start(controller) {
       for (const chunk of chunks) controller.enqueue(chunk);
@@ -172,11 +175,21 @@ export async function reconstructCompletedConversation(
     },
   });
 
-  for await (const message of readUIMessageStream({ stream: replay })) {
+  for await (const message of readUIMessageStream({
+    ...(continuedAssistantMessage
+      ? { message: continuedAssistantMessage }
+      : {}),
+    stream: replay,
+  })) {
     completedAssistantMessage = message;
   }
   return completedAssistantMessage
-    ? [...inputMessages, completedAssistantMessage]
+    ? [
+        ...(continuedAssistantMessage
+          ? inputMessages.slice(0, -1)
+          : inputMessages),
+        completedAssistantMessage,
+      ]
     : undefined;
 }
 

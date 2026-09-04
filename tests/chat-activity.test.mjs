@@ -11,6 +11,7 @@ const { outputFiles } = await build({
 });
 const activitySource = outputFiles[0].text;
 const {
+  countPendingRoll20Approvals,
   getAssistantContentBlocks,
   getChatActivity,
   getRoll20Receipts,
@@ -322,5 +323,58 @@ test("places an active Roll20 call inline with a working status", () => {
       status: "working",
     },
   });
+  assert.equal(hasActiveRoll20Status(message), true);
+});
+
+test("exposes pending Roll20 approval details inline", () => {
+  const message = assistant([
+    {
+      type: "tool-execute_roll20",
+      toolCallId: "tool-approval",
+      state: "approval-requested",
+      input: { summary: "moving Flippy", code: "return 1;" },
+      approval: { id: "approval-1", isAutomatic: false },
+    },
+  ]);
+
+  assert.deepEqual(getAssistantContentBlocks(message), [
+    {
+      type: "roll20-approval",
+      approval: {
+        approvalId: "approval-1",
+        toolCallId: "tool-approval",
+        summary: "moving Flippy",
+        code: "return 1;",
+      },
+    },
+  ]);
+  assert.equal(countPendingRoll20Approvals([message]), 1);
+  assert.equal(hasActiveRoll20Status(message), true);
+});
+
+test("shows an approved Roll20 call as queued", () => {
+  const message = assistant([
+    {
+      type: "tool-execute_roll20",
+      toolCallId: "tool-approved",
+      state: "approval-responded",
+      input: { summary: "moving Flippy", code: "return 1;" },
+      approval: {
+        id: "approval-1",
+        approved: true,
+        isAutomatic: false,
+      },
+    },
+  ]);
+
+  assert.deepEqual(getAssistantContentBlocks(message).at(-1), {
+    type: "roll20-status",
+    receipt: {
+      toolCallId: "tool-approved",
+      summary: "moving Flippy",
+      status: "approved",
+    },
+  });
+  assert.equal(countPendingRoll20Approvals([message]), 0);
   assert.equal(hasActiveRoll20Status(message), true);
 });

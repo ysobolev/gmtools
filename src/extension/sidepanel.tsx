@@ -1,6 +1,10 @@
 import "./configure-csp";
 import { useChat } from "@ai-sdk/react";
-import { safeValidateUIMessages, type UIMessage } from "ai";
+import {
+  lastAssistantMessageIsCompleteWithApprovalResponses,
+  safeValidateUIMessages,
+  type UIMessage,
+} from "ai";
 import {
   ClipboardEvent,
   DragEvent,
@@ -26,9 +30,11 @@ import {
   isOpenRouterImageUrl,
 } from "./assistant-images";
 import {
+  countPendingRoll20Approvals,
   getAssistantContentBlocks,
   getChatActivity,
   hasActiveRoll20Status,
+  type Roll20ApprovalRequest,
   type Roll20Receipt,
 } from "./chat-activity";
 import {
@@ -114,6 +120,7 @@ import {
   isCampaignStatusResponse,
   isChatActivitiesResponse,
   isChatActivityChangedMessage,
+  isChatApprovalsChangedMessage,
   isChatContinuationChangedMessage,
   type AuthRequest,
   type AuthStatus,
@@ -141,6 +148,15 @@ function withChatContinuation(
 ): ChatRecord {
   if (continuation) return { ...chat, continuation };
   const { continuation: _continuation, ...remaining } = chat;
+  return remaining;
+}
+
+function withPendingRoll20Approvals(
+  chat: ChatRecord,
+  count: number,
+): ChatRecord {
+  if (count > 0) return { ...chat, pendingRoll20Approvals: count };
+  const { pendingRoll20Approvals: _pending, ...remaining } = chat;
   return remaining;
 }
 
@@ -289,8 +305,12 @@ function Roll20Status({
   const label =
     receipt.status === "working"
       ? "Working"
+      : receipt.status === "approved"
+        ? "Approved — queued"
       : receipt.status === "completed"
         ? "Completed"
+        : receipt.status === "denied"
+          ? "Denied"
         : receipt.status === "timed-out"
           ? "Timed out; outcome unknown"
           : "Failed";
@@ -304,8 +324,12 @@ function Roll20Status({
         <span aria-hidden="true" className="tool-receipt-icon">
           {receipt.status === "working"
             ? "…"
+            : receipt.status === "approved"
+              ? "…"
             : receipt.status === "completed"
               ? "✓"
+              : receipt.status === "denied"
+                ? "−"
               : receipt.status === "timed-out"
                 ? "?"
                 : "✕"}
@@ -313,6 +337,46 @@ function Roll20Status({
         <span>{receipt.summary}</span>
       </li>
     </ul>
+  );
+}
+
+function Roll20Approval({
+  approval,
+  campaignName,
+  onRespond,
+}: {
+  readonly approval: Roll20ApprovalRequest;
+  readonly campaignName: string;
+  readonly onRespond: (approvalId: string, approved: boolean) => void;
+}): React.JSX.Element {
+  return (
+    <section className="roll20-approval" aria-label="Roll20 approval required">
+      <div className="roll20-approval-heading">
+        <strong>Allow Roll20 execution?</strong>
+        <span>{campaignName}</span>
+      </div>
+      <p>{approval.summary}</p>
+      <details>
+        <summary>Review generated JavaScript</summary>
+        <pre><code>{approval.code}</code></pre>
+      </details>
+      <div className="roll20-approval-actions">
+        <button
+          className="deny"
+          onClick={() => onRespond(approval.approvalId, false)}
+          type="button"
+        >
+          Deny
+        </button>
+        <button
+          className="allow"
+          onClick={() => onRespond(approval.approvalId, true)}
+          type="button"
+        >
+          Allow
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -534,21 +598,28 @@ function ChatNameEditor({
 }
 
 const ConversationPane = memo(function ConversationPane({
+  campaignName,
   chatId,
   initialScrollPosition,
   messages,
   notices,
   continuation,
   onContinue,
+  onRoll20ApprovalResponse,
   onScrollPositionChange,
   status,
 }: {
+  readonly campaignName: string;
   readonly chatId: string;
   readonly initialScrollPosition: ChatScrollPosition | undefined;
   readonly messages: readonly UIMessage[];
   readonly notices: ChatRecord["notices"];
   readonly continuation: ChatContinuation | undefined;
   readonly onContinue: () => void;
+  readonly onRoll20ApprovalResponse: (
+    approvalId: string,
+    approved: boolean,
+  ) => void;
   readonly onScrollPositionChange: (
     chatId: string,
     position: ChatScrollPosition,
@@ -789,6 +860,16 @@ const ConversationPane = memo(function ConversationPane({
                 ) : null}
                 {message.role === "assistant" ? (
                   assistantBlocks.map((block, blockIndex) => {
+                    if (block.type === "roll20-approval") {
+                      return (
+                        <Roll20Approval
+                          approval={block.approval}
+                          campaignName={campaignName}
+                          key={block.approval.toolCallId}
+                          onRespond={onRoll20ApprovalResponse}
+                        />
+                      );
+                    }
                     if (block.type === "roll20-status") {
                       return (
                         <Roll20Status
@@ -901,6 +982,7 @@ const ConversationPane = memo(function ConversationPane({
 });
 
 function ChatComposer({
+  awaitingApproval,
   busy,
   canResumeAfterError,
   chatId,
@@ -914,6 +996,7 @@ function ChatComposer({
   onSend,
   onStop,
 }: {
+  readonly awaitingApproval: boolean;
   readonly busy: boolean;
   readonly canResumeAfterError: boolean;
   readonly chatId: string;
@@ -1146,7 +1229,7 @@ function ChatComposer({
 
   const submit = (): void => {
     const text = input.trim();
-    if ((!text && pendingImages.length === 0) || busy) return;
+    if ((!text && pendingImages.length === 0) || busy || awaitingApproval) return;
     onClearError();
     updateInput("");
     setAttachmentError(null);
@@ -1272,6 +1355,7 @@ function ChatComposer({
       >
         <textarea
           aria-label="Message GM Tools"
+          disabled={awaitingApproval}
           onChange={(event) => updateInput(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
@@ -1280,7 +1364,9 @@ function ChatComposer({
             }
           }}
           onPaste={handlePaste}
-          placeholder="Ask, paste, or drop an image…"
+          placeholder={awaitingApproval
+            ? "Approve or deny the pending Roll20 action…"
+            : "Ask, paste, or drop an image…"}
           ref={textareaRef}
           rows={1}
           value={input}
@@ -1298,7 +1384,10 @@ function ChatComposer({
           <button
             aria-label="Send message"
             className="send-button"
-            disabled={!input.trim() && pendingImages.length === 0}
+            disabled={
+              awaitingApproval ||
+              (!input.trim() && pendingImages.length === 0)
+            }
             type="submit"
           >
             ↑
@@ -1360,6 +1449,9 @@ function ChatDrawer({
               <h3 title={group.name}>{group.name}</h3>
               {group.chats.map((candidate) => {
                 const activity = activities[candidate.id];
+                const pendingApproval = Boolean(
+                  candidate.pendingRoll20Approvals,
+                );
                 return (
                   <div
                     className={
@@ -1375,19 +1467,23 @@ function ChatDrawer({
                       type="button"
                     >
                       <strong>{candidate.title}</strong>
-                      {activity &&
-                      (activity.state !== "unread" ||
+                      {(activity || pendingApproval) &&
+                      (activity?.state !== "unread" ||
                         candidate.id !== activeChatId) ? (
                         <span
-                          className={`chat-drawer-activity ${activity.state}`}
-                          title={activity.summary}
+                          className={`chat-drawer-activity ${pendingApproval ? "approval" : activity?.state}`}
+                          title={pendingApproval
+                            ? "Roll20 approval needed"
+                            : activity?.summary}
                         >
                           <span aria-hidden="true" />
-                          {activity.state === "working"
+                          {pendingApproval
+                            ? "Approval needed"
+                            : activity?.state === "working"
                             ? "Working"
-                            : activity.state === "unread"
+                            : activity?.state === "unread"
                               ? "New response"
-                              : activity.state === "error"
+                              : activity?.state === "error"
                                 ? "Failed"
                                 : "Thinking"}
                         </span>
@@ -1523,12 +1619,14 @@ function ChatScreen({
     error,
     clearError,
     setMessages,
+    addToolApprovalResponse,
   } = useChat({
     id: chatId,
     messages: initialMessages,
     transport,
     throttle: 40,
     resume: true,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   });
   const [campaignStatus, setCampaignStatus] = useState<CampaignStatus>(() =>
     chat.campaignId && chat.campaignName
@@ -1551,6 +1649,7 @@ function ChatScreen({
   >([]);
   const activeTurnRef = useRef(false);
   const busy = status === "submitted" || status === "streaming";
+  const awaitingApproval = countPendingRoll20Approvals(messages) > 0;
 
   useEffect(() => {
     const handleCampaignStatus = (message: unknown): void => {
@@ -1754,7 +1853,9 @@ function ChatScreen({
             </h1>
             <button
               className="campaign-action-button"
-              disabled={busy || campaignActionPending !== null}
+              disabled={
+                busy || awaitingApproval || campaignActionPending !== null
+              }
               onClick={() => void (campaignBound ? detach() : beginAttach())}
               title={
                 campaignBound
@@ -1847,16 +1948,27 @@ function ChatScreen({
       ) : null}
 
       <ConversationPane
+        campaignName={campaignLabel}
         chatId={chatId}
         continuation={chat.continuation}
         initialScrollPosition={initialScrollPosition}
         messages={messages}
         notices={chat.notices}
         onContinue={continueTask}
+        onRoll20ApprovalResponse={(approvalId, approved) => {
+          void addToolApprovalResponse({
+            id: approvalId,
+            approved,
+            reason: approved
+              ? "Approved by the game master."
+              : "Denied by the game master. Do not retry this action unless the game master explicitly requests it.",
+          });
+        }}
         onScrollPositionChange={onScrollPositionChange}
         status={status}
       />
       <ChatComposer
+        awaitingApproval={awaitingApproval}
         busy={busy}
         canResumeAfterError={chat.continuation?.reason === "stream-error"}
         chatId={chatId}
@@ -2068,6 +2180,27 @@ function ChatWorkspace(): React.JSX.Element {
     };
     chrome.runtime.onMessage.addListener(handleContinuation);
     return () => chrome.runtime.onMessage.removeListener(handleContinuation);
+  }, [setCurrentChat]);
+
+  useEffect(() => {
+    const handleApprovals = (message: unknown): void => {
+      if (!isChatApprovalsChangedMessage(message)) return;
+      setChats((current) =>
+        current.map((chat) =>
+          chat.id === message.chatId
+            ? withPendingRoll20Approvals(chat, message.count)
+            : chat,
+        ),
+      );
+      const current = storedChatRef.current;
+      if (!current || current.chat.id !== message.chatId) return;
+      setCurrentChat({
+        ...current,
+        chat: withPendingRoll20Approvals(current.chat, message.count),
+      });
+    };
+    chrome.runtime.onMessage.addListener(handleApprovals);
+    return () => chrome.runtime.onMessage.removeListener(handleApprovals);
   }, [setCurrentChat]);
 
   if (!profiles || !storedChat) return <LoadingScreen />;

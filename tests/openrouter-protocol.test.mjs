@@ -139,6 +139,7 @@ test("validates chat activity snapshots and updates", () => {
         { chatId: "chat-2", state: "working", summary: "moving Flippy" },
         { chatId: "chat-3", state: "unread" },
         { chatId: "chat-4", state: "error", summary: "Provider failed" },
+        { chatId: "chat-5", state: "approval" },
       ],
     }),
     true,
@@ -154,6 +155,25 @@ test("validates chat activity snapshots and updates", () => {
     protocol.isChatActivitiesResponse({
       ok: true,
       activities: [{ chatId: "chat-1", state: "unknown" }],
+    }),
+    false,
+  );
+});
+
+test("validates pending approval updates", () => {
+  assert.equal(
+    protocol.isChatApprovalsChangedMessage({
+      type: protocol.CHAT_APPROVALS_CHANGED,
+      chatId: "chat-1",
+      count: 2,
+    }),
+    true,
+  );
+  assert.equal(
+    protocol.isChatApprovalsChangedMessage({
+      type: protocol.CHAT_APPROVALS_CHANGED,
+      chatId: "chat-1",
+      count: -1,
     }),
     false,
   );

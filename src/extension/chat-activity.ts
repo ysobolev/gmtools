@@ -8,12 +8,52 @@ export interface ChatActivity {
 export interface Roll20Receipt {
   readonly toolCallId: string;
   readonly summary: string;
-  readonly status: "working" | "completed" | "failed" | "timed-out";
+  readonly status:
+    | "working"
+    | "approved"
+    | "completed"
+    | "denied"
+    | "failed"
+    | "timed-out";
+}
+
+export interface Roll20ApprovalRequest {
+  readonly approvalId: string;
+  readonly toolCallId: string;
+  readonly summary: string;
+  readonly code: string;
 }
 
 export type AssistantContentBlock =
   | { readonly type: "text"; readonly text: string }
+  | {
+      readonly type: "roll20-approval";
+      readonly approval: Roll20ApprovalRequest;
+    }
   | { readonly type: "roll20-status"; readonly receipt: Roll20Receipt };
+
+function getRoll20ApprovalRequest(
+  part: UIMessage["parts"][number],
+): Roll20ApprovalRequest | undefined {
+  if (
+    !isToolUIPart(part) ||
+    part.type !== "tool-execute_roll20" ||
+    part.state !== "approval-requested" ||
+    part.approval.isAutomatic
+  ) {
+    return undefined;
+  }
+  const input = part.input as { readonly summary?: unknown; readonly code?: unknown };
+  const summary = getToolSummary(part) ?? "run a command in Roll20";
+  return typeof input.code === "string"
+    ? {
+        approvalId: part.approval.id,
+        toolCallId: part.toolCallId,
+        summary,
+        code: input.code,
+      }
+    : undefined;
+}
 
 function getToolSummary(part: unknown): string | undefined {
   if (typeof part !== "object" || part === null) return undefined;
@@ -57,13 +97,19 @@ function getRoll20Status(
   if (
     part.state === "input-streaming" ||
     part.state === "input-available" ||
-    part.state === "approval-requested" ||
-    part.state === "approval-responded"
+    part.state === "approval-requested"
   ) {
     return {
       toolCallId: part.toolCallId,
       summary: summary ?? "working in Roll20",
       status: "working",
+    };
+  }
+  if (part.state === "approval-responded") {
+    return {
+      toolCallId: part.toolCallId,
+      summary: summary ?? "run a command in Roll20",
+      status: part.approval.approved ? "approved" : "denied",
     };
   }
   if (!summary) return undefined;
@@ -82,7 +128,11 @@ function getRoll20Status(
     part.state === "output-error" ||
     part.state === "output-denied"
   ) {
-    return { toolCallId: part.toolCallId, summary, status: "failed" };
+    return {
+      toolCallId: part.toolCallId,
+      summary,
+      status: part.state === "output-denied" ? "denied" : "failed",
+    };
   }
   return undefined;
 }
@@ -105,6 +155,11 @@ export function getAssistantContentBlocks(
       }
       continue;
     }
+    const approval = getRoll20ApprovalRequest(part);
+    if (approval) {
+      blocks.push({ type: "roll20-approval", approval });
+      continue;
+    }
     const receipt = getRoll20Status(part);
     if (receipt) blocks.push({ type: "roll20-status", receipt });
   }
@@ -114,7 +169,23 @@ export function getAssistantContentBlocks(
 export function hasActiveRoll20Status(message: UIMessage): boolean {
   return getAssistantContentBlocks(message).some(
     (block) =>
-      block.type === "roll20-status" && block.receipt.status === "working",
+      block.type === "roll20-approval" ||
+      (block.type === "roll20-status" &&
+        (block.receipt.status === "working" ||
+          block.receipt.status === "approved")),
+  );
+}
+
+export function countPendingRoll20Approvals(
+  messages: readonly UIMessage[],
+): number {
+  return messages.reduce(
+    (count, message) =>
+      count +
+      message.parts.filter(
+        (part) => getRoll20ApprovalRequest(part) !== undefined,
+      ).length,
+    0,
   );
 }
 

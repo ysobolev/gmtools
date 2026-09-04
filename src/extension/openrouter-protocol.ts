@@ -30,6 +30,7 @@ export const CHAT_ACTIVITIES_REQUEST = "GMTOOLS_CHAT_ACTIVITIES" as const;
 export const CHAT_ACTIVITY_CHANGED = "GMTOOLS_CHAT_ACTIVITY_CHANGED" as const;
 export const CHAT_CONTINUATION_CHANGED =
   "GMTOOLS_CHAT_CONTINUATION_CHANGED" as const;
+export const CHAT_APPROVALS_CHANGED = "GMTOOLS_CHAT_APPROVALS_CHANGED" as const;
 
 export interface AuthStatus {
   readonly connected: boolean;
@@ -152,6 +153,7 @@ export type ChatActivityState =
   | "idle"
   | "thinking"
   | "working"
+  | "approval"
   | "unread"
   | "error";
 
@@ -170,6 +172,12 @@ export interface ChatContinuationChangedMessage {
   readonly type: typeof CHAT_CONTINUATION_CHANGED;
   readonly chatId: string;
   readonly continuation: ChatContinuation | null;
+}
+
+export interface ChatApprovalsChangedMessage {
+  readonly type: typeof CHAT_APPROVALS_CHANGED;
+  readonly chatId: string;
+  readonly count: number;
 }
 
 export type ChatActivitiesResponse =
@@ -203,6 +211,7 @@ function isChatActivityStatus(value: unknown): value is ChatActivityStatus {
     (value.state === "idle" ||
       value.state === "thinking" ||
       value.state === "working" ||
+      value.state === "approval" ||
       value.state === "unread" ||
       value.state === "error") &&
     (value.summary === undefined || typeof value.summary === "string")
@@ -264,6 +273,19 @@ export function isChatContinuationChangedMessage(
     (typeof value.continuation.stepLimit === "number" &&
       Number.isInteger(value.continuation.stepLimit) &&
       value.continuation.stepLimit > 0)
+  );
+}
+
+export function isChatApprovalsChangedMessage(
+  value: unknown,
+): value is ChatApprovalsChangedMessage {
+  return (
+    isRecord(value) &&
+    value.type === CHAT_APPROVALS_CHANGED &&
+    typeof value.chatId === "string" &&
+    typeof value.count === "number" &&
+    Number.isInteger(value.count) &&
+    value.count >= 0
   );
 }
 

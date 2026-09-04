@@ -81,6 +81,17 @@ test("counts only non-current chats that need attention", () => {
   );
 });
 
+test("counts persisted approval requests as attention", () => {
+  assert.equal(
+    chatUi.countChatsNeedingAttention(
+      [chat("current"), { ...chat("approval"), pendingRoll20Approvals: 1 }],
+      {},
+      "current",
+    ),
+    1,
+  );
+});
+
 test("merges live and chat-derived campaign candidates by campaign ID", () => {
   const candidates = chatUi.mergeCampaignCandidates(
     [{

@@ -32,6 +32,7 @@ import {
   getChatStreamError,
   stoppedAtStepLimit,
 } from "./chat-stream-outcome";
+import { countPendingRoll20Approvals } from "./chat-activity";
 import {
   DEFAULT_PROFILE,
   normalizeProfiles,
@@ -49,6 +50,7 @@ import {
   saveChatMessages,
   updateChatCampaign,
   updateChatContinuation,
+  updateChatPendingRoll20Approvals,
   updateChatProfile,
   type ChatContinuation,
   type ChatNotice,
@@ -74,6 +76,7 @@ import {
   CAMPAIGN_STATUS_CHANGED,
   CAMPAIGN_STATUS_REQUEST,
   CHAT_ACTIVITY_CHANGED,
+  CHAT_APPROVALS_CHANGED,
   CHAT_ABORT,
   CHAT_CLEAR,
   CHAT_CHUNK,
@@ -118,9 +121,11 @@ import { EXTENSION_BUILD_ID, EXTENSION_VERSION } from "../build-info";
 import {
   DEBUG_LOGGING_STORAGE_KEY,
   MAX_STEPS_STORAGE_KEY,
+  REQUIRE_ROLL20_APPROVAL_STORAGE_KEY,
   UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
   WEB_SEARCH_STORAGE_KEY,
   isDebugLoggingEnabled,
+  isRoll20ApprovalRequired,
   isUnrestrictedWebFetchEnabled,
   isWebSearchEnabled,
   normalizeMaxSteps,
@@ -285,6 +290,7 @@ interface ConversationJob {
   readonly unrestrictedWebFetchEnabled: boolean;
   readonly webSearchEnabled: boolean;
   readonly maxSteps: number;
+  readonly requireRoll20Approval: boolean;
   readonly continuation?: ChatContinuation;
   targetTabId: number | undefined;
   campaignId?: string;
@@ -301,6 +307,7 @@ interface ConversationJob {
 
 const conversationJobs = new Map<string, ConversationJob>();
 const pendingConversationStarts = new Map<string, AbortController>();
+const pendingApprovalChatIds = new Set<string>();
 const openPanelPorts = new Set<chrome.runtime.Port>();
 const intentionalAbortReasons = new WeakSet<object>();
 const STOP_ALL_TASKS_MENU_ID = "gmtools-stop-all-tasks";
@@ -318,12 +325,29 @@ function activeTaskCount(): number {
   return chatIds.size;
 }
 
+function toolbarAttentionCount(): number {
+  const chatIds = new Set(pendingApprovalChatIds);
+  for (const [chatId, controller] of pendingConversationStarts) {
+    if (!controller.signal.aborted) chatIds.add(chatId);
+  }
+  for (const job of conversationJobs.values()) {
+    if (!job.terminal && !job.abortController.signal.aborted) {
+      chatIds.add(job.chatId);
+    }
+  }
+  return chatIds.size;
+}
+
 function refreshTaskAction(): void {
   const count = activeTaskCount();
+  const attentionCount = toolbarAttentionCount();
   void chrome.action.setBadgeBackgroundColor({ color: "#b3261e" })
     .catch(() => undefined);
   void chrome.action.setBadgeText({
-    text: count > 0 && openPanelPorts.size === 0 ? String(count) : "",
+    text:
+      attentionCount > 0 && openPanelPorts.size === 0
+        ? String(attentionCount)
+        : "",
   })
     .catch(() => undefined);
   chrome.contextMenus.update(
@@ -332,6 +356,15 @@ function refreshTaskAction(): void {
     () => void chrome.runtime.lastError,
   );
 }
+
+void listChats()
+  .then((chats) => {
+    for (const chat of chats) {
+      if (chat.pendingRoll20Approvals) pendingApprovalChatIds.add(chat.id);
+    }
+    refreshTaskAction();
+  })
+  .catch(() => undefined);
 
 function installStopAllTasksMenu(): void {
   chrome.contextMenus.remove(STOP_ALL_TASKS_MENU_ID, () => {
@@ -739,6 +772,7 @@ chrome.runtime.onMessage.addListener(
       return;
     }
     if (message.type === CHAT_CLEAR) {
+      pendingApprovalChatIds.delete(message.chatId);
       if (job) setJobActivity(job, "idle");
       if (job) abortIntentionally(job.abortController, "The chat was cleared.");
       const pendingStart = pendingConversationStarts.get(message.chatId);
@@ -2327,6 +2361,9 @@ async function streamChat(
       convertDataPart: imageDataPartForModel,
     }),
     tools,
+    ...(job.requireRoll20Approval
+      ? { toolApproval: { execute_roll20: "user-approval" as const } }
+      : {}),
     activeTools,
     stopWhen: isStepCount(job.maxSteps),
     abortSignal: abortController.signal,
@@ -2466,7 +2503,13 @@ async function streamChat(
       });
     }
   }
-  finishJob(job, { type: "complete" });
+  finishJob(
+    job,
+    { type: "complete" },
+    completedMessages && countPendingRoll20Approvals(completedMessages) > 0
+      ? "approval"
+      : undefined,
+  );
   debug.group("Conversation completed", {});
 }
 
@@ -2476,6 +2519,10 @@ async function persistConversationInput(
 ): Promise<void> {
   try {
     await saveChatMessages(job.chatId, inputMessages);
+    await changePendingRoll20Approvals(
+      job.chatId,
+      countPendingRoll20Approvals(inputMessages),
+    );
     job.debug.group("Conversation input saved", {
       "Message count": inputMessages.length,
     });
@@ -2522,6 +2569,10 @@ async function persistCompletedConversation(
     );
     if (!messages) return undefined;
     await saveChatMessages(job.chatId, messages);
+    await changePendingRoll20Approvals(
+      job.chatId,
+      countPendingRoll20Approvals(messages),
+    );
     job.debug.group("Conversation saved", {
       "Message count": messages.length,
     });
@@ -2583,6 +2634,19 @@ async function changeChatContinuation(
     .catch(() => undefined);
 }
 
+async function changePendingRoll20Approvals(
+  chatId: string,
+  count: number,
+): Promise<void> {
+  await updateChatPendingRoll20Approvals(chatId, count);
+  if (count > 0) pendingApprovalChatIds.add(chatId);
+  else pendingApprovalChatIds.delete(chatId);
+  refreshTaskAction();
+  await chrome.runtime
+    .sendMessage({ type: CHAT_APPROVALS_CHANGED, chatId, count })
+    .catch(() => undefined);
+}
+
 async function restoreContinuationAfterFailure(
   job: ConversationJob,
 ): Promise<void> {
@@ -2628,13 +2692,17 @@ function setJobActivity(
     .catch(() => undefined);
 }
 
-function finishJob(job: ConversationJob, terminal: ConversationTerminal): void {
+function finishJob(
+  job: ConversationJob,
+  terminal: ConversationTerminal,
+  completedActivity?: ChatActivityState,
+): void {
   if (job.terminal) return;
   job.terminal = terminal;
   refreshTaskAction();
   setJobActivity(
     job,
-    terminal.type === "complete" ? "unread" : "error",
+    terminal.type === "complete" ? completedActivity ?? "unread" : "error",
     terminal.type === "error" ? terminal.error : undefined,
   );
   broadcastJob(job, (requestId) =>
@@ -2781,10 +2849,7 @@ chrome.runtime.onConnect.addListener((port) => {
     }
 
     let existingJob = conversationJobs.get(message.chatId);
-    if (
-      message.type === CHAT_CONTINUE &&
-      existingJob?.terminal?.type === "complete"
-    ) {
+    if (existingJob?.terminal?.type === "complete") {
       setJobActivity(existingJob, "idle");
       conversationJobs.delete(message.chatId);
       existingJob = undefined;
@@ -2860,6 +2925,7 @@ chrome.runtime.onConnect.addListener((port) => {
       const preferences = await chrome.storage.local.get([
         DEBUG_LOGGING_STORAGE_KEY,
         MAX_STEPS_STORAGE_KEY,
+        REQUIRE_ROLL20_APPROVAL_STORAGE_KEY,
         UNRESTRICTED_WEB_FETCH_STORAGE_KEY,
         WEB_SEARCH_STORAGE_KEY,
       ]);
@@ -2874,6 +2940,9 @@ chrome.runtime.onConnect.addListener((port) => {
       const webSearchEnabled = isWebSearchEnabled(
         preferences[WEB_SEARCH_STORAGE_KEY],
       );
+      const requireRoll20Approval = isRoll20ApprovalRequired(
+        preferences[REQUIRE_ROLL20_APPROVAL_STORAGE_KEY],
+      );
       const campaignBinding = await getCampaignBinding(message.chatId);
       const campaignRoute = campaignBinding
         ? await getCampaignRoute(campaignBinding.campaignId)
@@ -2885,6 +2954,7 @@ chrome.runtime.onConnect.addListener((port) => {
         unrestrictedWebFetchEnabled,
         webSearchEnabled,
         maxSteps,
+        requireRoll20Approval,
         ...(continuation ? { continuation } : {}),
         targetTabId: campaignRoute?.tabId,
         ...(campaignBinding
@@ -2910,6 +2980,7 @@ chrome.runtime.onConnect.addListener((port) => {
         "Unrestricted web fetch": unrestrictedWebFetchEnabled,
         "Web search": webSearchEnabled,
         "Maximum steps": maxSteps,
+        "Require Roll20 approval": requireRoll20Approval,
         "Bound Roll20 tab ID": job.targetTabId ?? "none",
         "Bound Roll20 campaign ID": job.campaignId ?? "none",
         "Bound Roll20 campaign name": job.campaignName ?? "none",

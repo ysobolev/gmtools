@@ -48,6 +48,50 @@ test("reconstructs a completed assistant response from buffered UI chunks", asyn
   assert.equal(messages[1].parts[0].state, "done");
 });
 
+test("continues an approved assistant tool call without duplicating its message", async () => {
+  const approvedMessage = {
+    id: "assistant-1",
+    role: "assistant",
+    parts: [
+      {
+        type: "tool-execute_roll20",
+        toolCallId: "tool-1",
+        state: "approval-responded",
+        input: { summary: "moving Flippy", code: "return true;" },
+        approval: {
+          id: "approval-1",
+          approved: true,
+          isAutomatic: false,
+        },
+      },
+    ],
+  };
+  const messages = await persistence.reconstructCompletedConversation(
+    [approvedMessage],
+    [
+      { type: "start", messageId: "assistant-1" },
+      {
+        type: "tool-output-available",
+        toolCallId: "tool-1",
+        output: { ok: true, result: true },
+      },
+      { type: "text-start", id: "text-1" },
+      { type: "text-delta", id: "text-1", delta: "Flippy moved." },
+      { type: "text-end", id: "text-1" },
+      { type: "finish", finishReason: "stop" },
+    ],
+  );
+
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].id, "assistant-1");
+  assert.equal(messages[0].parts[0].state, "output-available");
+  assert.deepEqual(messages[0].parts[0].output, {
+    ok: true,
+    result: true,
+  });
+  assert.equal(messages[0].parts[1].text, "Flippy moved.");
+});
+
 test("does not produce a durable response when no assistant message exists", async () => {
   assert.equal(
     await persistence.reconstructCompletedConversation([], []),
