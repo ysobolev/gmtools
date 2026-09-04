@@ -32,6 +32,10 @@ import {
   type Roll20Receipt,
 } from "./chat-activity";
 import {
+  isStoppedAssistantMessage,
+  sanitizeStoppedConversation,
+} from "./chat-persistence";
+import {
   ACTIVE_CHAT_STORAGE_KEY,
   MAX_CHAT_TITLE_LENGTH,
   createChat,
@@ -709,6 +713,7 @@ const ConversationPane = memo(function ConversationPane({
             const continuesAssistantResponse =
               message.role === "assistant" &&
               messages[messageIndex - 1]?.role === "assistant";
+            const stopped = isStoppedAssistantMessage(message);
             const text = textFromMessage(message);
             const assistantBlocks =
               message.role === "assistant"
@@ -752,7 +757,8 @@ const ConversationPane = memo(function ConversationPane({
               assistantBlocks.length === 0 &&
               images.length === 0 &&
               uploadedImages.length === 0 &&
-              generatedImageReferences.length === 0
+              generatedImageReferences.length === 0 &&
+              !stopped
             ) {
               return null;
             }
@@ -833,6 +839,9 @@ const ConversationPane = memo(function ConversationPane({
                     }
                   />
                 ))}
+                {stopped ? (
+                  <p className="message-stopped" role="status">Stopped</p>
+                ) : null}
               </article>
             );
           })}
@@ -1505,7 +1514,6 @@ function ChatScreen({
     readonly CampaignCandidate[]
   >([]);
   const activeTurnRef = useRef(false);
-  const safeMessagesRef = useRef(initialMessages);
   const busy = status === "submitted" || status === "streaming";
 
   useEffect(() => {
@@ -1644,7 +1652,6 @@ function ChatScreen({
   useEffect(() => {
     if (status === "submitted") {
       activeTurnRef.current = true;
-      safeMessagesRef.current = messages;
       return;
     }
     if (status === "streaming") {
@@ -1653,7 +1660,6 @@ function ChatScreen({
     }
     if (status === "ready" && activeTurnRef.current) {
       activeTurnRef.current = false;
-      safeMessagesRef.current = messages;
       sendChatControl(CHAT_COMMIT, chatId);
     }
   }, [chatId, messages, status]);
@@ -1661,7 +1667,7 @@ function ChatScreen({
   const stopGeneration = (): void => {
     activeTurnRef.current = false;
     stop();
-    window.setTimeout(() => setMessages(safeMessagesRef.current), 0);
+    setMessages((current) => sanitizeStoppedConversation(current));
   };
 
   const continueTask = (): void => {

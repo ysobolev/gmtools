@@ -796,6 +796,13 @@ h1 {
   white-space: pre-wrap;
 }
 
+.message-stopped {
+  margin: 7px 0 0;
+  color: #8f97a4;
+  font-size: 11px;
+  font-style: italic;
+}
+
 .message-markdown > :first-child {
   margin-top: 0;
 }
@@ -1537,6 +1544,10 @@ h1 {
 :root[data-theme="light"] .message-markdown h3,
 :root[data-theme="light"] .message-markdown h4 {
   color: #302e33;
+}
+
+:root[data-theme="light"] .message-stopped {
+  color: #777178;
 }
 
 :root[data-theme="light"] .message-markdown code {

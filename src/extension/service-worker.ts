@@ -21,7 +21,10 @@ import {
   parseTokenResponse,
   type OpenRouterKeyInfo,
 } from "./openrouter-auth";
-import { reconstructCompletedConversation } from "./chat-persistence";
+import {
+  reconstructCompletedConversation,
+  reconstructStoppedConversation,
+} from "./chat-persistence";
 import {
   getChatStreamError,
   stoppedAtStepLimit,
@@ -286,12 +289,38 @@ interface ConversationJob {
   readonly chunks: UIMessageChunk[];
   readonly subscribers: Map<chrome.runtime.Port, string>;
   readonly debug: DebugLogger;
+  inputMessages?: readonly UIMessage[];
+  abortFinalization?: Promise<void>;
   activity: ChatActivityStatus;
   terminal?: ConversationTerminal;
 }
 
 const conversationJobs = new Map<string, ConversationJob>();
 const pendingConversationStarts = new Map<string, AbortController>();
+const intentionalAbortReasons = new WeakSet<object>();
+
+function abortIntentionally(
+  controller: AbortController,
+  message: string,
+): void {
+  if (controller.signal.aborted) return;
+  const reason = new DOMException(message, "AbortError");
+  intentionalAbortReasons.add(reason);
+  controller.abort(reason);
+}
+
+if (typeof globalThis.addEventListener === "function") {
+  globalThis.addEventListener("unhandledrejection", (event) => {
+    const reason: unknown = event.reason;
+    if (
+      typeof reason === "object" &&
+      reason !== null &&
+      intentionalAbortReasons.has(reason)
+    ) {
+      event.preventDefault();
+    }
+  });
+}
 
 interface StoredAuth {
   readonly openRouterApiKey?: unknown;
@@ -419,9 +448,11 @@ async function notifyAuthState(status: AuthStatus): Promise<void> {
 
 async function clearAuth(): Promise<void> {
   authGeneration += 1;
-  for (const controller of activeChatControllers) controller.abort();
+  for (const controller of activeChatControllers) {
+    abortIntentionally(controller, "OpenRouter was disconnected.");
+  }
   for (const controller of pendingConversationStarts.values()) {
-    controller.abort();
+    abortIntentionally(controller, "OpenRouter was disconnected.");
   }
   await runAuthMutation(async () => {
     await authRestoration;
@@ -640,8 +671,11 @@ chrome.runtime.onMessage.addListener(
     }
     if (message.type === CHAT_CLEAR) {
       if (job) setJobActivity(job, "idle");
-      job?.abortController.abort();
-      pendingConversationStarts.get(message.chatId)?.abort();
+      if (job) abortIntentionally(job.abortController, "The chat was cleared.");
+      const pendingStart = pendingConversationStarts.get(message.chatId);
+      if (pendingStart) {
+        abortIntentionally(pendingStart, "The chat was cleared.");
+      }
       pendingConversationStarts.delete(message.chatId);
       conversationJobs.delete(message.chatId);
     } else if (message.type === CHAT_COMMIT && job?.terminal) {
@@ -1968,6 +2002,7 @@ async function streamChat(
   });
   if (!validation.success) throw new Error("The chat history is invalid.");
   const conversationMessages = validation.data;
+  job.inputMessages = conversationMessages;
   await persistConversationInput(job, conversationMessages);
 
   const stored = await readStoredAuth();
@@ -2297,22 +2332,25 @@ async function streamChat(
   });
 
   const generatedImageBudget = createGeneratedImageBudget();
-  for await (const rawChunk of stream as ReadableStream<UIMessageChunk>) {
-    const chunk = await normalizeGeneratedImageChunk(
-      rawChunk,
-      generatedImageBudget,
-      (generated) => persistGeneratedImage(job, generated),
-    );
-    job.chunks.push(chunk);
-    broadcastJob(job, (requestId) => ({
-      type: CHAT_CHUNK,
-      requestId,
-      chunk,
-    }));
+  try {
+    for await (const rawChunk of stream as ReadableStream<UIMessageChunk>) {
+      const chunk = await normalizeGeneratedImageChunk(
+        rawChunk,
+        generatedImageBudget,
+        (generated) => persistGeneratedImage(job, generated),
+      );
+      job.chunks.push(chunk);
+      broadcastJob(job, (requestId) => ({
+        type: CHAT_CHUNK,
+        requestId,
+        chunk,
+      }));
+    }
+  } catch (error) {
+    if (!abortController.signal.aborted) throw error;
   }
   if (abortController.signal.aborted) {
-    discardAbortedJob(job);
-    debug.group("Conversation stopped", {});
+    await finalizeAbortedJob(job);
     return;
   }
   const streamError = getChatStreamError(job.chunks);
@@ -2326,7 +2364,15 @@ async function streamChat(
     job,
     conversationMessages,
   );
+  if (abortController.signal.aborted) {
+    await finalizeAbortedJob(job);
+    return;
+  }
   const steps = await result.steps;
+  if (abortController.signal.aborted) {
+    await finalizeAbortedJob(job);
+    return;
+  }
   if (completedMessages && stoppedAtStepLimit(steps, job.maxSteps)) {
     const finalMessage = completedMessages.at(-1);
     if (finalMessage) {
@@ -2483,11 +2529,35 @@ function finishJob(job: ConversationJob, terminal: ConversationTerminal): void {
   );
 }
 
-function discardAbortedJob(job: ConversationJob): void {
-  setJobActivity(job, "idle");
-  if (conversationJobs.get(job.chatId) === job) {
-    conversationJobs.delete(job.chatId);
-  }
+function finalizeAbortedJob(job: ConversationJob): Promise<void> {
+  if (job.abortFinalization) return job.abortFinalization;
+  job.abortFinalization = (async () => {
+    const inputMessages = job.inputMessages;
+    if (inputMessages && conversationJobs.get(job.chatId) === job) {
+      try {
+        const messages = await reconstructStoppedConversation(
+          inputMessages,
+          job.chunks,
+        );
+        if (conversationJobs.get(job.chatId) === job) {
+          await saveChatMessages(job.chatId, messages);
+          job.debug.group("Stopped conversation saved", {
+            "Message count": messages.length,
+          });
+        }
+      } catch (error) {
+        job.debug.group("Stopped conversation save failed", {
+          Error: modelErrorDebugDetails(error),
+        });
+      }
+    }
+    setJobActivity(job, "idle");
+    if (conversationJobs.get(job.chatId) === job) {
+      conversationJobs.delete(job.chatId);
+    }
+    job.debug.group("Conversation stopped", {});
+  })();
+  return job.abortFinalization;
 }
 
 function attachToJob(
@@ -2547,12 +2617,18 @@ chrome.runtime.onConnect.addListener((port) => {
         message.requestId === attachedRequestId &&
         message.chatId === attachedJob?.chatId
       ) {
-        attachedJob.abortController.abort();
+        abortIntentionally(
+          attachedJob.abortController,
+          "The conversation was stopped.",
+        );
       } else if (
         message.requestId === attachedRequestId &&
         message.chatId === startingChatId
       ) {
-        pendingConversationStarts.get(message.chatId)?.abort();
+        const pendingStart = pendingConversationStarts.get(message.chatId);
+        if (pendingStart) {
+          abortIntentionally(pendingStart, "The conversation was stopped.");
+        }
       }
       return;
     }
@@ -2701,7 +2777,7 @@ chrome.runtime.onConnect.addListener((port) => {
       void keepServiceWorkerAlive(streamChat(job, inputMessages, profile))
         .catch(async (error: unknown) => {
           if (abortController.signal.aborted) {
-            discardAbortedJob(job);
+            await finalizeAbortedJob(job);
           } else {
             await restoreContinuationAfterFailure(job);
             finishJob(job, {

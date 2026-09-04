@@ -75,3 +75,74 @@ test("reconstructs a generated-image reference without raw image data", async ()
   }]);
   assert.doesNotMatch(JSON.stringify(messages), /data:image/);
 });
+
+test("persists partial text as a stopped assistant response", async () => {
+  const userMessage = {
+    id: "user-1",
+    role: "user",
+    parts: [{ type: "text", text: "Write a long description." }],
+  };
+  const messages = await persistence.reconstructStoppedConversation(
+    [userMessage],
+    [
+      { type: "start", messageId: "assistant-1" },
+      { type: "text-start", id: "text-1" },
+      { type: "text-delta", id: "text-1", delta: "The ruined keep" },
+    ],
+  );
+
+  assert.equal(messages.length, 2);
+  assert.equal(messages[1].parts[0].type, "text");
+  assert.equal(messages[1].parts[0].text, "The ruined keep");
+  assert.equal(messages[1].parts[0].state, "done");
+  assert.equal(persistence.isStoppedAssistantMessage(messages[1]), true);
+});
+
+test("keeps completed tools and removes unfinished tools from stopped output", async () => {
+  const messages = await persistence.reconstructStoppedConversation([], [
+    { type: "start", messageId: "assistant-1" },
+    { type: "start-step" },
+    {
+      type: "tool-input-available",
+      toolCallId: "completed-call",
+      toolName: "execute_roll20",
+      input: { summary: "moving Flippy", code: "return true;" },
+    },
+    {
+      type: "tool-output-available",
+      toolCallId: "completed-call",
+      output: { ok: true, result: true },
+    },
+    { type: "start-step" },
+    {
+      type: "tool-input-available",
+      toolCallId: "unfinished-call",
+      toolName: "execute_roll20",
+      input: { summary: "moving Jax", code: "return true;" },
+    },
+  ]);
+
+  const toolParts = messages[0].parts.filter((part) =>
+    part.type.startsWith("tool-"),
+  );
+  assert.equal(toolParts.length, 1);
+  assert.equal(toolParts[0].toolCallId, "completed-call");
+  assert.equal(toolParts[0].state, "output-available");
+  assert.equal(
+    messages[0].parts.filter((part) => part.type === "step-start").length,
+    1,
+  );
+  assert.equal(persistence.isStoppedAssistantMessage(messages[0]), true);
+});
+
+test("does not create an empty assistant response when stopped before output", async () => {
+  const input = [{
+    id: "user-1",
+    role: "user",
+    parts: [{ type: "text", text: "Hello" }],
+  }];
+  assert.deepEqual(
+    await persistence.reconstructStoppedConversation(input, []),
+    input,
+  );
+});
