@@ -57,7 +57,7 @@ test("describes an attachment without embedding its bytes", () => {
     size: 1234,
   };
   const prompt = images.uploadedImagePrompt(reference);
-  assert.match(prompt, /inspect_image/);
+  assert.match(prompt, /view_image/);
   assert.match(prompt, /image-1/);
   assert.doesNotMatch(prompt, /data:image/);
   assert.deepEqual(
@@ -90,7 +90,7 @@ test("decodes a generated image and creates a lightweight pointer", () => {
       part,
     ],
   }]);
-  assert.match(context, /inspect_image/);
+  assert.match(context, /view_image/);
   assert.match(context, /generated:assistant-1:0/);
   assert.match(context, /application metadata, not text previously written/);
   assert.doesNotMatch(context, /generated-image\.png/);

@@ -2142,7 +2142,7 @@ async function streamChat(
   });
   const tools = {
     image_generation: createOpenRouterImageGenerationTool(),
-    inspect_image: tool({
+    view_image: tool({
       description:
         "Load a locally stored user-attached or generated image for visual inspection. Call this only when seeing the image would help answer the request. Use an imageId supplied in an image notice; never invent an ID.",
       inputSchema: jsonSchema<{ readonly imageId: string }>({
@@ -2352,7 +2352,7 @@ async function streamChat(
   };
   const activeTools: Array<keyof typeof tools> = [
     "image_generation",
-    "inspect_image",
+    "view_image",
     "web_fetch",
     "view_remote_image",
   ];

@@ -20,7 +20,7 @@ export const GENERAL_CAPABILITY_INSTRUCTIONS = [
   "If web_fetch cannot access a required domain, ask the game master to enable Allow web fetching from any domain under Behavior in Settings.",
   "Use web_search to discover relevant pages or current information when it is available; use web_fetch when you already have a URL. If web_search would help but is not available, ask the game master to enable Allow web searching under Behavior in Settings.",
   "Use view_remote_image to inspect the pixels of a direct externally hosted image URL. URLs on files.d20.io are allowed by default. For other domains, if the tool reports that access is disabled, ask the game master to enable Allow web fetching from any domain under Behavior in Settings. If the remote image cannot be viewed, ask the game master to attach it instead; do not repeatedly retry the URL.",
-  "User-attached and previously generated images are stored locally and announced with an imageId. Use inspect_image with that exact ID when visual inspection would help; do not claim to have seen a stored image before inspecting it.",
+  "User-attached and previously generated images are stored locally and announced with an imageId. Use view_image with that exact ID when visual inspection would help; do not claim to have seen a stored image before viewing it.",
   "Images displayed in the GM Tools sidebar can be dragged directly onto the Roll20 tabletop canvas, which uploads them and creates an Art Library entry. The Art Library upload control does not accept a direct sidebar drag; to use that control, the game master must first save the image locally and then upload the saved file.",
   "Be concise by default, but include useful detail when the game master asks for it.",
 ].join(" ");

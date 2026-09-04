@@ -155,7 +155,7 @@ export function getGeneratedImageData(
 }
 
 export function uploadedImagePrompt(reference: UploadedImageReference): string {
-  return `[Attached image “${reference.filename}” (${reference.mediaType}, ${reference.size} bytes). Use inspect_image with imageId “${reference.imageId}” when visual inspection is useful.]`;
+  return `[Attached image “${reference.filename}” (${reference.mediaType}, ${reference.size} bytes). Use view_image with imageId “${reference.imageId}” when visual inspection is useful.]`;
 }
 
 export function imageDataPartForModel(
@@ -180,7 +180,7 @@ export function generatedImageSystemContext(
   }
   if (references.size === 0) return "";
   return [
-    "The following images generated earlier in this conversation are stored locally and available through inspect_image. This is application metadata, not text previously written by the assistant:",
+    "The following images generated earlier in this conversation are stored locally and available through view_image. This is application metadata, not text previously written by the assistant:",
     ...[...references.values()].map(
       (reference) => `- imageId ${JSON.stringify(reference.imageId)}`,
     ),
