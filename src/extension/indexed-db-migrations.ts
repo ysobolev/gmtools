@@ -2,13 +2,14 @@ import { DEFAULT_PROFILE } from "./profile-config";
 import { DEFAULT_GLOBAL_PREFERENCES } from "./global-preferences";
 
 export const CHAT_DATABASE_NAME = "gmToolsChats";
-export const CHAT_DATABASE_VERSION = 3;
+export const CHAT_DATABASE_VERSION = 4;
 
 export const CHATS_STORE = "chats";
 export const MESSAGES_STORE = "messages";
 export const IMAGES_STORE = "images";
 export const PROFILES_STORE = "profiles";
 export const SETTINGS_STORE = "settings";
+export const ROLL20_APPROVALS_STORE = "roll20Approvals";
 
 interface DatabaseMigration {
   readonly version: number;
@@ -48,6 +49,18 @@ export const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
         keyPath: "id",
       });
       settings.add(DEFAULT_GLOBAL_PREFERENCES);
+    },
+  },
+  {
+    version: 4,
+    migrate(database) {
+      const approvals = database.createObjectStore(ROLL20_APPROVALS_STORE, {
+        keyPath: ["chatId", "approvalId"],
+      });
+      approvals.createIndex("chatId", "chatId");
+      approvals.createIndex("chatToolCall", ["chatId", "toolCallId"], {
+        unique: true,
+      });
     },
   },
 ];

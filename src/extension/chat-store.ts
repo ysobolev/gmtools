@@ -2,6 +2,7 @@ import {
   CHATS_STORE,
   IMAGES_STORE,
   MESSAGES_STORE,
+  ROLL20_APPROVALS_STORE,
 } from "./indexed-db-migrations";
 import {
   openDatabase,
@@ -273,11 +274,19 @@ export async function renameChat(
 export async function deleteChat(chatId: string): Promise<void> {
   const database = await openDatabase();
   const transaction = database.transaction(
-    [CHATS_STORE, MESSAGES_STORE, IMAGES_STORE],
+    [CHATS_STORE, MESSAGES_STORE, IMAGES_STORE, ROLL20_APPROVALS_STORE],
     "readwrite",
   );
   transaction.objectStore(CHATS_STORE).delete(chatId);
   transaction.objectStore(MESSAGES_STORE).delete(chatId);
+  transaction.objectStore(ROLL20_APPROVALS_STORE).index("chatId").openKeyCursor(
+    IDBKeyRange.only(chatId),
+  ).onsuccess = (event) => {
+    const cursor = (event.target as IDBRequest<IDBCursor | null>).result;
+    if (!cursor) return;
+    transaction.objectStore(ROLL20_APPROVALS_STORE).delete(cursor.primaryKey);
+    cursor.continue();
+  };
   transaction.objectStore(IMAGES_STORE).index("chatId").openKeyCursor(
     IDBKeyRange.only(chatId),
   ).onsuccess = (event) => {

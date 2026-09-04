@@ -117,6 +117,7 @@ import {
   isChatActivityChangedMessage,
   isChatApprovalsChangedMessage,
   isChatContinuationChangedMessage,
+  isChatMessagesChangedMessage,
   type AuthRequest,
   type AuthStatus,
   type CampaignStatus,
@@ -1642,6 +1643,7 @@ function ChatScreen({
     readonly CampaignCandidate[]
   >([]);
   const activeTurnRef = useRef(false);
+  const messageRefreshPendingRef = useRef(false);
   const busy = status === "submitted" || status === "streaming";
   const awaitingApproval = countPendingRoll20Approvals(messages) > 0;
 
@@ -1659,6 +1661,45 @@ function ChatScreen({
       chrome.runtime.onMessage.removeListener(handleCampaignStatus);
     };
   }, [chatId]);
+
+  const refreshStoredMessages = useCallback(async (): Promise<void> => {
+    const stored = await getStoredChat(chatId);
+    if (!stored) return;
+    const validation = await safeValidateUIMessages<UIMessage>({
+      messages: stored.messages,
+    });
+    if (!validation.success) return;
+    messageRefreshPendingRef.current = false;
+    setMessages((current) =>
+      JSON.stringify(current) === JSON.stringify(validation.data)
+        ? current
+        : validation.data,
+    );
+  }, [chatId, setMessages]);
+
+  useEffect(() => {
+    const handleMessagesChanged = (message: unknown): void => {
+      if (
+        !isChatMessagesChangedMessage(message) ||
+        message.chatId !== chatId
+      ) return;
+      messageRefreshPendingRef.current = true;
+      if (status === "ready" || status === "error") {
+        void refreshStoredMessages();
+      }
+    };
+    chrome.runtime.onMessage.addListener(handleMessagesChanged);
+    return () => chrome.runtime.onMessage.removeListener(handleMessagesChanged);
+  }, [chatId, refreshStoredMessages, status]);
+
+  useEffect(() => {
+    if (
+      messageRefreshPendingRef.current &&
+      (status === "ready" || status === "error")
+    ) {
+      void refreshStoredMessages();
+    }
+  }, [refreshStoredMessages, status]);
 
   const campaignLabel =
     campaignStatus.campaignId && campaignStatus.name

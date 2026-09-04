@@ -41,6 +41,13 @@ import {
 } from "./profile-config";
 import { getProfile } from "./profile-store";
 import { getGlobalPreferences } from "./preferences-store";
+import {
+  claimRoll20Approval,
+  resolveRoll20ApprovalExecution,
+  saveConversationInputWithApprovals,
+  saveMessagesAndRegisterRoll20Approvals,
+  StaleRoll20ApprovalError,
+} from "./roll20-approval-store";
 import { buildProfileInstructions } from "./prompts/build-profile-instructions";
 import {
   getChat,
@@ -86,6 +93,7 @@ import {
   CHAT_CONTINUE,
   CHAT_CONTINUATION_CHANGED,
   CHAT_ERROR,
+  CHAT_MESSAGES_CHANGED,
   CHAT_PORT_NAME,
   PANEL_PRESENCE_PORT_NAME,
   CHAT_RESUME,
@@ -2206,128 +2214,167 @@ async function streamChat(
         required: ["summary", "code"],
         additionalProperties: false,
       }),
-      execute: async ({ code }, { abortSignal, toolCallId }) => {
+      execute: async ({ summary, code }, { abortSignal, toolCallId }) => {
+        if (!job.campaignId) {
+          throw new Error("The Roll20 execution is missing its campaign.");
+        }
+        const approvalClaimed = await claimRoll20Approval(
+          job.chatId,
+          job.campaignId,
+          toolCallId,
+          {
+            summary,
+            code,
+          },
+          job.requireRoll20Approval,
+        );
+        let approvalOutcome: "completed" | "failed" | "unknown" = "failed";
         try {
-          const run = (target: CampaignTarget): Promise<Roll20ExecutionOutcome> =>
-            queueRoll20Execution(
-              code,
-              abortSignal ?? abortController.signal,
-              debug,
-              job.chatId,
-              toolCallId,
-              target.campaignId,
-              target.tabId,
-            );
-          const initialTarget = await ensureJobCampaignBinding(job);
-          try {
-            return await run(initialTarget);
-          } catch (error) {
-            if (
-              !(error instanceof Roll20CampaignMismatchError) &&
-              !(error instanceof Roll20TabUnavailableBeforeDispatchError)
-            ) {
+          const outcome = await (async () => {
+            try {
+              const run = (
+                target: CampaignTarget,
+              ): Promise<Roll20ExecutionOutcome> =>
+                queueRoll20Execution(
+                  code,
+                  abortSignal ?? abortController.signal,
+                  debug,
+                  job.chatId,
+                  toolCallId,
+                  target.campaignId,
+                  target.tabId,
+                );
+              const initialTarget = await ensureJobCampaignBinding(job);
+              try {
+                return await run(initialTarget);
+              } catch (error) {
+                if (
+                  !(error instanceof Roll20CampaignMismatchError) &&
+                  !(error instanceof Roll20TabUnavailableBeforeDispatchError)
+                ) {
+                  throw error;
+                }
+                debug.group("Recovering Roll20 campaign route", {
+                  "Campaign ID": initialTarget.campaignId,
+                  "Previous tab ID": initialTarget.tabId,
+                  Reason: error,
+                });
+                job.targetTabId = undefined;
+                await removeCampaignRoute(initialTarget.campaignId);
+                notifyCampaignStatus({
+                  chatId: job.chatId,
+                  state: "connecting",
+                  campaignId: initialTarget.campaignId,
+                  name: initialTarget.name,
+                  detail: "Looking for the campaign in another Roll20 tab.",
+                });
+                let recoveredTarget: CampaignTarget;
+                try {
+                  recoveredTarget = await ensureJobCampaignBinding(job, true);
+                } catch (recoveryError) {
+                  if (error instanceof Roll20CampaignMismatchError) {
+                    throw new Roll20CampaignMismatchError(
+                      "The routed tab is showing another campaign, and no open Roll20 GM tab matches this conversation's campaign.",
+                    );
+                  }
+                  throw recoveryError;
+                }
+                notifyCampaignStatus({
+                  chatId: job.chatId,
+                  state: "connected",
+                  campaignId: recoveredTarget.campaignId,
+                  name: recoveredTarget.name,
+                });
+                return await run(recoveredTarget);
+              }
+            } catch (error) {
+              if (error instanceof Roll20ExecutionTimeoutError) {
+                return {
+                  ok: false,
+                  error: {
+                    code: "ROLL20_EXECUTION_TIMEOUT",
+                    message:
+                      "Roll20 did not return a result within 45 seconds. The execution may still be running.",
+                    retryable: false,
+                    executionState: "unknown",
+                  },
+                };
+              }
+              if (error instanceof Roll20CompatibilityError) {
+                return {
+                  ok: false,
+                  error: {
+                    code: "ROLL20_BRIDGE_INCOMPATIBLE",
+                    message: error.message,
+                    retryable: false,
+                  },
+                };
+              }
+              if (error instanceof Roll20CommandRejectedError) {
+                return {
+                  ok: false,
+                  error: {
+                    code: error.code,
+                    message: error.message,
+                    retryable: false,
+                  },
+                };
+              }
+              if (error instanceof Roll20CampaignMismatchError) {
+                return {
+                  ok: false,
+                  error: {
+                    code: "ROLL20_CAMPAIGN_MISMATCH",
+                    message: error.message,
+                    retryable: false,
+                  },
+                };
+              }
+              let message = errorMessage(error);
+              let tabUnavailable =
+                message.includes("campaign tab was closed") ||
+                message.includes("campaign tab navigated away") ||
+                message.includes("No tab with id");
+              if (job.targetTabId !== undefined) {
+                try {
+                  await getBoundRoll20Tab(job.targetTabId);
+                } catch (tabError) {
+                  message = errorMessage(tabError);
+                  tabUnavailable = true;
+                }
+              }
+              if (tabUnavailable) {
+                return {
+                  ok: false,
+                  error: {
+                    code: "ROLL20_TAB_UNAVAILABLE",
+                    message,
+                    retryable: false,
+                  },
+                };
+              }
               throw error;
             }
-            debug.group("Recovering Roll20 campaign route", {
-              "Campaign ID": initialTarget.campaignId,
-              "Previous tab ID": initialTarget.tabId,
-              Reason: error,
+          })();
+          approvalOutcome =
+            !outcome.ok &&
+              "executionState" in outcome.error &&
+              outcome.error.executionState === "unknown"
+              ? "unknown"
+              : "completed";
+          return outcome;
+        } finally {
+          if (approvalClaimed) {
+            await resolveRoll20ApprovalExecution(
+              job.chatId,
+              toolCallId,
+              approvalOutcome,
+            ).catch((error) => {
+              debug.group("Roll20 approval resolution failed", {
+                Error: modelErrorDebugDetails(error),
+              });
             });
-            job.targetTabId = undefined;
-            await removeCampaignRoute(initialTarget.campaignId);
-            notifyCampaignStatus({
-              chatId: job.chatId,
-              state: "connecting",
-              campaignId: initialTarget.campaignId,
-              name: initialTarget.name,
-              detail: "Looking for the campaign in another Roll20 tab.",
-            });
-            let recoveredTarget: CampaignTarget;
-            try {
-              recoveredTarget = await ensureJobCampaignBinding(job, true);
-            } catch (recoveryError) {
-              if (error instanceof Roll20CampaignMismatchError) {
-                throw new Roll20CampaignMismatchError(
-                  "The routed tab is showing another campaign, and no open Roll20 GM tab matches this conversation's campaign.",
-                );
-              }
-              throw recoveryError;
-            }
-            notifyCampaignStatus({
-              chatId: job.chatId,
-              state: "connected",
-              campaignId: recoveredTarget.campaignId,
-              name: recoveredTarget.name,
-            });
-            return await run(recoveredTarget);
           }
-        } catch (error) {
-          if (error instanceof Roll20ExecutionTimeoutError) {
-            return {
-              ok: false,
-              error: {
-                code: "ROLL20_EXECUTION_TIMEOUT",
-                message:
-                  "Roll20 did not return a result within 45 seconds. The execution may still be running.",
-                retryable: false,
-                executionState: "unknown",
-              },
-            };
-          }
-          if (error instanceof Roll20CompatibilityError) {
-            return {
-              ok: false,
-              error: {
-                code: "ROLL20_BRIDGE_INCOMPATIBLE",
-                message: error.message,
-                retryable: false,
-              },
-            };
-          }
-          if (error instanceof Roll20CommandRejectedError) {
-            return {
-              ok: false,
-              error: {
-                code: error.code,
-                message: error.message,
-                retryable: false,
-              },
-            };
-          }
-          if (error instanceof Roll20CampaignMismatchError) {
-            return {
-              ok: false,
-              error: {
-                code: "ROLL20_CAMPAIGN_MISMATCH",
-                message: error.message,
-                retryable: false,
-              },
-            };
-          }
-          let message = errorMessage(error);
-          let tabUnavailable =
-            message.includes("campaign tab was closed") ||
-            message.includes("campaign tab navigated away") ||
-            message.includes("No tab with id");
-          if (job.targetTabId !== undefined) {
-            try {
-              await getBoundRoll20Tab(job.targetTabId);
-            } catch (tabError) {
-              message = errorMessage(tabError);
-              tabUnavailable = true;
-            }
-          }
-          if (tabUnavailable) {
-            return {
-              ok: false,
-              error: {
-                code: "ROLL20_TAB_UNAVAILABLE",
-                message,
-                retryable: false,
-              },
-            };
-          }
-          throw error;
         }
       },
     }),
@@ -2513,8 +2560,25 @@ async function persistConversationInput(
   job: ConversationJob,
   inputMessages: readonly UIMessage[],
 ): Promise<void> {
+  let approvalChanged: boolean;
   try {
-    await saveChatMessages(job.chatId, inputMessages);
+    approvalChanged = await saveConversationInputWithApprovals(
+      job.chatId,
+      job.campaignId,
+      inputMessages,
+    );
+  } catch (error) {
+    job.debug.group("Roll20 approval validation failed", {
+      Error: modelErrorDebugDetails(error),
+    });
+    throw error;
+  }
+  try {
+    if (!approvalChanged) {
+      await saveChatMessages(job.chatId, inputMessages);
+    } else {
+      await notifyChatMessagesChanged(job.chatId);
+    }
     await changePendingRoll20Approvals(
       job.chatId,
       countPendingRoll20Approvals(inputMessages),
@@ -2564,7 +2628,11 @@ async function persistCompletedConversation(
       job.chunks,
     );
     if (!messages) return undefined;
-    await saveChatMessages(job.chatId, messages);
+    await saveMessagesAndRegisterRoll20Approvals(
+      job.chatId,
+      job.campaignId,
+      messages,
+    );
     await changePendingRoll20Approvals(
       job.chatId,
       countPendingRoll20Approvals(messages),
@@ -2572,6 +2640,7 @@ async function persistCompletedConversation(
     job.debug.group("Conversation saved", {
       "Message count": messages.length,
     });
+    await notifyChatMessagesChanged(job.chatId);
     return messages;
   } catch (error) {
     job.debug.group("Conversation save failed", {
@@ -2579,6 +2648,12 @@ async function persistCompletedConversation(
     });
     return undefined;
   }
+}
+
+async function notifyChatMessagesChanged(chatId: string): Promise<void> {
+  await chrome.runtime
+    .sendMessage({ type: CHAT_MESSAGES_CHANGED, chatId })
+    .catch(() => undefined);
 }
 
 async function persistInterruptedConversation(
@@ -2977,6 +3052,9 @@ chrome.runtime.onConnect.addListener((port) => {
           if (abortController.signal.aborted) {
             await finalizeAbortedJob(job);
           } else {
+            if (error instanceof StaleRoll20ApprovalError) {
+              await notifyChatMessagesChanged(job.chatId);
+            }
             await restoreContinuationAfterFailure(job);
             finishJob(job, {
               type: "error",

@@ -63,6 +63,7 @@ test("a fresh database runs every structural migration", async () => {
     "images",
     "messages",
     "profiles",
+    "roll20Approvals",
     "settings",
   ]);
 
@@ -107,7 +108,7 @@ test("upgrading version 2 preserves existing chat and image data", async () => {
   await transactionComplete(transaction);
   database.close();
 
-  database = await openVersion(name, 3);
+  database = await openVersion(name, migrations.CHAT_DATABASE_VERSION);
   transaction = database.transaction(["chats", "images"], "readonly");
   assert.equal(
     (await requestResult(transaction.objectStore("chats").get("chat-1"))).title,

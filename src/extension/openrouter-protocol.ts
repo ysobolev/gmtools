@@ -31,6 +31,7 @@ export const CHAT_ACTIVITY_CHANGED = "GMTOOLS_CHAT_ACTIVITY_CHANGED" as const;
 export const CHAT_CONTINUATION_CHANGED =
   "GMTOOLS_CHAT_CONTINUATION_CHANGED" as const;
 export const CHAT_APPROVALS_CHANGED = "GMTOOLS_CHAT_APPROVALS_CHANGED" as const;
+export const CHAT_MESSAGES_CHANGED = "GMTOOLS_CHAT_MESSAGES_CHANGED" as const;
 
 export interface AuthStatus {
   readonly connected: boolean;
@@ -180,6 +181,11 @@ export interface ChatApprovalsChangedMessage {
   readonly count: number;
 }
 
+export interface ChatMessagesChangedMessage {
+  readonly type: typeof CHAT_MESSAGES_CHANGED;
+  readonly chatId: string;
+}
+
 export type ChatActivitiesResponse =
   | { readonly ok: true; readonly activities: readonly ChatActivityStatus[] }
   | { readonly ok: false; readonly error: string };
@@ -286,6 +292,17 @@ export function isChatApprovalsChangedMessage(
     typeof value.count === "number" &&
     Number.isInteger(value.count) &&
     value.count >= 0
+  );
+}
+
+export function isChatMessagesChangedMessage(
+  value: unknown,
+): value is ChatMessagesChangedMessage {
+  return (
+    isRecord(value) &&
+    value.type === CHAT_MESSAGES_CHANGED &&
+    typeof value.chatId === "string" &&
+    value.chatId.length > 0
   );
 }
 

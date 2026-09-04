@@ -179,6 +179,23 @@ test("validates pending approval updates", () => {
   );
 });
 
+test("validates durable message invalidations", () => {
+  assert.equal(
+    protocol.isChatMessagesChangedMessage({
+      type: protocol.CHAT_MESSAGES_CHANGED,
+      chatId: "chat-1",
+    }),
+    true,
+  );
+  assert.equal(
+    protocol.isChatMessagesChangedMessage({
+      type: protocol.CHAT_MESSAGES_CHANGED,
+      chatId: "",
+    }),
+    false,
+  );
+});
+
 test("validates persisted continuation updates", () => {
   assert.equal(
     protocol.isChatContinuationChangedMessage({

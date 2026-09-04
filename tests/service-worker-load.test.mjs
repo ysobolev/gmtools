@@ -37,7 +37,7 @@ test("the generated Firefox worker starts without browser-global errors", async 
   const badgeTexts = [];
   const testIndexedDB = new IDBFactory();
   const database = await new Promise((resolve, reject) => {
-    const request = testIndexedDB.open("gmToolsChats", 3);
+    const request = testIndexedDB.open("gmToolsChats", 4);
     request.onupgradeneeded = () => {
       const chats = request.result.createObjectStore("chats", {
         keyPath: "id",
@@ -51,6 +51,13 @@ test("the generated Firefox worker starts without browser-global errors", async 
       images.createIndex("chatId", "chatId");
       request.result.createObjectStore("profiles", { keyPath: "id" });
       request.result.createObjectStore("settings", { keyPath: "id" });
+      const approvals = request.result.createObjectStore("roll20Approvals", {
+        keyPath: ["chatId", "approvalId"],
+      });
+      approvals.createIndex("chatId", "chatId");
+      approvals.createIndex("chatToolCall", ["chatId", "toolCallId"], {
+        unique: true,
+      });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
