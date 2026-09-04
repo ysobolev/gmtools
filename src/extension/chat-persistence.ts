@@ -6,6 +6,7 @@ import {
 } from "ai";
 
 const STOPPED_METADATA_KEY = "gmToolsStopped";
+const INTERRUPTED_METADATA_KEY = "gmToolsInterrupted";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -57,16 +58,17 @@ function sanitizeStoppedParts(
   );
 }
 
-export function isStoppedAssistantMessage(message: UIMessage): boolean {
+function hasMessageMetadataFlag(message: UIMessage, key: string): boolean {
   return (
     message.role === "assistant" &&
     isRecord(message.metadata) &&
-    message.metadata[STOPPED_METADATA_KEY] === true
+    message.metadata[key] === true
   );
 }
 
-export function sanitizeStoppedAssistantMessage(
+function sanitizeInterruptedAssistantMessage(
   message: UIMessage,
+  metadataKey: string,
 ): UIMessage | undefined {
   if (message.role !== "assistant") return message;
   const parts = sanitizeStoppedParts(message.parts);
@@ -75,10 +77,24 @@ export function sanitizeStoppedAssistantMessage(
     ...message,
     metadata: {
       ...(isRecord(message.metadata) ? message.metadata : {}),
-      [STOPPED_METADATA_KEY]: true,
+      [metadataKey]: true,
     },
     parts,
   };
+}
+
+export function isStoppedAssistantMessage(message: UIMessage): boolean {
+  return hasMessageMetadataFlag(message, STOPPED_METADATA_KEY);
+}
+
+export function isInterruptedAssistantMessage(message: UIMessage): boolean {
+  return hasMessageMetadataFlag(message, INTERRUPTED_METADATA_KEY);
+}
+
+export function hasDurableRoll20Result(message: UIMessage): boolean {
+  return message.role === "assistant" && message.parts.some((part) =>
+    isCompletedToolPart(part) && part.type === "tool-execute_roll20"
+  );
 }
 
 export function sanitizeStoppedConversation(
@@ -86,8 +102,62 @@ export function sanitizeStoppedConversation(
 ): UIMessage[] {
   const finalMessage = messages.at(-1);
   if (!finalMessage || finalMessage.role !== "assistant") return [...messages];
-  const stopped = sanitizeStoppedAssistantMessage(finalMessage);
+  const stopped = sanitizeInterruptedAssistantMessage(
+    finalMessage,
+    STOPPED_METADATA_KEY,
+  );
   return stopped ? [...messages.slice(0, -1), stopped] : messages.slice(0, -1);
+}
+
+export function sanitizeInterruptedConversation(
+  messages: readonly UIMessage[],
+): UIMessage[] {
+  const finalMessage = messages.at(-1);
+  if (!finalMessage || finalMessage.role !== "assistant") return [...messages];
+  const interrupted = sanitizeInterruptedAssistantMessage(
+    finalMessage,
+    INTERRUPTED_METADATA_KEY,
+  );
+  return interrupted
+    ? [...messages.slice(0, -1), interrupted]
+    : messages.slice(0, -1);
+}
+
+export function prepareConversationForResume(
+  messages: readonly UIMessage[],
+): UIMessage[] {
+  const finalMessage = messages.at(-1);
+  if (!finalMessage || finalMessage.role !== "assistant") {
+    return [...messages];
+  }
+
+  const parts: UIMessage["parts"] = [];
+  let startsStep = false;
+  for (const part of sanitizeStoppedParts(finalMessage.parts)) {
+    if (part.type === "step-start") {
+      startsStep = true;
+      continue;
+    }
+    if (part.type === "text" || part.type === "reasoning") continue;
+    if (startsStep) parts.push({ type: "step-start" });
+    startsStep = false;
+    parts.push(part);
+  }
+
+  const metadata = isRecord(finalMessage.metadata)
+    ? { ...finalMessage.metadata }
+    : undefined;
+  if (metadata) delete metadata[INTERRUPTED_METADATA_KEY];
+  const retriedMessage: UIMessage = {
+    ...finalMessage,
+    ...(metadata && Object.keys(metadata).length > 0
+      ? { metadata }
+      : { metadata: undefined }),
+    parts,
+  };
+  return parts.length > 0
+    ? [...messages.slice(0, -1), retriedMessage]
+    : messages.slice(0, -1);
 }
 
 export async function reconstructCompletedConversation(
@@ -120,5 +190,18 @@ export async function reconstructStoppedConversation(
   );
   return reconstructed
     ? sanitizeStoppedConversation(reconstructed)
+    : [...inputMessages];
+}
+
+export async function reconstructInterruptedConversation(
+  inputMessages: readonly UIMessage[],
+  chunks: readonly UIMessageChunk[],
+): Promise<UIMessage[]> {
+  const reconstructed = await reconstructCompletedConversation(
+    inputMessages,
+    chunks,
+  );
+  return reconstructed
+    ? sanitizeInterruptedConversation(reconstructed)
     : [...inputMessages];
 }

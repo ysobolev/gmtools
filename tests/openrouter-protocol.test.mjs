@@ -176,6 +176,18 @@ test("validates persisted continuation updates", () => {
     protocol.isChatContinuationChangedMessage({
       type: protocol.CHAT_CONTINUATION_CHANGED,
       chatId: "chat-1",
+      continuation: {
+        reason: "stream-error",
+        afterMessageId: "assistant-2",
+        createdAt: 2345,
+      },
+    }),
+    true,
+  );
+  assert.equal(
+    protocol.isChatContinuationChangedMessage({
+      type: protocol.CHAT_CONTINUATION_CHANGED,
+      chatId: "chat-1",
       continuation: null,
     }),
     true,

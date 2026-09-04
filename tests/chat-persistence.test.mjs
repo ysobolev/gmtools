@@ -120,6 +120,8 @@ test("keeps completed tools and removes unfinished tools from stopped output", a
       toolName: "execute_roll20",
       input: { summary: "moving Jax", code: "return true;" },
     },
+    { type: "error", errorText: "OpenRouter stream disconnected." },
+    { type: "finish", finishReason: "error" },
   ]);
 
   const toolParts = messages[0].parts.filter((part) =>
@@ -144,5 +146,123 @@ test("does not create an empty assistant response when stopped before output", a
   assert.deepEqual(
     await persistence.reconstructStoppedConversation(input, []),
     input,
+  );
+});
+
+test("preserves completed Roll20 results when a response is interrupted", async () => {
+  const messages = await persistence.reconstructInterruptedConversation([], [
+    { type: "start", messageId: "assistant-1" },
+    { type: "start-step" },
+    {
+      type: "tool-input-available",
+      toolCallId: "completed-call",
+      toolName: "execute_roll20",
+      input: { summary: "moving Flippy", code: "return true;" },
+    },
+    {
+      type: "tool-output-available",
+      toolCallId: "completed-call",
+      output: { ok: true, result: true },
+    },
+    { type: "start-step" },
+    {
+      type: "tool-input-available",
+      toolCallId: "unfinished-call",
+      toolName: "execute_roll20",
+      input: { summary: "moving Jax", code: "return true;" },
+    },
+  ]);
+
+  const toolParts = messages[0].parts.filter((part) =>
+    part.type.startsWith("tool-"),
+  );
+  assert.equal(toolParts.length, 1);
+  assert.equal(toolParts[0].toolCallId, "completed-call");
+  assert.equal(persistence.hasDurableRoll20Result(messages[0]), true);
+  assert.equal(persistence.isInterruptedAssistantMessage(messages[0]), true);
+});
+
+test("does not treat other completed tools as durable Roll20 results", async () => {
+  const messages = await persistence.reconstructInterruptedConversation([], [
+    { type: "start", messageId: "assistant-1" },
+    {
+      type: "tool-input-available",
+      toolCallId: "web-call",
+      toolName: "web_search",
+      input: { query: "goblins" },
+    },
+    {
+      type: "tool-output-available",
+      toolCallId: "web-call",
+      output: { results: [] },
+    },
+  ]);
+
+  assert.equal(persistence.hasDurableRoll20Result(messages[0]), false);
+  assert.equal(persistence.isInterruptedAssistantMessage(messages[0]), true);
+});
+
+test("removes unfinished prose before resume while preserving durable output", () => {
+  const messages = persistence.prepareConversationForResume([{
+    id: "assistant-1",
+    role: "assistant",
+    metadata: { gmToolsInterrupted: true },
+    parts: [
+      { type: "step-start" },
+      { type: "text", text: "This sentence was cut", state: "done" },
+      {
+        type: "tool-execute_roll20",
+        toolCallId: "completed-call",
+        state: "output-available",
+        input: { summary: "moving Flippy", code: "return true;" },
+        output: { ok: true, result: true },
+      },
+      {
+        type: "data-generated-image",
+        id: "generated:image-1",
+        data: {
+          imageId: "generated:image-1",
+          filename: "map.png",
+          mediaType: "image/png",
+          size: 3,
+        },
+      },
+    ],
+  }]);
+
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].parts.some((part) => part.type === "text"), false);
+  assert.equal(
+    messages[0].parts.some((part) => part.type === "tool-execute_roll20"),
+    true,
+  );
+  assert.equal(
+    messages[0].parts.some((part) => part.type === "data-generated-image"),
+    true,
+  );
+  assert.equal(persistence.isInterruptedAssistantMessage(messages[0]), false);
+});
+
+test("removes step-limit prose before resume without requiring an interruption marker", () => {
+  const messages = persistence.prepareConversationForResume([{
+    id: "assistant-1",
+    role: "assistant",
+    parts: [
+      { type: "step-start" },
+      { type: "text", text: "I will make one more change.", state: "done" },
+      {
+        type: "tool-execute_roll20",
+        toolCallId: "completed-call",
+        state: "output-available",
+        input: { summary: "moving Flippy", code: "return true;" },
+        output: { ok: true, result: true },
+      },
+    ],
+  }]);
+
+  assert.equal(messages[0].parts.some((part) => part.type === "text"), false);
+  assert.equal(
+    messages[0].parts.some((part) => part.type === "tool-execute_roll20"),
+    true,
   );
 });

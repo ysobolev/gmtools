@@ -240,17 +240,23 @@ export function isChatContinuationChangedMessage(
     return false;
   }
   if (value.continuation === null) return true;
+  if (
+    !isRecord(value.continuation) ||
+    (value.continuation.reason !== "step-limit" &&
+      value.continuation.reason !== "stream-error") ||
+    typeof value.continuation.afterMessageId !== "string" ||
+    value.continuation.afterMessageId.length === 0 ||
+    typeof value.continuation.createdAt !== "number" ||
+    !Number.isFinite(value.continuation.createdAt) ||
+    value.continuation.createdAt < 0
+  ) {
+    return false;
+  }
   return (
-    isRecord(value.continuation) &&
-    value.continuation.reason === "step-limit" &&
-    typeof value.continuation.afterMessageId === "string" &&
-    value.continuation.afterMessageId.length > 0 &&
-    typeof value.continuation.stepLimit === "number" &&
-    Number.isInteger(value.continuation.stepLimit) &&
-    value.continuation.stepLimit > 0 &&
-    typeof value.continuation.createdAt === "number" &&
-    Number.isFinite(value.continuation.createdAt) &&
-    value.continuation.createdAt >= 0
+    value.continuation.reason === "stream-error" ||
+    (typeof value.continuation.stepLimit === "number" &&
+      Number.isInteger(value.continuation.stepLimit) &&
+      value.continuation.stepLimit > 0)
   );
 }
 

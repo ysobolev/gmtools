@@ -25,12 +25,19 @@ export interface ChatNotice {
   readonly createdAt: number;
 }
 
-export interface ChatContinuation {
-  readonly reason: "step-limit";
+interface ChatContinuationBase {
   readonly afterMessageId: string;
-  readonly stepLimit: number;
   readonly createdAt: number;
 }
+
+export type ChatContinuation =
+  | (ChatContinuationBase & {
+      readonly reason: "step-limit";
+      readonly stepLimit: number;
+    })
+  | (ChatContinuationBase & {
+      readonly reason: "stream-error";
+    });
 
 export interface ChatRecord {
   readonly id: string;
@@ -79,12 +86,13 @@ function isChatNotice(value: unknown): value is ChatNotice {
 function isChatContinuation(value: unknown): value is ChatContinuation {
   return (
     isRecord(value) &&
-    value.reason === "step-limit" &&
+    (value.reason === "step-limit" || value.reason === "stream-error") &&
     typeof value.afterMessageId === "string" &&
     value.afterMessageId.length > 0 &&
-    typeof value.stepLimit === "number" &&
-    Number.isInteger(value.stepLimit) &&
-    value.stepLimit > 0 &&
+    (value.reason === "stream-error" ||
+      (typeof value.stepLimit === "number" &&
+        Number.isInteger(value.stepLimit) &&
+        value.stepLimit > 0)) &&
     isFiniteTimestamp(value.createdAt)
   );
 }

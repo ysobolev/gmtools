@@ -32,7 +32,9 @@ import {
   type Roll20Receipt,
 } from "./chat-activity";
 import {
+  isInterruptedAssistantMessage,
   isStoppedAssistantMessage,
+  prepareConversationForResume,
   sanitizeStoppedConversation,
 } from "./chat-persistence";
 import {
@@ -719,6 +721,7 @@ const ConversationPane = memo(function ConversationPane({
               message.role === "assistant" &&
               messages[messageIndex - 1]?.role === "assistant";
             const stopped = isStoppedAssistantMessage(message);
+            const interrupted = isInterruptedAssistantMessage(message);
             const text = textFromMessage(message);
             const assistantBlocks =
               message.role === "assistant"
@@ -763,7 +766,8 @@ const ConversationPane = memo(function ConversationPane({
               images.length === 0 &&
               uploadedImages.length === 0 &&
               generatedImageReferences.length === 0 &&
-              !stopped
+              !stopped &&
+              !interrupted
             ) {
               return null;
             }
@@ -847,6 +851,11 @@ const ConversationPane = memo(function ConversationPane({
                 {stopped ? (
                   <p className="message-stopped" role="status">Stopped</p>
                 ) : null}
+                {interrupted ? (
+                  <p className="message-interrupted" role="status">
+                    Response interrupted
+                  </p>
+                ) : null}
               </article>
             );
           })}
@@ -864,17 +873,22 @@ const ConversationPane = memo(function ConversationPane({
               </span>
             </div>
           ) : null}
-          {continuation && !busy ? (
+          {continuation && !busy && status !== "error" ? (
             <div className="continuation-card" role="status">
               <div>
-                <strong>Step limit reached</strong>
+                <strong>
+                  {continuation.reason === "step-limit"
+                    ? "Step limit reached"
+                    : "Response interrupted"}
+                </strong>
                 <p>
-                  The model completed its last tool call but requested another
-                  step.
+                  {continuation.reason === "step-limit"
+                    ? "The model completed its last tool call but requested another step."
+                    : "Roll20 results were preserved. Retry without repeating completed actions."}
                 </p>
               </div>
               <button onClick={onContinue} type="button">
-                Continue task
+                Resume
               </button>
             </div>
           ) : null}
@@ -886,22 +900,26 @@ const ConversationPane = memo(function ConversationPane({
 
 function ChatComposer({
   busy,
+  canResumeAfterError,
   chatId,
   error,
   initialDraft,
   modelLabel,
   onClearError,
+  onResumeAfterError,
   onDraftChange,
   onRegenerate,
   onSend,
   onStop,
 }: {
   readonly busy: boolean;
+  readonly canResumeAfterError: boolean;
   readonly chatId: string;
   readonly error: Error | undefined;
   readonly initialDraft: string;
   readonly modelLabel: string;
   readonly onClearError: () => void;
+  readonly onResumeAfterError: () => void;
   readonly onDraftChange: (chatId: string, draft: string) => void;
   readonly onRegenerate: () => void;
   readonly onSend: (parts: UIMessage["parts"]) => void;
@@ -1183,7 +1201,14 @@ function ChatComposer({
       {error ? (
         <div className="chat-error" role="alert">
           <span>{error.message}</span>
-          <button type="button" onClick={onRegenerate}>Retry</button>
+          <button
+            type="button"
+            onClick={canResumeAfterError
+              ? onResumeAfterError
+              : onRegenerate}
+          >
+            {canResumeAfterError ? "Resume" : "Retry"}
+          </button>
         </div>
       ) : null}
       {attachmentError ? (
@@ -1676,8 +1701,16 @@ function ChatScreen({
   };
 
   const continueTask = (): void => {
+    if (chat.continuation) {
+      setMessages((current) => prepareConversationForResume(current));
+    }
     transport.continueConversation();
     void resumeStream();
+  };
+
+  const resumeAfterError = (): void => {
+    clearError();
+    continueTask();
   };
 
   const selectProfile = (profileId: string): void => {
@@ -1812,11 +1845,13 @@ function ChatScreen({
       />
       <ChatComposer
         busy={busy}
+        canResumeAfterError={chat.continuation?.reason === "stream-error"}
         chatId={chatId}
         error={error}
         initialDraft={initialDraft}
         modelLabel={getModelSelectionLabel(activeProfile.modelSelection)}
         onClearError={clearError}
+        onResumeAfterError={resumeAfterError}
         onDraftChange={onDraftChange}
         onRegenerate={() => void regenerate()}
         onSend={(parts) => void sendMessage({ parts })}

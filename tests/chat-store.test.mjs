@@ -81,4 +81,15 @@ test("rejects malformed durable chat records", () => {
     }),
     false,
   );
+  assert.equal(
+    chats.isChatRecord({
+      ...chat,
+      continuation: {
+        reason: "stream-error",
+        afterMessageId: "assistant-2",
+        createdAt: 3456,
+      },
+    }),
+    true,
+  );
 });

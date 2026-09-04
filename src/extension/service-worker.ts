@@ -22,7 +22,10 @@ import {
   type OpenRouterKeyInfo,
 } from "./openrouter-auth";
 import {
+  hasDurableRoll20Result,
+  prepareConversationForResume,
   reconstructCompletedConversation,
+  reconstructInterruptedConversation,
   reconstructStoppedConversation,
 } from "./chat-persistence";
 import {
@@ -2246,6 +2249,9 @@ async function streamChat(
       buildProfileInstructions(profile, {
         roll20Available: Boolean(job.campaignId),
       }),
+      job.continuation?.reason === "stream-error"
+        ? "The previous response stream failed after one or more Roll20 actions returned. Generate a fresh answer from the recorded results and do not repeat completed actions."
+        : "",
       generatedImageSystemContext(conversationMessages),
     ]
       .filter(Boolean)
@@ -2355,7 +2361,11 @@ async function streamChat(
   }
   const streamError = getChatStreamError(job.chunks);
   if (streamError) {
-    await restoreContinuationAfterFailure(job);
+    const continuation = await persistInterruptedConversation(
+      job,
+      conversationMessages,
+    );
+    if (!continuation) await restoreContinuationAfterFailure(job);
     finishJob(job, { type: "error", error: streamError });
     debug.group("Conversation failed", { Error: streamError });
     return;
@@ -2457,6 +2467,39 @@ async function persistCompletedConversation(
   }
 }
 
+async function persistInterruptedConversation(
+  job: ConversationJob,
+  inputMessages: readonly UIMessage[],
+): Promise<ChatContinuation | undefined> {
+  try {
+    const messages = await reconstructInterruptedConversation(
+      inputMessages,
+      job.chunks,
+    );
+    const finalMessage = messages.at(-1);
+    if (!finalMessage || !hasDurableRoll20Result(finalMessage)) {
+      return undefined;
+    }
+    if (conversationJobs.get(job.chatId) !== job) return undefined;
+    await saveChatMessages(job.chatId, messages);
+    const continuation: ChatContinuation = {
+      reason: "stream-error",
+      afterMessageId: finalMessage.id,
+      createdAt: Date.now(),
+    };
+    await changeChatContinuation(job.chatId, continuation);
+    job.debug.group("Interrupted conversation saved", {
+      "Message count": messages.length,
+    });
+    return continuation;
+  } catch (error) {
+    job.debug.group("Interrupted conversation save failed", {
+      Error: modelErrorDebugDetails(error),
+    });
+    return undefined;
+  }
+}
+
 async function changeChatContinuation(
   chatId: string,
   continuation: ChatContinuation | undefined,
@@ -2464,7 +2507,7 @@ async function changeChatContinuation(
   const chat = await getChat(chatId);
   if (!chat || (!chat.continuation && !continuation)) return;
   await updateChatContinuation(chatId, continuation);
-  void chrome.runtime
+  await chrome.runtime
     .sendMessage({
       type: CHAT_CONTINUATION_CHANGED,
       chatId,
@@ -2707,7 +2750,17 @@ chrome.runtime.onConnect.addListener((port) => {
           }
           throw new Error("This conversation no longer needs to continue.");
         }
-        inputMessages = storedChat.messages;
+        const storedMessages = await safeValidateUIMessages<UIMessage>({
+          messages: storedChat.messages,
+        });
+        if (!storedMessages.success) {
+          throw new Error("The chat history is invalid.");
+        }
+        const resumedMessages = prepareConversationForResume(
+          storedMessages.data,
+        );
+        await saveChatMessages(message.chatId, resumedMessages);
+        inputMessages = resumedMessages;
       } else {
         inputMessages = message.messages;
         await changeChatContinuation(message.chatId, undefined);
