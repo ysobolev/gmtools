@@ -31,13 +31,9 @@ async function createEnabledCampaign(campaignId, name = campaignId) {
     name,
     modVersion: "0.2.0",
   });
-  const record = await campaigns.getCampaign(campaignId);
-  await campaigns.saveCampaignConfiguration(
-    campaignId,
-    record.defaultProfileId,
-    record.overrides,
-    true,
-  );
+  await campaigns.updateCampaignConfiguration(campaignId, {
+    memoryEnabled: true,
+  });
   return chat.chat.id;
 }
 
@@ -116,13 +112,9 @@ test("isolates memories by campaign and enforces enabled state", async () => {
     /not found/,
   );
 
-  const record = await campaigns.getCampaign("memory-campaign-2");
-  await campaigns.saveCampaignConfiguration(
-    record.campaignId,
-    record.defaultProfileId,
-    record.overrides,
-    false,
-  );
+  await campaigns.updateCampaignConfiguration("memory-campaign-2", {
+    memoryEnabled: false,
+  });
   await assert.rejects(
     memories.searchCampaignMemories("memory-campaign-2", "dragon"),
     /disabled/,

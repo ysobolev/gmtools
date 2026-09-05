@@ -30,6 +30,12 @@ export interface CampaignDeletionResult {
   readonly mode: CampaignDeletionMode;
 }
 
+export interface CampaignConfigurationPatch {
+  readonly defaultProfileId?: string;
+  readonly overrides?: Partial<CampaignOverrides>;
+  readonly memoryEnabled?: boolean;
+}
+
 function withoutCampaign(chat: ChatRecord, now: number): ChatRecord {
   const {
     campaignId: _campaignId,
@@ -164,11 +170,9 @@ export async function updateObservedCampaignName(
   return true;
 }
 
-export async function saveCampaignConfiguration(
+export async function updateCampaignConfiguration(
   campaignId: string,
-  defaultProfileId: string,
-  overrides: CampaignOverrides,
-  memoryEnabled: boolean,
+  patch: CampaignConfigurationPatch,
 ): Promise<CampaignRecord> {
   const database = await openDatabase();
   const transaction = database.transaction(
@@ -176,23 +180,31 @@ export async function saveCampaignConfiguration(
     "readwrite",
   );
   const campaigns = transaction.objectStore(CAMPAIGNS_STORE);
-  const [campaignValue, profileValue]: [unknown, unknown] = await Promise.all([
-    requestResult(campaigns.get(campaignId)),
-    requestResult(transaction.objectStore(PROFILES_STORE).get(defaultProfileId)),
-  ]);
+  const campaignValue: unknown = await requestResult(campaigns.get(campaignId));
   if (!isCampaignRecord(campaignValue)) {
     transaction.abort();
     throw new Error("The campaign no longer exists.");
   }
-  if (!isAssistantProfile(profileValue)) {
-    transaction.abort();
-    throw new Error("The selected profile no longer exists.");
+  if (patch.defaultProfileId !== undefined) {
+    const profileValue: unknown = await requestResult(
+      transaction.objectStore(PROFILES_STORE).get(patch.defaultProfileId),
+    );
+    if (!isAssistantProfile(profileValue)) {
+      transaction.abort();
+      throw new Error("The selected profile no longer exists.");
+    }
   }
   const updated: CampaignRecord = {
     ...campaignValue,
-    defaultProfileId,
-    overrides,
-    memoryEnabled,
+    ...(patch.defaultProfileId !== undefined
+      ? { defaultProfileId: patch.defaultProfileId }
+      : {}),
+    ...(patch.overrides
+      ? { overrides: { ...campaignValue.overrides, ...patch.overrides } }
+      : {}),
+    ...(patch.memoryEnabled !== undefined
+      ? { memoryEnabled: patch.memoryEnabled }
+      : {}),
     updatedAt: Date.now(),
   };
   if (!isCampaignRecord(updated)) {

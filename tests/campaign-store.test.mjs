@@ -39,11 +39,26 @@ test("campaign records apply defaults, preserve established profiles, and follow
     name: "Old name",
     modVersion: "0.2.0",
   });
-  await campaigns.saveCampaignConfiguration("campaign-1", custom.id, {
+  await campaigns.updateCampaignConfiguration("campaign-1", {
+    defaultProfileId: custom.id,
+  });
+  await campaigns.updateCampaignConfiguration("campaign-1", {
+    overrides: {
+      unrestrictedWebFetch: "enabled",
+      webSearch: "disabled",
+    },
+  });
+  await campaigns.updateCampaignConfiguration("campaign-1", {
+    memoryEnabled: true,
+  });
+  const configured = await campaigns.getCampaign("campaign-1");
+  assert.equal(configured.defaultProfileId, custom.id);
+  assert.deepEqual(configured.overrides, {
     unrestrictedWebFetch: "enabled",
     webSearch: "disabled",
     requireRoll20Approval: "inherit",
-  }, true);
+  });
+  assert.equal(configured.memoryEnabled, true);
 
   const empty = await chats.createChat("general-gm");
   const attachedEmpty = await campaigns.attachChatToCampaign(empty.chat.id, {

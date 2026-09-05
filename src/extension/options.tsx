@@ -26,7 +26,8 @@ import {
 } from "./profile-store";
 import {
   listCampaigns,
-  saveCampaignConfiguration,
+  updateCampaignConfiguration,
+  type CampaignConfigurationPatch,
 } from "./campaign-store";
 import {
   countCampaignMemories,
@@ -503,21 +504,6 @@ function campaignDraft(record: CampaignRecord): CampaignDraft {
   };
 }
 
-function campaignDraftsEqual(
-  left: CampaignDraft,
-  right: CampaignDraft,
-): boolean {
-  return (
-    left.defaultProfileId === right.defaultProfileId &&
-    left.overrides.unrestrictedWebFetch ===
-      right.overrides.unrestrictedWebFetch &&
-    left.overrides.webSearch === right.overrides.webSearch &&
-    left.overrides.requireRoll20Approval ===
-      right.overrides.requireRoll20Approval &&
-    left.memoryEnabled === right.memoryEnabled
-  );
-}
-
 function CampaignMemorySettings({
   campaign,
   onCountChange,
@@ -746,6 +732,9 @@ function CampaignsSettings({
   } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const pendingCampaignWritesRef = useRef(new Map<string, number>());
+  const refreshAfterCampaignWritesRef = useRef(false);
+  const campaignWriteErrorsRef = useRef(new Map<string, string>());
 
   const refresh = async (): Promise<void> => {
     const [loadedCampaigns, loadedProfiles] = await Promise.all([
@@ -775,7 +764,11 @@ function CampaignsSettings({
       ) return;
       if (cancelled) return;
       if (message.stores.includes("campaigns")) {
-        void refresh();
+        if (pendingCampaignWritesRef.current.size > 0) {
+          refreshAfterCampaignWritesRef.current = true;
+        } else {
+          void refresh();
+        }
       } else if (message.stores.includes("campaignMemories")) {
         const campaignId = selectedIdRef.current;
         if (campaignId) {
@@ -818,7 +811,6 @@ function CampaignsSettings({
   const selected = campaigns?.find(
     (campaign) => campaign.campaignId === selectedId,
   );
-  const dirty = selected ? !campaignDraftsEqual(draft, campaignDraft(selected)) : false;
 
   const chooseCampaign = (campaign: CampaignRecord): void => {
     selectedIdRef.current = campaign.campaignId;
@@ -832,28 +824,57 @@ function CampaignsSettings({
     key: keyof CampaignOverrides,
     value: CampaignOverride,
   ): void => {
-    setDraft({
+    updateConfiguration({ overrides: { [key]: value } }, {
       ...draft,
       overrides: { ...draft.overrides, [key]: value },
     });
-    setSavedMessage("");
   };
 
-  const save = (event: FormEvent): void => {
-    event.preventDefault();
+  const updateConfiguration = (
+    patch: CampaignConfigurationPatch,
+    nextDraft: CampaignDraft,
+  ): void => {
     if (!selected) return;
-    void saveCampaignConfiguration(
-      selected.campaignId,
-      draft.defaultProfileId,
-      draft.overrides,
-      draft.memoryEnabled,
-    ).then(async () => {
-      await refresh();
-      setSavedMessage("Changes saved.");
-    }).catch((error: unknown) => {
-      setSavedMessage(
+    const campaignId = selected.campaignId;
+    setDraft(nextDraft);
+    setCampaigns((current) => current?.map((campaign) =>
+      campaign.campaignId === campaignId
+        ? {
+            ...campaign,
+            defaultProfileId: nextDraft.defaultProfileId,
+            overrides: nextDraft.overrides,
+            memoryEnabled: nextDraft.memoryEnabled,
+          }
+        : campaign
+    ) ?? null);
+    const pendingWrites = pendingCampaignWritesRef.current;
+    if (!pendingWrites.has(campaignId)) {
+      campaignWriteErrorsRef.current.delete(campaignId);
+    }
+    pendingWrites.set(campaignId, (pendingWrites.get(campaignId) ?? 0) + 1);
+    setSavedMessage("Saving…");
+    void updateCampaignConfiguration(campaignId, patch).catch((error: unknown) => {
+      campaignWriteErrorsRef.current.set(
+        campaignId,
         error instanceof Error ? error.message : "Could not save the campaign.",
       );
+      refreshAfterCampaignWritesRef.current = true;
+    }).finally(() => {
+      const remaining = (pendingWrites.get(campaignId) ?? 1) - 1;
+      if (remaining > 0) {
+        pendingWrites.set(campaignId, remaining);
+      } else {
+        pendingWrites.delete(campaignId);
+        if (selectedIdRef.current === campaignId) {
+          setSavedMessage(
+            campaignWriteErrorsRef.current.get(campaignId) ?? "Changes saved.",
+          );
+        }
+      }
+      if (pendingWrites.size === 0 && refreshAfterCampaignWritesRef.current) {
+        refreshAfterCampaignWritesRef.current = false;
+        void refresh();
+      }
     });
   };
 
@@ -984,19 +1005,21 @@ function CampaignsSettings({
         <div className="editor-heading">
           <div className="editor-status-line">
             <span className="mode-badge">Campaign settings</span>
-            {dirty ? <span className="unsaved-badge">Unsaved changes</span> : null}
           </div>
           <h2>{selected.name}</h2>
           <p>Override global behavior and choose defaults for new empty chats.</p>
         </div>
-        <form className="profile-form" onSubmit={save}>
+        <div className="profile-form">
           <div className="form-grid">
             <label className="field field-wide">
               <span>Default profile for empty chats</span>
               <select
                 onChange={(event) => {
-                  setDraft({ ...draft, defaultProfileId: event.target.value });
-                  setSavedMessage("");
+                  const defaultProfileId = event.target.value;
+                  updateConfiguration(
+                    { defaultProfileId },
+                    { ...draft, defaultProfileId },
+                  );
                 }}
                 value={draft.defaultProfileId}
               >
@@ -1030,8 +1053,11 @@ function CampaignsSettings({
               <input
                 checked={draft.memoryEnabled}
                 onChange={(event) => {
-                  setDraft({ ...draft, memoryEnabled: event.target.checked });
-                  setSavedMessage("");
+                  const memoryEnabled = event.target.checked;
+                  updateConfiguration(
+                    { memoryEnabled },
+                    { ...draft, memoryEnabled },
+                  );
                 }}
                 type="checkbox"
               />
@@ -1049,11 +1075,9 @@ function CampaignsSettings({
             <button className="danger-button" onClick={beginDelete} type="button">Delete campaign</button>
             <div className="save-actions">
               {savedMessage ? <span className="saved-message" role="status">{savedMessage}</span> : null}
-              {dirty ? <button className="secondary-button" onClick={() => setDraft(campaignDraft(selected))} type="button">Cancel</button> : null}
-              <button className="primary-button" disabled={!dirty} type="submit">Save changes</button>
             </div>
           </div>
-        </form>
+        </div>
       </section>
 
       {deletePrompt ? (
