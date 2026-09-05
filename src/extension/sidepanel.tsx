@@ -1512,13 +1512,23 @@ function ChatDrawer({
                 const pendingApproval = Boolean(
                   candidate.pendingRoll20Approvals,
                 );
+                const persistedAttention = candidate.continuation;
+                const hasError =
+                  activity?.state === "error" ||
+                  persistedAttention?.reason === "stream-error";
+                const activityClass = pendingApproval
+                  ? "approval"
+                  : activity?.state ??
+                    (persistedAttention?.reason === "stream-error"
+                      ? "error"
+                      : persistedAttention
+                        ? "continuation"
+                        : "");
                 return (
                   <div
-                    className={
-                      candidate.id === activeChatId
-                        ? "chat-drawer-item selected"
-                        : "chat-drawer-item"
-                    }
+                    className={`chat-drawer-item${
+                      candidate.id === activeChatId ? " selected" : ""
+                    }${hasError ? " needs-attention" : ""}`}
                     key={candidate.id}
                   >
                     <button
@@ -1527,14 +1537,19 @@ function ChatDrawer({
                       type="button"
                     >
                       <strong>{candidate.title}</strong>
-                      {(activity || pendingApproval) &&
+                      {(activity || pendingApproval || persistedAttention) &&
                       (activity?.state !== "unread" ||
                         candidate.id !== activeChatId) ? (
                         <span
-                          className={`chat-drawer-activity ${pendingApproval ? "approval" : activity?.state}`}
+                          className={`chat-drawer-activity ${activityClass}`}
                           title={pendingApproval
                             ? "Roll20 approval needed"
-                            : activity?.summary}
+                            : activity?.summary ??
+                              (persistedAttention?.reason === "stream-error"
+                                ? "The last response was interrupted"
+                                : persistedAttention
+                                  ? "The model reached the step limit"
+                                  : undefined)}
                         >
                           <span aria-hidden="true" />
                           {pendingApproval
@@ -1544,7 +1559,11 @@ function ChatDrawer({
                             : activity?.state === "unread"
                               ? "New response"
                               : activity?.state === "error"
-                                ? "Failed"
+                                ? "Needs attention"
+                                : persistedAttention?.reason === "stream-error"
+                                  ? "Needs attention"
+                                  : persistedAttention
+                                    ? "Resume available"
                                 : "Thinking"}
                         </span>
                       ) : null}
