@@ -852,7 +852,7 @@ function CampaignsSettings({
       campaignWriteErrorsRef.current.delete(campaignId);
     }
     pendingWrites.set(campaignId, (pendingWrites.get(campaignId) ?? 0) + 1);
-    setSavedMessage("Saving…");
+    setSavedMessage("");
     void updateCampaignConfiguration(campaignId, patch).catch((error: unknown) => {
       campaignWriteErrorsRef.current.set(
         campaignId,
@@ -866,9 +866,7 @@ function CampaignsSettings({
       } else {
         pendingWrites.delete(campaignId);
         if (selectedIdRef.current === campaignId) {
-          setSavedMessage(
-            campaignWriteErrorsRef.current.get(campaignId) ?? "Changes saved.",
-          );
+          setSavedMessage(campaignWriteErrorsRef.current.get(campaignId) ?? "");
         }
       }
       if (pendingWrites.size === 0 && refreshAfterCampaignWritesRef.current) {
@@ -1537,7 +1535,7 @@ function OptionsApp(): React.JSX.Element {
         <div className="brand-mark" aria-hidden="true">✦</div>
         <div>
           <p className="eyebrow">VIRTUAL TABLETOP ASSISTANT</p>
-          <h1>GM Tools for VTT settings</h1>
+          <h1>GM Tools for VTT Settings</h1>
         </div>
       </header>
 
