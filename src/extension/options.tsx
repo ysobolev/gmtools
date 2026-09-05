@@ -21,6 +21,7 @@ import {
 } from "./preferences-store";
 import {
   deleteProfile as deleteStoredProfile,
+  getProfileDeletionImpact,
   listProfiles,
   saveProfile as saveStoredProfile,
 } from "./profile-store";
@@ -117,6 +118,13 @@ function ProfilesSettings(): React.JSX.Element {
   );
   const [draft, setDraft] = useState<AssistantProfile>(DEFAULT_PROFILE);
   const [savedMessage, setSavedMessage] = useState("");
+  const [deletePrompt, setDeletePrompt] = useState<{
+    readonly profile: AssistantProfile;
+    readonly chatCount: number;
+    readonly campaignCount: number;
+  } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const pendingDraftsRef = useRef(new Map<string, AssistantProfile>());
   const saveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const saveChainsRef = useRef(new Map<string, Promise<void>>());
@@ -309,12 +317,29 @@ function ProfilesSettings(): React.JSX.Element {
     scheduleProfileSave(next, immediate);
   };
 
-  const deleteProfile = (): void => {
+  const beginDeleteProfile = (): void => {
     if (
       selectedProfileId === DEFAULT_PROFILE.id ||
       profiles.length <= 1
     ) return;
-    const deletedProfileId = selectedProfileId;
+    const profile = draft;
+    setDeleteError(null);
+    void getProfileDeletionImpact(profile.id).then((impact) => {
+      setDeletePrompt({ profile, ...impact });
+    }).catch((error: unknown) => {
+      setSavedMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not inspect the profile.",
+      );
+    });
+  };
+
+  const confirmDeleteProfile = (): void => {
+    if (!deletePrompt) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    const deletedProfileId = deletePrompt.profile.id;
     const timer = saveTimersRef.current.get(deletedProfileId);
     if (timer !== undefined) clearTimeout(timer);
     saveTimersRef.current.delete(deletedProfileId);
@@ -328,16 +353,18 @@ function ProfilesSettings(): React.JSX.Element {
       selectedProfileIdRef.current = nextProfile.id;
       setSelectedProfileId(nextProfile.id);
       setDraft(nextProfile);
-      setSavedMessage("Profile deleted.");
+      setSavedMessage("");
+      setDeletePrompt(null);
     }).catch((error: unknown) => {
-      setSavedMessage(
+      setDeleteError(
         error instanceof Error ? error.message : "Could not delete the profile.",
       );
-    });
+    }).finally(() => setDeleteBusy(false));
   };
 
   return (
-    <div className="profile-workspace">
+    <>
+      <div className="profile-workspace">
       <aside className="profile-sidebar">
         <div className="sidebar-heading">
           <div>
@@ -544,7 +571,7 @@ function ProfilesSettings(): React.JSX.Element {
                   profiles.length <= 1 ||
                   selectedProfileId === DEFAULT_PROFILE.id
                 }
-                onClick={deleteProfile}
+                onClick={beginDeleteProfile}
                 title={
                   selectedProfileId === DEFAULT_PROFILE.id
                     ? "The General profile cannot be deleted."
@@ -563,7 +590,66 @@ function ProfilesSettings(): React.JSX.Element {
           </div>
         </div>
       </section>
-    </div>
+      </div>
+      {deletePrompt ? (
+        <div className="campaign-delete-backdrop">
+          <section
+            aria-label={`Delete ${deletePrompt.profile.name}`}
+            aria-modal="true"
+            className="campaign-delete-dialog"
+            role="alertdialog"
+          >
+            <h2>Delete {deletePrompt.profile.name}?</h2>
+            {deletePrompt.chatCount > 0 || deletePrompt.campaignCount > 0 ? (
+              <>
+                <p>The profile will be permanently deleted.</p>
+                <ul className="campaign-delete-impact">
+                  {deletePrompt.chatCount > 0 ? (
+                    <li>
+                      {deletePrompt.chatCount} {deletePrompt.chatCount === 1
+                        ? "chat uses"
+                        : "chats use"} this profile and will switch to General.
+                    </li>
+                  ) : null}
+                  {deletePrompt.campaignCount > 0 ? (
+                    <li>
+                      {deletePrompt.campaignCount} {deletePrompt.campaignCount === 1
+                        ? "campaign uses"
+                        : "campaigns use"} this as its default profile and will
+                      switch to General.
+                    </li>
+                  ) : null}
+                </ul>
+                <p>Chat history will not be deleted.</p>
+              </>
+            ) : (
+              <p>This profile will be permanently deleted.</p>
+            )}
+            {deleteError ? (
+              <p className="campaign-delete-error" role="alert">{deleteError}</p>
+            ) : null}
+            <div className="campaign-delete-actions">
+              <button
+                className="danger-button"
+                disabled={deleteBusy}
+                onClick={confirmDeleteProfile}
+                type="button"
+              >
+                Delete profile
+              </button>
+              <button
+                className="secondary-button"
+                disabled={deleteBusy}
+                onClick={() => setDeletePrompt(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>
   );
 }
 

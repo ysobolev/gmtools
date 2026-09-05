@@ -164,9 +164,10 @@ test("upgrading version 2 preserves existing chat and image data", async () => {
 
 test("profile deletion reassigns chats to General atomically", async () => {
   await requestResult(indexedDB.deleteDatabase(migrations.CHAT_DATABASE_NAME));
-  const [profiles, chats] = await Promise.all([
+  const [profiles, chats, campaigns] = await Promise.all([
     bundle("src/extension/profile-store.ts"),
     bundle("src/extension/chat-store.ts"),
+    bundle("src/extension/campaign-store.ts"),
   ]);
   const custom = {
     id: "custom-profile",
@@ -177,6 +178,22 @@ test("profile deletion reassigns chats to General atomically", async () => {
   };
   await profiles.saveProfile(custom, { create: true });
   const created = await chats.createChat(custom.id);
+  await chats.saveChatMessages(created.chat.id, [
+    { id: "message-1", role: "user", parts: [{ type: "text", text: "hello" }] },
+  ]);
+  await campaigns.attachChatToCampaign(created.chat.id, {
+    campaignId: "profile-campaign",
+    name: "Profile campaign",
+    modVersion: "0.2.0",
+  });
+  await campaigns.updateCampaignConfiguration("profile-campaign", {
+    defaultProfileId: custom.id,
+  });
+
+  assert.deepEqual(await profiles.getProfileDeletionImpact(custom.id), {
+    chatCount: 1,
+    campaignCount: 1,
+  });
 
   await profiles.deleteProfile(custom.id);
 
@@ -185,6 +202,10 @@ test("profile deletion reassigns chats to General atomically", async () => {
   assert.equal(updated.profileId, "general-gm");
   assert.equal(updated.notices.length, 1);
   assert.match(updated.notices[0].text, /now uses General/);
+  assert.equal(
+    (await campaigns.getCampaign("profile-campaign")).defaultProfileId,
+    "general-gm",
+  );
 });
 
 test("global preference updates preserve defaults and other fields", async () => {

@@ -20,6 +20,11 @@ import { isCampaignRecord } from "./campaign-config";
 
 const MAX_PROFILES = 50;
 
+export interface ProfileDeletionImpact {
+  readonly chatCount: number;
+  readonly campaignCount: number;
+}
+
 export async function listProfiles(): Promise<AssistantProfile[]> {
   const database = await openDatabase();
   const transaction = database.transaction(PROFILES_STORE, "readonly");
@@ -40,6 +45,28 @@ export async function getProfile(
   );
   await transactionComplete(transaction);
   return isAssistantProfile(value) ? value : undefined;
+}
+
+export async function getProfileDeletionImpact(
+  profileId: string,
+): Promise<ProfileDeletionImpact> {
+  const database = await openDatabase();
+  const transaction = database.transaction(
+    [CHATS_STORE, CAMPAIGNS_STORE],
+    "readonly",
+  );
+  const [chatCount, campaignCount] = await Promise.all([
+    requestResult(
+      transaction.objectStore(CHATS_STORE).index("profileId").count(profileId),
+    ),
+    requestResult(
+      transaction.objectStore(CAMPAIGNS_STORE).index("defaultProfileId").count(
+        profileId,
+      ),
+    ),
+  ]);
+  await transactionComplete(transaction);
+  return { chatCount, campaignCount };
 }
 
 export async function saveProfile(

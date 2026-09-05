@@ -544,6 +544,10 @@ p {
   line-height: 1.45;
 }
 
+.campaign-delete-impact + p {
+  margin-top: 12px;
+}
+
 .campaign-delete-dialog .campaign-delete-warning {
   margin: 16px 0 0;
   padding: 10px 12px;
