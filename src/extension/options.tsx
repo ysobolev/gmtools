@@ -1,5 +1,5 @@
 import "./configure-csp";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   DEFAULT_MAX_STEPS,
@@ -77,10 +77,6 @@ type SettingsTab =
   | "display"
   | "behavior"
   | "authentication";
-type EditorMode =
-  | { readonly kind: "new" }
-  | { readonly kind: "edit"; readonly profileId: string };
-
 async function sendAuthRequest(message: AuthRequest): Promise<AuthStatus> {
   const response: unknown = await chrome.runtime.sendMessage(message);
   if (!isAuthResponse(response)) {
@@ -90,30 +86,43 @@ async function sendAuthRequest(message: AuthRequest): Promise<AuthStatus> {
   return response.status;
 }
 
-function profilesEqual(
-  left: AssistantProfile,
-  right: AssistantProfile,
-): boolean {
-  return (
-    left.id === right.id &&
-    left.name === right.name &&
-    left.rulesetId === right.rulesetId &&
-    left.modelSelection.kind === right.modelSelection.kind &&
-    (left.modelSelection.kind === "recommended" ||
-      (right.modelSelection.kind === "fixed" &&
-        left.modelSelection.modelId === right.modelSelection.modelId)) &&
-    left.additionalInstructions === right.additionalInstructions
-  );
+const PROFILE_TEXT_SAVE_DELAY_MS = 800;
+
+function normalizedProfileDraft(
+  draft: AssistantProfile,
+): AssistantProfile | undefined {
+  const profile: AssistantProfile = {
+    ...draft,
+    name: draft.name.trim(),
+    modelSelection: draft.modelSelection.kind === "fixed"
+      ? { kind: "fixed", modelId: draft.modelSelection.modelId.trim() }
+      : draft.modelSelection,
+  };
+  return isAssistantProfile(profile) ? profile : undefined;
+}
+
+function nextProfileNumber(profiles: readonly AssistantProfile[]): number {
+  const names = new Set(profiles.map((profile) => profile.name));
+  for (let number = 1; number <= profiles.length + 1; number += 1) {
+    const name = number === 1 ? "New Profile" : `New Profile ${number}`;
+    if (!names.has(name)) return number;
+  }
+  return profiles.length + 1;
 }
 
 function ProfilesSettings(): React.JSX.Element {
   const [profiles, setProfiles] = useState<AssistantProfile[] | null>(null);
-  const [mode, setMode] = useState<EditorMode>({
-    kind: "edit",
-    profileId: DEFAULT_PROFILE.id,
-  });
+  const [selectedProfileId, setSelectedProfileId] = useState(
+    DEFAULT_PROFILE.id,
+  );
   const [draft, setDraft] = useState<AssistantProfile>(DEFAULT_PROFILE);
   const [savedMessage, setSavedMessage] = useState("");
+  const pendingDraftsRef = useRef(new Map<string, AssistantProfile>());
+  const saveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const saveChainsRef = useRef(new Map<string, Promise<void>>());
+  const refreshProfilesAfterSavesRef = useRef(false);
+  const selectedProfileIdRef = useRef(DEFAULT_PROFILE.id);
+  const creatingProfileRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,7 +131,8 @@ function ProfilesSettings(): React.JSX.Element {
         if (cancelled) return;
         const firstProfile = loadedProfiles[0]!;
         setProfiles(loadedProfiles);
-        setMode({ kind: "edit", profileId: firstProfile.id });
+        selectedProfileIdRef.current = firstProfile.id;
+        setSelectedProfileId(firstProfile.id);
         setDraft(firstProfile);
       })
       .catch(() => {
@@ -134,6 +144,10 @@ function ProfilesSettings(): React.JSX.Element {
         !isDurableDataChangedMessage(message) ||
         !message.stores.includes("profiles")
       ) return;
+      if (saveChainsRef.current.size > 0) {
+        refreshProfilesAfterSavesRef.current = true;
+        return;
+      }
       void listProfiles().then((loadedProfiles) => {
         if (!cancelled) setProfiles(loadedProfiles);
       });
@@ -142,17 +156,10 @@ function ProfilesSettings(): React.JSX.Element {
     return () => {
       cancelled = true;
       chrome.runtime.onMessage.removeListener(handleMessage);
+      for (const timer of saveTimersRef.current.values()) clearTimeout(timer);
     };
   }, []);
 
-  const savedProfile = useMemo(() => {
-    if (!profiles || mode.kind !== "edit") return undefined;
-    return profiles.find((profile) => profile.id === mode.profileId);
-  }, [mode, profiles]);
-  const dirty =
-    mode.kind === "new" ||
-    !savedProfile ||
-    !profilesEqual(draft, savedProfile);
   const selectedModelChoice =
     draft.modelSelection.kind === "recommended"
       ? "recommended"
@@ -173,71 +180,154 @@ function ProfilesSettings(): React.JSX.Element {
     );
   }
 
+  const profileValidationMessage = (profile: AssistantProfile): string => {
+    if (!profile.name.trim()) return "Profile name is required.";
+    if (
+      profile.modelSelection.kind === "fixed" &&
+      !profile.modelSelection.modelId.trim()
+    ) {
+      return "OpenRouter model ID is required.";
+    }
+    return "The profile is invalid.";
+  };
+
+  const queueProfileSave = (profile: AssistantProfile): void => {
+    setProfiles((current) => current?.map((candidate) =>
+      candidate.id === profile.id ? profile : candidate
+    ) ?? null);
+    const previous = saveChainsRef.current.get(profile.id) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(async () => {
+      try {
+        await saveStoredProfile(profile);
+        if (selectedProfileIdRef.current === profile.id) setSavedMessage("");
+      } catch (error) {
+        if (selectedProfileIdRef.current === profile.id) {
+          setSavedMessage(
+            error instanceof Error ? error.message : "Could not save the profile.",
+          );
+        }
+        refreshProfilesAfterSavesRef.current = true;
+      }
+    });
+    saveChainsRef.current.set(profile.id, next);
+    void next.finally(() => {
+      if (saveChainsRef.current.get(profile.id) === next) {
+        saveChainsRef.current.delete(profile.id);
+        if (
+          saveChainsRef.current.size === 0 &&
+          refreshProfilesAfterSavesRef.current
+        ) {
+          refreshProfilesAfterSavesRef.current = false;
+          void listProfiles().then(setProfiles);
+        }
+      }
+    });
+  };
+
+  const flushProfileSave = (
+    profileId: string,
+    showValidationError: boolean,
+  ): void => {
+    const timer = saveTimersRef.current.get(profileId);
+    if (timer !== undefined) clearTimeout(timer);
+    saveTimersRef.current.delete(profileId);
+    const pending = pendingDraftsRef.current.get(profileId);
+    if (!pending) return;
+    const normalized = normalizedProfileDraft(pending);
+    if (!normalized) {
+      if (showValidationError && selectedProfileIdRef.current === profileId) {
+        setSavedMessage(profileValidationMessage(pending));
+      }
+      return;
+    }
+    pendingDraftsRef.current.delete(profileId);
+    queueProfileSave(normalized);
+  };
+
+  const scheduleProfileSave = (
+    profile: AssistantProfile,
+    immediate: boolean,
+  ): void => {
+    pendingDraftsRef.current.set(profile.id, profile);
+    const existingTimer = saveTimersRef.current.get(profile.id);
+    if (existingTimer !== undefined) clearTimeout(existingTimer);
+    saveTimersRef.current.delete(profile.id);
+    if (immediate) {
+      flushProfileSave(profile.id, true);
+      return;
+    }
+    const timer = setTimeout(() => {
+      flushProfileSave(profile.id, true);
+    }, PROFILE_TEXT_SAVE_DELAY_MS);
+    saveTimersRef.current.set(profile.id, timer);
+  };
+
   const selectProfile = (profile: AssistantProfile): void => {
-    setMode({ kind: "edit", profileId: profile.id });
-    setDraft(profile);
+    if (profile.id === selectedProfileIdRef.current) return;
+    flushProfileSave(selectedProfileIdRef.current, false);
+    selectedProfileIdRef.current = profile.id;
+    setSelectedProfileId(profile.id);
+    setDraft(pendingDraftsRef.current.get(profile.id) ?? profile);
     setSavedMessage("");
   };
 
   const beginNewProfile = (): void => {
-    setMode({ kind: "new" });
-    setDraft(createProfile(crypto.randomUUID(), profiles.length + 1));
-    setSavedMessage("");
-  };
-
-  const changeRuleset = (rulesetId: RulesetId): void => {
-    setDraft({ ...draft, rulesetId });
-    setSavedMessage("");
-  };
-
-  const updateDraft = (change: Partial<AssistantProfile>): void => {
-    setDraft({ ...draft, ...change });
-    setSavedMessage("");
-  };
-
-  const saveProfile = (event: FormEvent): void => {
-    event.preventDefault();
-    const name = draft.name.trim();
-    if (!name) return;
-    const modelSelection =
-      draft.modelSelection.kind === "fixed"
-        ? {
-            kind: "fixed" as const,
-            modelId: draft.modelSelection.modelId.trim(),
-          }
-        : draft.modelSelection;
-    if (modelSelection.kind === "fixed" && !modelSelection.modelId) return;
-    const profile = { ...draft, name, modelSelection };
-    if (!isAssistantProfile(profile)) return;
-    const creating = mode.kind === "new";
-    void saveStoredProfile(profile, { create: creating }).then(async () => {
-      setProfiles(await listProfiles());
-      setMode({ kind: "edit", profileId: profile.id });
+    if (creatingProfileRef.current) return;
+    flushProfileSave(selectedProfileIdRef.current, false);
+    creatingProfileRef.current = true;
+    const profile = createProfile(
+      crypto.randomUUID(),
+      nextProfileNumber(profiles),
+    );
+    void saveStoredProfile(profile, { create: true }).then(async () => {
+      const nextProfiles = await listProfiles();
+      setProfiles(nextProfiles);
+      selectedProfileIdRef.current = profile.id;
+      setSelectedProfileId(profile.id);
       setDraft(profile);
-      setSavedMessage(creating ? "Profile created." : "Changes saved.");
+      setSavedMessage("");
     }).catch((error: unknown) => {
       setSavedMessage(
-        error instanceof Error ? error.message : "Could not save the profile.",
+        error instanceof Error ? error.message : "Could not create the profile.",
       );
+    }).finally(() => {
+      creatingProfileRef.current = false;
     });
   };
 
-  const cancelChanges = (): void => {
-    const profile = savedProfile ?? profiles[0]!;
-    selectProfile(profile);
+  const changeRuleset = (rulesetId: RulesetId): void => {
+    updateDraft({ rulesetId }, true);
+  };
+
+  const updateDraft = (
+    change: Partial<AssistantProfile>,
+    immediate = false,
+  ): void => {
+    const next = { ...draft, ...change };
+    setDraft(next);
+    setSavedMessage("");
+    scheduleProfileSave(next, immediate);
   };
 
   const deleteProfile = (): void => {
     if (
-      mode.kind !== "edit" ||
-      mode.profileId === DEFAULT_PROFILE.id ||
+      selectedProfileId === DEFAULT_PROFILE.id ||
       profiles.length <= 1
     ) return;
-    const deletedProfileId = mode.profileId;
-    void deleteStoredProfile(deletedProfileId).then(async () => {
+    const deletedProfileId = selectedProfileId;
+    const timer = saveTimersRef.current.get(deletedProfileId);
+    if (timer !== undefined) clearTimeout(timer);
+    saveTimersRef.current.delete(deletedProfileId);
+    pendingDraftsRef.current.delete(deletedProfileId);
+    const pendingSave = saveChainsRef.current.get(deletedProfileId) ??
+      Promise.resolve();
+    void pendingSave.then(() => deleteStoredProfile(deletedProfileId)).then(async () => {
       const nextProfiles = await listProfiles();
       setProfiles(nextProfiles);
-      selectProfile(nextProfiles[0]!);
+      const nextProfile = nextProfiles[0]!;
+      selectedProfileIdRef.current = nextProfile.id;
+      setSelectedProfileId(nextProfile.id);
+      setDraft(nextProfile);
       setSavedMessage("Profile deleted.");
     }).catch((error: unknown) => {
       setSavedMessage(
@@ -245,8 +335,6 @@ function ProfilesSettings(): React.JSX.Element {
       );
     });
   };
-
-  const isNew = mode.kind === "new";
 
   return (
     <div className="profile-workspace">
@@ -264,7 +352,7 @@ function ProfilesSettings(): React.JSX.Element {
           {profiles.map((profile) => (
             <button
               className={
-                mode.kind === "edit" && mode.profileId === profile.id
+                selectedProfileId === profile.id
                   ? "profile-item selected"
                   : "profile-item"
               }
@@ -289,25 +377,22 @@ function ProfilesSettings(): React.JSX.Element {
       <section className="editor-panel">
         <div className="editor-heading">
           <div className="editor-status-line">
-            <span className={isNew ? "mode-badge new" : "mode-badge"}>
-              {isNew ? "New profile" : "Editing profile"}
-            </span>
-            {dirty ? <span className="unsaved-badge">Unsaved changes</span> : null}
+            <span className="mode-badge">Editing profile</span>
           </div>
-          <h2>{isNew ? "Create a profile" : draft.name}</h2>
+          <h2>{draft.name || "Untitled profile"}</h2>
           <p>
             Combine game guidance and a model into a reusable assistant preset.
           </p>
         </div>
 
-        <form className="profile-form" onSubmit={saveProfile}>
+        <div className="profile-form">
           <div className="form-grid">
             <label className="field field-wide">
               <span>Profile name</span>
               <input
-                autoFocus={isNew}
                 maxLength={80}
                 onChange={(event) => updateDraft({ name: event.target.value })}
+                onBlur={() => flushProfileSave(draft.id, true)}
                 required
                 value={draft.name}
               />
@@ -335,7 +420,10 @@ function ProfilesSettings(): React.JSX.Element {
                 onChange={(event) => {
                   const value = event.target.value;
                   if (value === "recommended") {
-                    updateDraft({ modelSelection: { kind: "recommended" } });
+                    updateDraft(
+                      { modelSelection: { kind: "recommended" } },
+                      true,
+                    );
                   } else if (value === "custom") {
                     updateDraft({
                       modelSelection: {
@@ -346,11 +434,11 @@ function ProfilesSettings(): React.JSX.Element {
                             ? draft.modelSelection.modelId
                             : "",
                       },
-                    });
+                    }, true);
                   } else {
                     updateDraft({
                       modelSelection: { kind: "fixed", modelId: value },
-                    });
+                    }, true);
                   }
                 }}
                 value={selectedModelChoice}
@@ -405,6 +493,7 @@ function ProfilesSettings(): React.JSX.Element {
                       },
                     })
                   }
+                  onBlur={() => flushProfileSave(draft.id, true)}
                   placeholder="provider/model-name"
                   required
                   spellCheck={false}
@@ -432,6 +521,7 @@ function ProfilesSettings(): React.JSX.Element {
                 onChange={(event) =>
                   updateDraft({ additionalInstructions: event.target.value })
                 }
+                onBlur={() => flushProfileSave(draft.id, true)}
                 placeholder={
                   draft.rulesetId === "custom"
                     ? "Describe the game, rules, sheet conventions, and how the assistant should behave."
@@ -448,43 +538,30 @@ function ProfilesSettings(): React.JSX.Element {
 
           <div className="form-actions">
             <div>
-              {!isNew ? (
-                <button
-                  className="danger-button"
-                  disabled={
-                    profiles.length <= 1 || mode.profileId === DEFAULT_PROFILE.id
-                  }
-                  onClick={deleteProfile}
-                  title={
-                    mode.profileId === DEFAULT_PROFILE.id
-                      ? "The General profile cannot be deleted."
-                      : undefined
-                  }
-                  type="button"
-                >
-                  Delete profile
-                </button>
-              ) : null}
+              <button
+                className="danger-button"
+                disabled={
+                  profiles.length <= 1 ||
+                  selectedProfileId === DEFAULT_PROFILE.id
+                }
+                onClick={deleteProfile}
+                title={
+                  selectedProfileId === DEFAULT_PROFILE.id
+                    ? "The General profile cannot be deleted."
+                    : undefined
+                }
+                type="button"
+              >
+                Delete profile
+              </button>
             </div>
             <div className="save-actions">
               {savedMessage ? (
                 <span className="saved-message" role="status">{savedMessage}</span>
               ) : null}
-              {dirty ? (
-                <button
-                  className="secondary-button"
-                  onClick={cancelChanges}
-                  type="button"
-                >
-                  Cancel
-                </button>
-              ) : null}
-              <button className="primary-button" disabled={!dirty} type="submit">
-                {isNew ? "Create profile" : "Save changes"}
-              </button>
             </div>
           </div>
-        </form>
+        </div>
       </section>
     </div>
   );

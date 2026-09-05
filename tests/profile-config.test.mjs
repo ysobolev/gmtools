@@ -22,6 +22,11 @@ test("provides a valid default profile when storage is empty", () => {
   });
 });
 
+test("creates profiles with generic numbered names", () => {
+  assert.equal(profiles.createProfile("profile-1", 1).name, "New Profile");
+  assert.equal(profiles.createProfile("profile-2", 2).name, "New Profile 2");
+});
+
 test("keeps the General profile available when stored profiles omit it", () => {
   const custom = {
     ...profiles.DEFAULT_PROFILE,
@@ -32,6 +37,29 @@ test("keeps the General profile available when stored profiles omit it", () => {
     profiles.DEFAULT_PROFILE,
     custom,
   ]);
+});
+
+test("sorts custom profiles by name while keeping General first", () => {
+  const zulu = {
+    ...profiles.DEFAULT_PROFILE,
+    id: "zulu-id",
+    name: "Zulu",
+  };
+  const alphaTwo = {
+    ...profiles.DEFAULT_PROFILE,
+    id: "alpha-2",
+    name: "alpha",
+  };
+  const alphaOne = {
+    ...profiles.DEFAULT_PROFILE,
+    id: "alpha-1",
+    name: "Alpha",
+  };
+  assert.deepEqual(
+    profiles.normalizeProfiles([zulu, alphaTwo, profiles.DEFAULT_PROFILE, alphaOne])
+      .map((profile) => profile.id),
+    ["general-gm", "alpha-1", "alpha-2", "zulu-id"],
+  );
 });
 
 test("accepts custom models and rejects unknown rulesets", () => {

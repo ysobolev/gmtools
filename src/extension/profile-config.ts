@@ -139,9 +139,15 @@ export function normalizeProfiles(value: unknown): AssistantProfile[] {
   const general =
     profiles.find((profile) => profile.id === DEFAULT_PROFILE.id) ??
     DEFAULT_PROFILE;
+  const customProfiles = profiles
+    .filter((profile) => profile.id !== DEFAULT_PROFILE.id)
+    .sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" }) ||
+      left.id.localeCompare(right.id)
+    );
   return [
     general,
-    ...profiles.filter((profile) => profile.id !== DEFAULT_PROFILE.id),
+    ...customProfiles,
   ].slice(0, 50);
 }
 
@@ -185,7 +191,7 @@ export function createProfile(
 ): AssistantProfile {
   return {
     id,
-    name: `D&D 5e Profile ${number}`,
+    name: number === 1 ? "New Profile" : `New Profile ${number}`,
     rulesetId: "dnd5e",
     modelSelection: { kind: "recommended" },
     additionalInstructions: "",
