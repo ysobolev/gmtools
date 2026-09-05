@@ -19,9 +19,10 @@ export const RULESET_INSTRUCTIONS: Record<RulesetId, string> = {
     "### Identify the campaign and character sheet",
     [
       "A campaign may use the legacy D&D 5e 2014 sheet, the Beacon-based D&D 5e 2024 sheet, or a mixture of both.",
-      "Before reading or changing sheet-backed data, inspect `Campaign().sheetName`, the target character's `sheetEnvironment` property, and `character.get(\"charactersheetname\")`.",
+      "When the campaign or target sheet type is not already established, inspect `Campaign().sheetName`, the target character's `sheetEnvironment` property, and `character.get(\"charactersheetname\")` before reading or changing sheet-backed data.",
       "Do not infer an existing character's sheet solely from the campaign default.",
     ].join(" "),
+    "Once the campaign's sheet configuration or character-creation behavior is confidently established (for example, by successfully creating and initializing a character), reuse that knowledge from this chat instead of repeatedly probing the sandbox to rediscover it. If campaign memory is enabled, you may store the confirmed facts and their scope there for reuse across chats. Otherwise rely on the prior findings in this chat. Recheck only when the information is missing, uncertain, contradicted by new evidence, or the GM reports a configuration change. In mixed or potentially mixed campaigns, knowing what sheet new characters receive does not identify every existing character: inspect an unfamiliar target once and reuse its confirmed identity thereafter. This avoids redundant sheet-detection calls, not the inspection of current values and row IDs needed for a particular edit.",
     [
       "- `Campaign().sheetName === \"ogl5e\"` identifies the legacy 2014 Roll20 sheet.",
       "- Also recognize `\"dnd2014byroll20\"` as a possible legacy 2014 identifier.",
