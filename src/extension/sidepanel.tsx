@@ -2403,7 +2403,10 @@ function ChatWorkspace(): React.JSX.Element {
   };
 
   const switchChat = (chatId: string): void => {
-    if (chatId === storedChat.chat.id) return;
+    if (chatId === storedChat.chat.id) {
+      setDrawerOpen(false);
+      return;
+    }
     void (async () => {
       if (chatActivities[chatId]?.state !== "error") {
         await acknowledgeCompletedChat(chatId);
