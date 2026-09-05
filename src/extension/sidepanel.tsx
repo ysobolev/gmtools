@@ -1603,6 +1603,15 @@ function ChatDrawer({
             </section>
           ))}
         </div>
+        <footer className="chat-drawer-footer">
+          <button className="chat-settings-button" onClick={() => void chrome.runtime.openOptionsPage()} type="button">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
+              <path d="M9 3h6v3l3 3h3v6h-3l-3 3v3H9v-3l-3-3H3V9h3l3-3Z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            <span>Settings</span>
+          </button>
+        </footer>
       </aside>
       {deleteCandidate ? (
         <>
@@ -1737,7 +1746,7 @@ function ChatScreen({
       : { chatId, state: "unbound" },
   );
   const [campaignActionPending, setCampaignActionPending] = useState<
-    "attach" | "detach" | null
+    "discover" | "attach" | "detach" | null
   >(null);
   const [campaignActionFeedback, setCampaignActionFeedback] = useState<
     string | null
@@ -1881,7 +1890,7 @@ function ChatScreen({
   };
 
   const beginAttach = async (): Promise<void> => {
-    setCampaignActionPending("attach");
+    setCampaignActionPending("discover");
     setCampaignActionFeedback(null);
     try {
       const response: unknown = await chrome.runtime.sendMessage({
@@ -1987,7 +1996,7 @@ function ChatScreen({
 
   return (
     <main className="chat-shell">
-      <header className="chat-header">
+      <header className="chat-header chat-first-header">
         <div className="chat-title-row">
           <button
             aria-label={attentionCount > 0
@@ -2005,54 +2014,13 @@ function ChatScreen({
               </span>
             ) : null}
           </button>
-          <div className="campaign-title-group">
-            <h1
-              aria-label={`Campaign: ${campaignLabel}`}
-              className={campaignBound ? "bound" : "unbound"}
-              title={campaignLabel}
-            >
-              {campaignLabel}
-            </h1>
-            <button
-              className="campaign-action-button"
-              disabled={
-                busy || awaitingApproval || campaignActionPending !== null
-              }
-              onClick={() => void (campaignBound ? detach() : beginAttach())}
-              title={
-                campaignBound
-                  ? "Detach this chat from its Roll20 campaign"
-                  : "Attach this chat to a Roll20 campaign"
-              }
-              type="button"
-            >
-              {campaignActionPending === "attach"
-                ? "Attaching…"
-                : campaignActionPending === "detach"
-                  ? "Detaching…"
-                  : campaignBound
-                    ? "Detach"
-                    : "Attach"}
-            </button>
-          </div>
-          <button
-            className="chat-settings-button"
-            type="button"
-            onClick={onManageProfiles}
-          >
-            Settings
-          </button>
-        </div>
-        {campaignActionFeedback ? (
-          <p className="campaign-action-feedback" role="status">
-            {campaignActionFeedback}
-          </p>
-        ) : null}
-        <div className="chat-context-row">
           <ChatNameEditor onRename={onRenameChat} title={chat.title} />
           <select
+            className="chat-profile-select"
             aria-label="Assistant profile for this chat"
-            onChange={(event) => selectProfile(event.target.value)}
+            onChange={(event) => event.target.value === "__edit_profiles__"
+              ? onManageProfiles()
+              : selectProfile(event.target.value)}
             value={activeProfile.id}
           >
             {profiles.map((profile) => (
@@ -2060,8 +2028,37 @@ function ChatScreen({
                 {profile.name}
               </option>
             ))}
+            <option value="__edit_profiles__">Edit profiles…</option>
           </select>
         </div>
+        {campaignBound ? (
+          <div className="campaign-banner">
+            <span title={campaignLabel}>{campaignLabel}</span>
+            <button
+              className="campaign-action-button"
+              disabled={busy || awaitingApproval || campaignActionPending !== null}
+              onClick={() => void detach()}
+              type="button"
+            >
+              {campaignActionPending === "detach" ? "Detaching…" : "Detach"}
+            </button>
+          </div>
+        ) : (
+          <button
+            className="campaign-banner campaign-banner-attach"
+            data-discovering={campaignActionPending === "discover" || undefined}
+            disabled={busy || awaitingApproval || campaignActionPending !== null}
+            onClick={() => void beginAttach()}
+            type="button"
+          >
+            {campaignActionPending === "attach" ? "Attaching…" : "Attach a Roll20 campaign…"}
+          </button>
+        )}
+        {campaignActionFeedback ? (
+          <p className="campaign-action-feedback" role="status">
+            {campaignActionFeedback}
+          </p>
+        ) : null}
       </header>
 
       {campaignCandidates.length > 1 ? (
