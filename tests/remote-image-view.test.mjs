@@ -84,7 +84,31 @@ test("the tool enforces its configured domain access", async () => {
   );
 });
 
-test("serializes the remote URL as image input on the next model step", async () => {
+test("accepts image extensions case-insensitively with queries and fragments", () => {
+  for (const extension of ["jpg", "JPEG", "png", "GIF", "webp"]) {
+    const url = `https://files.d20.io/images/map.${extension}?token=abc#preview`;
+    assert.equal(remoteImageView.normalizeRemoteImageUrl(url), url);
+  }
+});
+
+test("rejects webpage and extensionless URLs inside tool execution", async () => {
+  const imageTool = remoteImageView.createViewRemoteImageTool(true);
+  for (const url of [
+    "https://www.reddit.com/r/DnDHomebrew/comments/oh4bo9/asmodeus_stat_block/",
+    "https://example.com/image",
+    "https://example.com/page?image=map.png",
+    "https://example.com/page#map.png",
+    "https://example.com/map.webp/",
+    "https://example.com/map.svg",
+  ]) {
+    await assert.rejects(imageTool.execute({ url }), /requires a direct image URL/);
+  }
+});
+
+for (const invalidUrl of [false, true]) {
+test(invalidUrl
+  ? "returns a rejected URL as a tool error and lets the model continue"
+  : "serializes the remote URL as image input on the next model step", async () => {
   const requestBodies = [];
   const openrouter = createOpenRouter({
     apiKey: "test-key",
@@ -110,7 +134,9 @@ test("serializes the remote URL as image input on the next model step", async ()
                   function: {
                     name: "view_remote_image",
                     arguments: JSON.stringify({
-                      url: "https://files.d20.io/images/map.webp",
+                      url: invalidUrl
+                        ? "https://www.reddit.com/r/DnDHomebrew/comments/oh4bo9/asmodeus_stat_block/"
+                        : "https://files.d20.io/images/map.webp",
                     }),
                   },
                 }],
@@ -133,7 +159,7 @@ test("serializes the remote URL as image input on the next model step", async ()
     model: openrouter("openai/gpt-5.2"),
     prompt: "View the map.",
     tools: {
-      view_remote_image: remoteImageView.createViewRemoteImageTool(),
+      view_remote_image: remoteImageView.createViewRemoteImageTool(true),
     },
     stopWhen: stepCountIs(2),
   });
@@ -142,8 +168,14 @@ test("serializes the remote URL as image input on the next model step", async ()
   const toolMessage = requestBodies[1].messages.find(
     (message) => message.role === "tool",
   );
-  assert.deepEqual(toolMessage.content[1], {
+  if (invalidUrl) {
+    assert.match(JSON.stringify(toolMessage.content), /requires a direct image URL/);
+    assert.doesNotMatch(JSON.stringify(toolMessage.content), /"type":"image_url"/);
+  } else {
+    assert.deepEqual(toolMessage.content[1], {
     type: "image_url",
     image_url: { url: "https://files.d20.io/images/map.webp" },
   });
+  }
 });
+}

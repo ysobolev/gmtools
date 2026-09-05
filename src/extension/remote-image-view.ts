@@ -29,6 +29,14 @@ export function normalizeRemoteImageUrl(
   if (url.username || url.password) {
     throw new Error("Remote image URLs must not contain credentials.");
   }
+  // Match the image extensions passed through by the OpenRouter adapter.
+  // Otherwise AI SDK tries downloading during next-request preparation,
+  // outside the tool's error boundary, where CORS can terminate the turn.
+  if (!/\.(jpg|jpeg|png|gif|webp)$/i.test(url.pathname)) {
+    throw new Error(
+      "view_remote_image requires a direct image URL whose path ends in .jpg, .jpeg, .png, .gif, or .webp (query strings are allowed). Webpages and extensionless URLs are not supported. Use web_fetch for a webpage to find a direct image URL, or ask the user to attach the image.",
+    );
+  }
   if (
     !allowAnyDomain &&
     !REMOTE_IMAGE_ALLOWED_DOMAINS.some((domain) => url.hostname === domain)
@@ -51,7 +59,7 @@ export function createViewRemoteImageTool(allowAnyDomain = false) {
           type: "string",
           minLength: 1,
           maxLength: MAX_REMOTE_IMAGE_URL_LENGTH,
-          description: "The direct HTTP or HTTPS URL of the image to view.",
+          description: "A direct HTTP or HTTPS image URL with a path ending in .jpg, .jpeg, .png, .gif, or .webp; query strings are allowed. Not a webpage or extensionless URL.",
         },
       },
       required: ["url"],
