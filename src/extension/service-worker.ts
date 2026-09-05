@@ -1027,6 +1027,7 @@ async function setCampaignBinding(
   binding: CampaignBinding,
 ): Promise<void> {
   await attachChatToCampaign(chatId, binding);
+  await notifyChatMessagesChanged(chatId);
   const bindings = await getCampaignBindings();
   for (const [boundChatId, existing] of Object.entries(bindings)) {
     if (existing.campaignId === binding.campaignId) {

@@ -1,4 +1,5 @@
 import "./configure-csp";
+import { isCampaignAttachmentNotice, isVisibleCampaignAttachmentNotice } from "./campaign-attachment-notice";
 import { useChat } from "@ai-sdk/react";
 import {
   lastAssistantMessageIsCompleteWithApprovalResponses,
@@ -832,7 +833,7 @@ const ConversationPane = memo(function ConversationPane({
           {notice.text}
         </div>
       ))}
-      {messages.length === 0 ? (
+      {messages.every((message) => isCampaignAttachmentNotice(message) && !isVisibleCampaignAttachmentNotice(message)) ? (
         <div className="empty-state">
           <div className="empty-glyph" aria-hidden="true">✦</div>
           <h2>What does tonight need?</h2>
@@ -844,6 +845,15 @@ const ConversationPane = memo(function ConversationPane({
       ) : (
         <div className="message-list">
           {messages.map((message, messageIndex) => {
+            if (isCampaignAttachmentNotice(message)) {
+              if (!isVisibleCampaignAttachmentNotice(message)) return null;
+              return (
+                <div className="chat-notice" data-message-id={message.id} key={message.id} role="status">
+                  <strong>Campaign attached</strong>
+                  <div>Earlier actions and memories may belong to another campaign. Consider starting a new chat if you’ve switched campaigns.</div>
+                </div>
+              );
+            }
             const continuesAssistantResponse =
               message.role === "assistant" &&
               messages[messageIndex - 1]?.role === "assistant";

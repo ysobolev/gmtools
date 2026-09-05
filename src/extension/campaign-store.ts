@@ -21,6 +21,7 @@ import {
   ROLL20_APPROVALS_STORE,
 } from "./indexed-db-migrations";
 import { isAssistantProfile } from "./profile-config";
+import { applyCampaignAttachmentNotice, isCampaignAttachmentNotice } from "./campaign-attachment-notice";
 
 export type CampaignDeletionMode = "detach-chats" | "delete-chats";
 
@@ -114,12 +115,17 @@ export async function attachChatToCampaign(
   const messagesValue: unknown = await requestResult(
     transaction.objectStore(MESSAGES_STORE).get(chatId),
   );
-  const empty =
-    typeof messagesValue !== "object" ||
-    messagesValue === null ||
-    !("messages" in messagesValue) ||
-    !Array.isArray(messagesValue.messages) ||
-    messagesValue.messages.length === 0;
+  const messages: readonly unknown[] =
+    typeof messagesValue === "object" && messagesValue !== null &&
+    "messages" in messagesValue && Array.isArray(messagesValue.messages)
+      ? messagesValue.messages
+      : [];
+  const empty = messages.every(isCampaignAttachmentNotice);
+  transaction.objectStore(MESSAGES_STORE).put({
+    chatId,
+    messages: applyCampaignAttachmentNotice(messages, binding.campaignId, campaign.name),
+    updatedAt: now,
+  });
   const updated: ChatRecord = {
     ...chatValue,
     ...(empty ? { profileId: campaign.defaultProfileId } : {}),
