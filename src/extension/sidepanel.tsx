@@ -650,6 +650,7 @@ function ChatNameEditor({
 }
 
 const ConversationPane = memo(function ConversationPane({
+  modelInactive,
   campaignName,
   chatId,
   initialScrollPosition,
@@ -663,6 +664,7 @@ const ConversationPane = memo(function ConversationPane({
 }: {
   readonly campaignName: string;
   readonly chatId: string;
+  readonly modelInactive: boolean;
   readonly initialScrollPosition: ChatScrollPosition | undefined;
   readonly messages: readonly UIMessage[];
   readonly notices: ChatRecord["notices"];
@@ -1015,6 +1017,11 @@ const ConversationPane = memo(function ConversationPane({
                 <span /><span /><span />
               </span>
             </div>
+          ) : null}
+          {modelInactive && busy ? (
+            <p className="chat-notice" role="status">
+              No progress received from the model for 60 seconds.
+            </p>
           ) : null}
           {continuation && !busy && status !== "error" ? (
             <div className="continuation-card" role="status">
@@ -1650,6 +1657,7 @@ function ChatDrawer({
 }
 
 function ChatScreen({
+  modelInactive,
   activeProfile,
   attentionCount,
   chat,
@@ -1666,6 +1674,7 @@ function ChatScreen({
   profiles,
 }: {
   readonly activeProfile: AssistantProfile;
+  readonly modelInactive: boolean;
   readonly attentionCount: number;
   readonly chat: ChatRecord;
   readonly initialDraft: string;
@@ -2091,6 +2100,7 @@ function ChatScreen({
       ) : null}
 
       <ConversationPane
+        modelInactive={modelInactive}
         campaignName={campaignLabel}
         chatId={chatId}
         continuation={chat.continuation}
@@ -2482,6 +2492,7 @@ function ChatWorkspace(): React.JSX.Element {
   return (
     <div className="chat-workspace">
       <ChatScreen
+        modelInactive={chatActivities[storedChat.chat.id]?.modelInactive ?? false}
         activeProfile={activeProfile}
         attentionCount={countChatsNeedingAttention(
           chats,

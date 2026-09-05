@@ -202,6 +202,7 @@ export interface ChatActivityStatus {
   readonly chatId: string;
   readonly state: ChatActivityState;
   readonly summary?: string;
+  readonly modelInactive?: boolean;
 }
 
 export interface ChatActivityChangedMessage {
@@ -260,7 +261,8 @@ function isChatActivityStatus(value: unknown): value is ChatActivityStatus {
       value.state === "approval" ||
       value.state === "unread" ||
       value.state === "error") &&
-    (value.summary === undefined || typeof value.summary === "string")
+    (value.summary === undefined || typeof value.summary === "string") &&
+    (value.modelInactive === undefined || typeof value.modelInactive === "boolean")
   );
 }
 

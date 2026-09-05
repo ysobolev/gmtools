@@ -88,6 +88,7 @@ import {
   type GeneratedImageToStore,
 } from "./chat-image-normalization";
 import { KeyedExecutionQueue } from "./keyed-execution-queue";
+import { createModelInactivityMonitor } from "./model-inactivity";
 import {
   AUTH_CONNECT_REQUEST,
   AUTH_DISCONNECT_REQUEST,
@@ -2706,6 +2707,10 @@ async function streamChat(
     );
   }
   if (job.webSearchEnabled) activeTools.unshift("web_search");
+  const inactivity = createModelInactivityMonitor((inactive) => {
+    debug.group(inactive ? "Model stream inactive for 60 seconds" : "Model inactivity warning cleared", {});
+    setJobActivity(job, job.activity.state, job.activity.summary, inactive);
+  }, abortController.signal);
   const result = streamText({
     model: openrouter(modelId, createOpenRouterModelSettings(modelId)),
     system: [
@@ -2731,6 +2736,7 @@ async function streamChat(
     stopWhen: isStepCount(job.maxSteps),
     abortSignal: abortController.signal,
     onLanguageModelCallStart: (event) => {
+      inactivity.start();
       setJobActivity(job, "thinking");
       debug.group("→ Model", {
         "Call ID": event.callId,
@@ -2741,6 +2747,7 @@ async function streamChat(
       });
     },
     onLanguageModelCallEnd: (event) => {
+      inactivity.pause();
       debug.group("← Model", {
         "Call ID": event.callId,
         Provider: event.provider,
@@ -2752,6 +2759,7 @@ async function streamChat(
       });
     },
     onToolExecutionStart: (event) => {
+      inactivity.pause();
       const input = event.toolCall.input;
       const summary =
         typeof input === "object" &&
@@ -2780,7 +2788,9 @@ async function streamChat(
         Status: event.toolOutput.type,
       });
     },
+    onChunk: () => inactivity.progress(),
     onError: ({ error }) => {
+      inactivity.pause();
       debug.group("Model stream error", modelErrorDebugDetails(error));
     },
     onAbort: (event) => {
@@ -2821,6 +2831,8 @@ async function streamChat(
     }
   } catch (error) {
     if (!abortController.signal.aborted) throw error;
+  } finally {
+    inactivity.dispose();
   }
   if (abortController.signal.aborted) {
     await finalizeAbortedJob(job);
@@ -3064,16 +3076,19 @@ function setJobActivity(
   job: ConversationJob,
   state: ChatActivityState,
   summary?: string,
+  modelInactive = false,
 ): void {
   if (conversationJobs.get(job.chatId) !== job) return;
   const activity: ChatActivityStatus = {
     chatId: job.chatId,
     state,
     ...(summary ? { summary } : {}),
+    ...(modelInactive ? { modelInactive: true } : {}),
   };
   if (
     job.activity.state === activity.state &&
-    job.activity.summary === activity.summary
+    job.activity.summary === activity.summary &&
+    job.activity.modelInactive === activity.modelInactive
   ) {
     return;
   }
