@@ -56,6 +56,11 @@ test("composes base, ruleset, sheet variants, and user guidance", () => {
   assert.match(prompt, /sheetEnvironment may be null for every character/);
   assert.match(prompt, /character\.get\("charactersheetname"\)/);
   assert.match(prompt, /createObj artifact/);
+  assert.match(prompt, /getSheetItem call.*complete Beacon initialization/);
+  assert.match(prompt, /populate sheetEnvironment as "beacon"/);
+  assert.match(prompt, /A missing or not-yet-populated marker is inconclusive/);
+  assert.match(prompt, /reacquire the character with getObj/);
+  assert.match(prompt, /presence of an appState attribute does not identify/);
   assert.match(prompt, /always creates a 2024 Beacon character/);
   assert.match(prompt, /createObj ignores sheet-selection properties/);
   assert.match(prompt, /cannot change a character's sheet after creation/);
@@ -64,6 +69,11 @@ test("composes base, ruleset, sheet variants, and user guidance", () => {
   assert.match(prompt, /do not infer an existing character's sheet solely/i);
   assert.match(prompt, /legacy D&D 5e 2014 OGL sheet/);
   assert.match(prompt, /strength_mod/);
+  assert.match(prompt, /Attribute\.setWithWorker/);
+  assert.match(prompt, /l1mancer_status to "completed"/);
+  assert.match(prompt, /mancer_confirm_flag to an empty string/);
+  assert.match(prompt, /mancer_cancel to "on"/);
+  assert.match(prompt, /npc attribute's current value to "1"/);
   assert.match(prompt, /getSheetItem and setSheetItem/);
   assert.match(prompt, /Both functions are asynchronous/);
   assert.match(prompt, /Use Promise\.all for independent reads/);
@@ -73,8 +83,11 @@ test("composes base, ruleset, sheet variants, and user guidance", () => {
   assert.match(prompt, /Never infer a Beacon sheet-item name/);
   assert.match(prompt, /documentation and read-only inspection/);
   assert.match(prompt, /do not perform the mutation/);
-  assert.match(prompt, /appState is a legacy attribute/);
+  assert.match(prompt, /appState is a legacy Attribute object/);
   assert.match(prompt, /attribute\.set\("current", "npc"\)/);
+  assert.match(prompt, /first lookup does not find appState/);
+  assert.match(prompt, /re-query before creating the attribute/);
+  assert.match(prompt, /do not use its presence to identify the sheet/);
   assert.match(prompt, /Do not set appState with setSheetItem/);
   assert.match(prompt, /character-creation wizard/);
   assert.match(prompt, /Call the players heroes\./);
