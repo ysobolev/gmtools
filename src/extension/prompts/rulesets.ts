@@ -1,4 +1,5 @@
 import type { RulesetId } from "../profile-config";
+import { NPC_2014_INSTRUCTIONS } from "./npc-2014";
 
 const GENERIC_SHEET_GUIDANCE = [
   "The character sheet schema may not be predefined.",
@@ -69,6 +70,7 @@ export const RULESET_INSTRUCTIONS: Record<RulesetId, string> = {
     ].join("\n"),
     "Locate or, after initialization and re-querying, create those Attribute objects. Write them with `attribute.setWithWorker({ current: value })`.",
     "To make a 2014 character an NPC, set the `npc` attribute's current value to `\"1\"` with `setWithWorker`. Do not substitute the 2024 `appState` recipe for this legacy-sheet operation.",
+    NPC_2014_INSTRUCTIONS,
     "### Beacon-based D&D 5e 2024 sheet",
     "Use the Beacon-compatible `getSheetItem` and `setSheetItem` functions for sheet-backed data. Do not manipulate sheet-backed values through legacy Attribute objects or assume legacy OGL attribute behavior.",
     [
