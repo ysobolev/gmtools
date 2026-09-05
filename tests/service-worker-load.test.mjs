@@ -281,6 +281,54 @@ test("the generated Firefox worker starts without browser-global errors", async 
   );
   assert.equal(contentScriptHandled, false);
 
+  const campaignDatabase = await new Promise((resolve, reject) => {
+    const request = testIndexedDB.open("gmToolsChats", 6);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  await new Promise((resolve, reject) => {
+    const transaction = campaignDatabase.transaction("campaigns", "readwrite");
+    transaction.objectStore("campaigns").put({
+      campaignId: "campaign-legacy",
+      name: "AI Test (Legacy)",
+      defaultProfileId: "general-gm",
+      overrides: {
+        unrestrictedWebFetch: "inherit",
+        webSearch: "inherit",
+        requireRoll20Approval: "inherit",
+      },
+      memoryEnabled: false,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+  campaignDatabase.close();
+  sessionData.gmToolsCampaignRoutes = {
+    "campaign-legacy": { tabId: 7 },
+  };
+  for (const listener of listeners.get("tab-updated")) {
+    listener(7, { title: "AI Test (Both) - Roll20" });
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+  const verifyCampaignDatabase = await new Promise((resolve, reject) => {
+    const request = testIndexedDB.open("gmToolsChats", 6);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const campaignName = await new Promise((resolve, reject) => {
+    const transaction = verifyCampaignDatabase.transaction(
+      "campaigns",
+      "readonly",
+    );
+    const request = transaction.objectStore("campaigns").get("campaign-legacy");
+    request.onsuccess = () => resolve(request.result?.name);
+    request.onerror = () => reject(request.error);
+  });
+  verifyCampaignDatabase.close();
+  assert.equal(campaignName, "AI Test (Legacy)");
+
   for (const listener of listeners.get("message")) {
     listener(
       {

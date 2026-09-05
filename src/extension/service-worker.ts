@@ -1076,19 +1076,6 @@ async function recordObservedCampaignName(
   }
 }
 
-async function recordCampaignTitleForRoutedTab(
-  tabId: number,
-  title: string,
-): Promise<void> {
-  const name = renamedCampaignFromPageTitle(title);
-  if (!name) return;
-  const route = Object.entries(await getCampaignRoutes()).find(
-    ([, candidate]) => candidate.tabId === tabId,
-  );
-  if (!route) return;
-  await recordObservedCampaignName(route[0], name);
-}
-
 function isCampaignRoute(value: unknown): value is CampaignRoute {
   return (
     typeof value === "object" &&
@@ -1418,6 +1405,14 @@ chrome.runtime.onMessage.addListener((message: unknown, sender): void => {
       );
       return;
     }
+    const observedName = message.pageTitle
+      ? renamedCampaignFromPageTitle(message.pageTitle)
+      : undefined;
+    if (observedName) {
+      void recordObservedCampaignName(message.campaignId, observedName).catch(
+        () => undefined,
+      );
+    }
     if (!message.accepted || !message.isGM) {
       removePendingRoll20Execution(message.requestId);
       pending.reject(
@@ -1556,11 +1551,6 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   );
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (typeof changeInfo.title === "string") {
-    void recordCampaignTitleForRoutedTab(tabId, changeInfo.title).catch(
-      () => undefined,
-    );
-  }
   if (
     typeof changeInfo.url === "string" &&
     !changeInfo.url.startsWith(ROLL20_EDITOR_URL_PREFIX)
