@@ -1,5 +1,6 @@
 import type { RulesetId } from "../profile-config";
 import { NPC_2014_INSTRUCTIONS } from "./npc-2014";
+import { NPC_2024_INSTRUCTIONS } from "./npc-2024";
 
 const GENERIC_SHEET_GUIDANCE = [
   "The character sheet schema may not be predefined.",
@@ -73,7 +74,7 @@ export const RULESET_INSTRUCTIONS: Record<RulesetId, string> = {
     "To make a 2014 character an NPC, set the `npc` attribute's current value to `\"1\"` with `setWithWorker`. Do not substitute the 2024 `appState` recipe for this legacy-sheet operation.",
     NPC_2014_INSTRUCTIONS,
     "### Beacon-based D&D 5e 2024 sheet",
-    "Use the Beacon-compatible `getSheetItem` and `setSheetItem` functions for sheet-backed data. Do not manipulate sheet-backed values through legacy Attribute objects or assume legacy OGL attribute behavior.",
+    "Use verified Beacon interfaces: `getSheetItem` and `setSheetItem`, or the tested `getComputed`/`setComputed` properties in the NPC recipe below. Do not assume legacy OGL attribute behavior. The recipe explicitly identifies appState and the sheet-owned store Attribute as exceptions requiring direct Attribute access; raw store edits are experimental and must be verified.",
     [
       "Both functions are asynchronous.",
       "Await every `getSheetItem` call, and await `setSheetItem` whenever later code depends on the completed write.",
@@ -88,14 +89,15 @@ export const RULESET_INSTRUCTIONS: Record<RulesetId, string> = {
     "#### Initialize a 2024 character",
     [
       "`appState` is a legacy Attribute object used by the Beacon sheet, not a Beacon sheet item.",
-      "After allowing Beacon initialization to run, locate `appState` with `findObjs` and set its current value directly: use `\"npc\"` for an NPC or `\"sheet\"` for a player character.",
+      "Immediately after creation, locate `appState` with `findObjs` and set its current value directly: use `\"npc\"` for an NPC or `\"sheet\"` for a player character. Select the mode before setting dependent stats.",
       "For example, use `attribute.set(\"current\", \"npc\")` for an NPC.",
       "Without the appropriate value, the sheet remains stuck on its dashboard or character-creation wizard.",
-      "If the first lookup does not find `appState`, perform and await the relevant `getSheetItem` initialization read, reacquire the character, and re-query before creating the attribute.",
+      "If the first lookup does not find `appState`, reacquire the character and re-query before creating the attribute. On a new character, create it if still absent; do not rely on an uninitialized computed read as an initialization barrier.",
       "Do not set `appState` with `setSheetItem`, do not use its presence to identify the sheet, and do not confuse it with the 2014 `npc` attribute.",
     ].join(" "),
     "Before creating or modifying a D&D 2024 character, consult the current Beacon migration documentation with `web_fetch` when the required sheet-item name or API behavior is uncertain. Never infer a Beacon sheet-item name from its display label or from a 2014-sheet attribute. Use documentation and read-only inspection to verify identifiers before writing. If an identifier still cannot be verified, do not perform the mutation; explain what could not be verified and what was inspected.",
     "Beacon migration guidance: https://help.roll20.net/hc/en-us/articles/30377793782423-How-to-Update-Mod-Scripts-API-for-D-D-2024-Beacon",
+    NPC_2024_INSTRUCTIONS,
   ].join("\n\n"),
   vtm5: [
     "This profile is for Vampire: The Masquerade Fifth Edition (V5).",

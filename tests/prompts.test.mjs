@@ -45,6 +45,10 @@ test("composes base, ruleset, sheet variants, and user guidance", () => {
   assert.match(prompt, /Introduction-to-Mod-Scripts-API/);
   assert.match(prompt, /bio, notes, defaulttoken, and gmnotes are callback-only/);
   assert.match(prompt, /object\.get\(property, resolve\)/);
+  assert.match(prompt, /Writes use ordinary object\.set\(property, value\)/);
+  assert.match(prompt, /setter does not invoke a completion callback/);
+  assert.match(prompt, /never wrap object\.set\(property, value, resolve\) in an awaited Promise/);
+  assert.match(prompt, /separate callback-based read with a bounded timeout/);
   assert.match(prompt, /Dungeons & Dragons Fifth Edition/);
   assert.match(prompt, /support the legacy 2014 and Beacon-based 2024 sheets/);
   assert.match(prompt, /custom or unsupported sheet/);
@@ -129,6 +133,33 @@ test("includes the sandbox version in shared Roll20 guidance", () => {
   assert.match(prompt, /Roll20 Mod Sandbox v1\.5/);
   assert.match(prompt, /community or custom sheets/);
   assert.doesNotMatch(prompt, /Dungeons & Dragons Fifth Edition/);
+  assert.doesNotMatch(prompt, /Build a complete NPC on the Beacon/);
+});
+
+test("includes the validated Beacon NPC workflow and its limitations", () => {
+  const prompt = prompts.buildProfileInstructions(dndProfile);
+  assert.match(prompt, /Build a complete NPC on the Beacon 2024 sheet/);
+  assert.match(prompt, /Default to 2024\/5\.5e rules and spell definitions/);
+  assert.match(prompt, /Prefer Compact layout/);
+  assert.match(prompt, /modifier \+ floor\(PB\/2\)/);
+  assert.match(prompt, /preserve the printed total with an override/);
+  assert.match(prompt, /BEFORE AC, HP, or other stat writes/);
+  assert.match(prompt, /fresh NPC may have no store Attribute/);
+  assert.match(prompt, /verify current HP through aggregate hp.current/);
+  assert.match(prompt, /FULL JSON deep-copy/);
+  assert.match(prompt, /Poll WITHOUT rewriting mismatches/);
+  assert.match(prompt, /not a verified Beacon-ready barrier/);
+  assert.match(prompt, /type:'Passive', skill:'Perception'/);
+  assert.match(prompt, /NOT the 2014 repeating-row ID format/);
+  assert.match(prompt, /no importer, browser control, local reference PDF/i);
+  assert.match(prompt, /Source lore belongs in bio/);
+  assert.match(prompt, /including paragraphs, lists and tables/);
+  assert.match(prompt, /Do not create such children merely to obtain save\/attack buttons/);
+  assert.match(prompt, /_bonus is EXTRA/);
+  assert.match(prompt, /automatic spending on casting was NOT established/);
+  assert.match(prompt, /not a validated PC class\/species\/background builder/);
+  assert.doesNotMatch(prompt, /After allowing Beacon initialization to run, locate/);
+  assert.ok(prompt.indexOf("NPC mode first") < prompt.indexOf("CR, abilities, proficiency"));
 });
 
 test("explains that Roll20 tools require an attached campaign", () => {

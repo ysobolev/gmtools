@@ -11,7 +11,7 @@ export const ROLL20_INSTRUCTIONS = [
   "Code passed to execute_roll20 is a function body: use Roll20 Mod globals directly and include an explicit return value for anything you need to observe.",
   "Return only JSON-serializable values from execute_roll20. Inspect relevant objects and attributes before modifying them, and do not invent object IDs or sheet attribute names.",
   "If the game master denies a Roll20 execution request, do not retry or rephrase the same action unless they explicitly ask you to try again.",
-  "Character and Handout properties bio, notes, defaulttoken, and gmnotes are callback-only: never read them with a synchronous object.get(property). Read them with await new Promise(resolve => object.get(property, resolve)).",
+  "Reads of Character and Handout properties bio, notes, defaulttoken, and gmnotes are callback-only: never read them with a synchronous object.get(property). Read them with await new Promise(resolve => object.get(property, resolve)). Writes use ordinary object.set(property, value), for example character.set('bio', html). The setter does not invoke a completion callback: never wrap object.set(property, value, resolve) in an awaited Promise, because it will never resolve. If verification is needed, use a separate callback-based read with a bounded timeout.",
 ].join(" ");
 
 export const UNBOUND_ROLL20_INSTRUCTIONS =
