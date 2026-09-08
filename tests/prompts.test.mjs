@@ -162,6 +162,40 @@ test("includes the validated Beacon NPC workflow and its limitations", () => {
   assert.ok(prompt.indexOf("NPC mode first") < prompt.indexOf("CR, abilities, proficiency"));
 });
 
+test("Beacon NPC creation records target stats and compares readbacks explicitly", () => {
+  const prompt = prompts.buildProfileInstructions(dndProfile);
+  assert.match(prompt, /return \{ characterId, source, expected \}/);
+  assert.match(prompt, /Transcribe first, then interpret/);
+  assert.match(prompt, /literal printed values before calculating/);
+  assert.match(prompt, /status:'absent'/);
+  assert.match(prompt, /status:'unreadable'/);
+  assert.match(prompt, /status:'generated'/);
+  assert.match(prompt, /Check expected against source before writing/);
+  assert.match(prompt, /expected contains final totals, not partial contributions/);
+  assert.match(prompt, /NOT what that call has already completed/);
+  assert.match(prompt, /Sandbox variables do not persist between calls/);
+  assert.match(prompt, /Do not replace expected values with sheet readbacks/);
+  assert.match(prompt, /\{ field, expected, actual \}/);
+  assert.match(prompt, /unknown\/unverified fields/);
+  assert.match(prompt, /Verification is sandbox-based/);
+  assert.match(prompt, /Routine lack of browser\/UI testing is not unfinished work/);
+  assert.match(prompt, /Report concrete discrepancies, failed or unavailable data checks/);
+  assert.match(prompt, /expected initiativeBonus:11 versus actual initiative_bonus:6/);
+});
+
+test("Beacon total overrides follow mechanic construction and verified mismatches", () => {
+  const prompt = prompts.buildProfileInstructions(dndProfile);
+  assert.match(prompt, /defer numeric final-total overrides until verification/);
+  assert.match(prompt, /does not prohibit necessary base\/source assignments/);
+  assert.match(prompt, /verify pb again before building dependent saves/);
+  assert.match(prompt, /If actual matches expected, do not add a redundant total override/);
+  assert.match(prompt, /Correct that mechanic and re-read/);
+  assert.match(prompt, /Initiative overrides are final values/);
+  assert.match(prompt, /initiative bonus and score separately/);
+  assert.match(prompt, /unavailable read is not evidence that an override is required/);
+  assert.match(prompt, /Update existing correction records rather than adding duplicate bonuses/);
+});
+
 test("explains that Roll20 tools require an attached campaign", () => {
   const prompt = prompts.buildProfileInstructions(
     {
