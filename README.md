@@ -13,7 +13,7 @@ non-archived whisper that the extension removes before display.
 ## Requirements
 
 - Chrome 114 or newer, or Firefox 140 or newer
-- An OpenRouter account with available credit
+- An OpenRouter account with available credit, or a provided OpenRouter API key
 - A Roll20 game whose creator has a Pro subscription when testing the Mod bridge
 
 ## Load the Chrome extension
@@ -46,14 +46,21 @@ non-archived whisper that the extension removes before display.
 5. Click the extension toolbar action to open **GM Tools for VTT** in the sidebar.
 6. Click **Connect OpenRouter**, authorize the app, and send a message.
 
-The extension uses OpenRouter's OAuth PKCE flow. It does not require an OAuth
+Alternatively, choose **Use an API key instead** on the login screen and paste a
+regular OpenRouter API key (not a management key). The extension verifies it
+before signing in. Usage is charged to the key owner's account; a tester using
+a provided key does not need their own OpenRouter account. Use a dedicated key
+with a spending limit when providing access to someone else.
+
+The standard login uses OpenRouter's OAuth PKCE flow. It does not require an OAuth
 client ID or client secret. Each browser derives its own callback URL from its
-extension identity. The issued API key is stored in extension session storage,
-is not sent to the side panel or Roll20 content script, and is cleared when the
+extension identity. Both login methods store the API key in extension session
+storage. The worker does not return it to the side panel or Roll20 content script,
+and it is cleared when the
 browser exits or the extension is reloaded. Users may opt
-into persistent login from **Settings > Authentication**; this stores the key
-in extension local storage, which is not a credential vault, and is explicitly
-labeled as a security risk. Logging out clears both session and persistent
+into **Keep me signed in** on the login screen or from **Settings > Authentication**;
+this stores the key in extension local storage, which is not a credential vault,
+with a warning about storage on this device. Logging out clears both session and persistent
 credential storage.
 
 **Settings > Display** can follow the operating-system theme or force light or

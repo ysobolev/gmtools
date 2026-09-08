@@ -101,7 +101,9 @@ h1 {
 
 .login-shell {
   display: grid;
-  align-content: center;
+  height: 100%;
+  overflow-y: auto;
+  align-content: safe center;
   gap: 32px;
   padding: 36px 22px;
 }
@@ -173,7 +175,7 @@ h1 {
 }
 
 .primary-button:disabled {
-  cursor: wait;
+  cursor: default;
   opacity: 0.58;
 }
 
@@ -202,6 +204,75 @@ h1 {
   color: #aab1bd;
   font-size: 11px;
   line-height: 1.4;
+}
+
+.login-key-toggle {
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: #aab1bd;
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.login-key-toggle:hover:not(:disabled) {
+  color: #f5f1e8;
+}
+
+.login-key-toggle:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.login-persistence-footer {
+  padding-top: 16px;
+  border-top: 1px solid #343b48;
+}
+
+.login-key-form {
+  display: grid;
+  gap: 10px;
+}
+
+.login-key-form label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.login-key-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid #464e5c;
+  border-radius: 8px;
+  background: #11151d;
+  color: #f5f1e8;
+}
+
+:root[data-theme="light"] .login-persistence-footer {
+  border-color: #d4cec5;
+}
+
+:root[data-theme="light"] .login-key-toggle {
+  color: #656168;
+}
+
+:root[data-theme="light"] .login-key-toggle:hover:not(:disabled) {
+  color: #343137;
+}
+
+:root[data-theme="light"] .login-key-form input {
+  border-color: #d4cec5;
+  background: #fffdfa;
+  color: #343137;
+}
+
+:root[data-theme="light"] .login-card .error-banner {
+  border-color: #d58b7d;
+  background: #fff0ec;
+  color: #782d22 !important;
 }
 
 .error-banner,

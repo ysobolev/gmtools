@@ -23,6 +23,45 @@ export interface OpenRouterKeyInfo {
   readonly limitRemaining?: number | null;
 }
 
+export async function validateOpenRouterApiKey(
+  suppliedKey: string,
+): Promise<{ key: string; keyInfo: OpenRouterKeyInfo }> {
+  const key = suppliedKey.trim();
+  if (key.length < 16 || key.length > 512 || /\s/.test(key)) {
+    throw new Error("Enter a valid OpenRouter API key.");
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    let response: Response;
+    try {
+      response = await fetch(OPENROUTER_KEY_INFO_URL, {
+        headers: { Authorization: `Bearer ${key}` },
+        signal: controller.signal,
+        redirect: "error",
+      });
+    } catch {
+      throw new Error("Could not verify the API key. Check your connection and try again.");
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("OpenRouter rejected the API key. Check that it is valid and has not expired or been revoked.");
+    }
+    if (!response.ok) {
+      throw new Error(`OpenRouter could not verify the API key (${response.status}). Try again later.`);
+    }
+    const body: unknown = await response.json().catch(() => null);
+    if (!isRecord(body) || !isRecord(body.data)) {
+      throw new Error("OpenRouter returned an invalid key verification response.");
+    }
+    if (body.data.is_management_key === true || body.data.is_provisioning_key === true) {
+      throw new Error("Use a regular OpenRouter API key, not a management key.");
+    }
+    return { key, keyInfo: parseKeyInfoResponse(body) };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export function encodeBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);

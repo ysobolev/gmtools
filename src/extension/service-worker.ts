@@ -20,6 +20,7 @@ import {
   parseAuthorizationCallback,
   parseKeyInfoResponse,
   parseTokenResponse,
+  validateOpenRouterApiKey,
   type OpenRouterKeyInfo,
 } from "./openrouter-auth";
 import {
@@ -91,6 +92,7 @@ import { KeyedExecutionQueue } from "./keyed-execution-queue";
 import { createModelInactivityMonitor } from "./model-inactivity";
 import {
   AUTH_CONNECT_REQUEST,
+  AUTH_API_KEY_REQUEST,
   AUTH_DISCONNECT_REQUEST,
   AUTH_PERSISTENCE_REQUEST,
   AUTH_STATE_CHANGED,
@@ -662,30 +664,42 @@ async function fetchKeyInfo(apiKey: string): Promise<OpenRouterKeyInfo> {
 
 let connectionAttempt: Promise<AuthStatus> | null = null;
 
-async function connectOpenRouter(persistent: boolean): Promise<AuthStatus> {
+async function connectOpenRouter(persistent: boolean, apiKey?: string): Promise<AuthStatus> {
   if (connectionAttempt) return connectionAttempt;
 
   const connectionGeneration = authGeneration;
   connectionAttempt = (async () => {
-    const callbackUrl = chrome.identity.getRedirectURL("openrouter");
-    const pkce = await createPkcePair();
-    const redirectedUrl = await chrome.identity.launchWebAuthFlow({
-      url: createAuthorizationUrl(
-        callbackUrl,
-        pkce.challenge,
-        createOpenRouterKeyLabel(EXTENSION_BROWSER_NAME),
-      ),
-      interactive: true,
-    });
-    if (!redirectedUrl) throw new Error("OpenRouter authorization was cancelled.");
+    let token: ReturnType<typeof parseTokenResponse>;
+    let keyInfo: OpenRouterKeyInfo;
+    if (apiKey !== undefined) {
+      const validated = await validateOpenRouterApiKey(apiKey);
+      token = { key: validated.key };
+      keyInfo = validated.keyInfo;
+    } else {
+      const callbackUrl = chrome.identity.getRedirectURL("openrouter");
+      const pkce = await createPkcePair();
+      const redirectedUrl = await chrome.identity.launchWebAuthFlow({
+        url: createAuthorizationUrl(
+          callbackUrl,
+          pkce.challenge,
+          createOpenRouterKeyLabel(EXTENSION_BROWSER_NAME),
+        ),
+        interactive: true,
+      });
+      if (!redirectedUrl) throw new Error("OpenRouter authorization was cancelled.");
 
-    const code = parseAuthorizationCallback(redirectedUrl, callbackUrl);
-    const token = await exchangeAuthorizationCode(code, pkce.verifier);
-    const keyInfo = await fetchKeyInfo(token.key);
+      const code = parseAuthorizationCallback(redirectedUrl, callbackUrl);
+      token = await exchangeAuthorizationCode(code, pkce.verifier);
+      keyInfo = await fetchKeyInfo(token.key);
+    }
     return runAuthMutation(async () => {
+      await authRestoration;
       if (connectionGeneration !== authGeneration) {
         throw new Error("OpenRouter authorization was cancelled by logout.");
       }
+      // A supplied key has no OAuth user ID; do not retain an earlier identity.
+      await chrome.storage.session.remove(USER_ID_STORAGE_KEY);
+      await chrome.storage.local.remove(USER_ID_STORAGE_KEY);
       await chrome.storage.session.set({
         [API_KEY_STORAGE_KEY]: token.key,
         ...(token.userId ? { [USER_ID_STORAGE_KEY]: token.userId } : {}),
@@ -718,10 +732,13 @@ async function connectOpenRouter(persistent: boolean): Promise<AuthStatus> {
 
 async function handleAuthRequest(message: AuthRequest): Promise<AuthResponse> {
   try {
-    if (message.type === AUTH_CONNECT_REQUEST) {
+    if (message.type === AUTH_CONNECT_REQUEST || message.type === AUTH_API_KEY_REQUEST) {
       return {
         ok: true,
-        status: await connectOpenRouter(message.persistent),
+        status: await connectOpenRouter(
+          message.persistent,
+          message.type === AUTH_API_KEY_REQUEST ? message.apiKey : undefined,
+        ),
       };
     }
     if (message.type === AUTH_DISCONNECT_REQUEST) {

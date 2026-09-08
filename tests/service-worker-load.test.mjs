@@ -33,6 +33,9 @@ test("the generated Firefox worker starts without browser-global errors", async 
     },
   });
   const debugLabels = [];
+  let keyVerification = async () => Response.json({
+    data: { label: "Beta test", limit_remaining: 10 },
+  });
   const contextMenuItems = new Map();
   const badgeTexts = [];
   const testIndexedDB = new IDBFactory();
@@ -163,7 +166,7 @@ test("the generated Firefox worker starts without browser-global errors", async 
       log: () => undefined,
     },
     crypto,
-    fetch,
+    fetch: (...args) => keyVerification(...args),
     indexedDB: testIndexedDB,
     setTimeout,
     clearTimeout,
@@ -266,6 +269,63 @@ test("the generated Firefox worker starts without browser-global errors", async 
   assert.equal("openRouterPersistAuth" in localData, false);
   persistentWriteGate = null;
   persistentWriteStarted = null;
+
+  const authRequest = (message) => new Promise((resolve) => {
+    for (const listener of listeners.get("message")) {
+      listener(message, optionsSender, resolve);
+    }
+  });
+  sessionData.openRouterUserId = "old-oauth-user";
+  localData.openRouterUserId = "old-oauth-user";
+  const pastedKey = "sk-or-v1-beta-test-key";
+  const connected = await authRequest({
+    type: "GMTOOLS_AUTH_API_KEY", apiKey: ` ${pastedKey} `, persistent: false,
+  });
+  assert.equal(connected.ok, true);
+  assert.equal(connected.status.connected, true);
+  assert.equal(connected.status.userId, undefined);
+  assert.equal(connected.status.keyLabel, "Beta test");
+  assert.equal(sessionData.openRouterApiKey, pastedKey);
+  assert.equal(localData.openRouterApiKey, undefined);
+  assert.equal(sessionData.openRouterUserId, undefined);
+  assert.equal(localData.openRouterUserId, undefined);
+  assert.equal(JSON.stringify(connected).includes(pastedKey), false);
+
+  await authRequest({ type: "GMTOOLS_AUTH_PERSISTENCE", enabled: true });
+  assert.equal(localData.openRouterApiKey, pastedKey);
+  await authRequest({ type: "GMTOOLS_AUTH_DISCONNECT" });
+  assert.equal(localData.openRouterApiKey, undefined);
+  assert.equal(sessionData.openRouterApiKey, undefined);
+  const persistedKey = await authRequest({
+    type: "GMTOOLS_AUTH_API_KEY", apiKey: pastedKey, persistent: true,
+  });
+  assert.equal(persistedKey.status.persistent, true);
+  assert.equal(localData.openRouterApiKey, pastedKey);
+
+  keyVerification = async () => new Response("rejected", { status: 401 });
+  const rejectedKey = await authRequest({
+    type: "GMTOOLS_AUTH_API_KEY", apiKey: "sk-or-v1-invalid-key", persistent: false,
+  });
+  assert.equal(rejectedKey.ok, false);
+  assert.equal(localData.openRouterApiKey, pastedKey);
+  assert.equal(sessionData.openRouterApiKey, pastedKey);
+
+  let finishVerification;
+  let verificationStarted;
+  const verificationGate = new Promise(resolve => { verificationStarted = resolve; });
+  keyVerification = () => new Promise(resolve => {
+    finishVerification = resolve;
+    verificationStarted();
+  });
+  const pendingLogin = authRequest({
+    type: "GMTOOLS_AUTH_API_KEY", apiKey: pastedKey, persistent: true,
+  });
+  await verificationGate;
+  await authRequest({ type: "GMTOOLS_AUTH_DISCONNECT" });
+  finishVerification(Response.json({ data: { label: "Beta test" } }));
+  assert.equal((await pendingLogin).ok, false);
+  assert.equal(sessionData.openRouterApiKey, undefined);
+  assert.equal(localData.openRouterApiKey, undefined);
 
   const contentScriptHandled = listeners.get("message").some((listener) =>
     listener(

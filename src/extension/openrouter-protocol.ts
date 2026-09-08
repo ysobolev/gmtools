@@ -3,6 +3,7 @@ import type { ChatContinuation } from "./chat-store";
 
 export const AUTH_STATUS_REQUEST = "GMTOOLS_AUTH_STATUS" as const;
 export const AUTH_CONNECT_REQUEST = "GMTOOLS_AUTH_CONNECT" as const;
+export const AUTH_API_KEY_REQUEST = "GMTOOLS_AUTH_API_KEY" as const;
 export const AUTH_DISCONNECT_REQUEST = "GMTOOLS_AUTH_DISCONNECT" as const;
 export const AUTH_PERSISTENCE_REQUEST = "GMTOOLS_AUTH_PERSISTENCE" as const;
 export const AUTH_STATE_CHANGED = "GMTOOLS_AUTH_STATE_CHANGED" as const;
@@ -51,6 +52,11 @@ export type AuthRequest =
       readonly persistent: boolean;
     }
   | { readonly type: typeof AUTH_DISCONNECT_REQUEST }
+  | {
+      readonly type: typeof AUTH_API_KEY_REQUEST;
+      readonly apiKey: string;
+      readonly persistent: boolean;
+    }
   | {
       readonly type: typeof AUTH_PERSISTENCE_REQUEST;
       readonly enabled: boolean;
@@ -504,6 +510,10 @@ export function isAuthRequest(value: unknown): value is AuthRequest {
   return (
     value.type === AUTH_STATUS_REQUEST ||
     (value.type === AUTH_CONNECT_REQUEST &&
+      typeof value.persistent === "boolean") ||
+    (value.type === AUTH_API_KEY_REQUEST &&
+      typeof value.apiKey === "string" &&
+      value.apiKey.length <= 1024 &&
       typeof value.persistent === "boolean") ||
     value.type === AUTH_DISCONNECT_REQUEST ||
     (value.type === AUTH_PERSISTENCE_REQUEST &&

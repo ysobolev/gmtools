@@ -101,6 +101,7 @@ import {
 } from "./profile-config";
 import {
   AUTH_CONNECT_REQUEST,
+  AUTH_API_KEY_REQUEST,
   AUTH_STATE_CHANGED,
   AUTH_STATUS_REQUEST,
   CAMPAIGN_ATTACH_REQUEST,
@@ -501,14 +502,18 @@ function LoginScreen({
   error,
   keepSignedIn,
   onConnect,
+  onConnectWithKey,
   onKeepSignedInChange,
 }: {
   readonly connecting: boolean;
   readonly error: string | null;
   readonly keepSignedIn: boolean;
   readonly onConnect: () => void;
+  readonly onConnectWithKey: (key: string) => void;
   readonly onKeepSignedInChange: (enabled: boolean) => void;
 }): React.JSX.Element {
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [apiKey, setApiKey] = useState("");
   return (
     <main className="login-shell">
       <section className="brand-block">
@@ -520,7 +525,17 @@ function LoginScreen({
         </p>
       </section>
 
-      <section className="login-card" aria-labelledby="connect-heading">
+      <form className="login-card" aria-labelledby="connect-heading" onSubmit={(event) => {
+        event.preventDefault();
+        if (connecting) return;
+        if (showApiKey) {
+          if (!apiKey.trim()) return;
+          onConnectWithKey(apiKey);
+          setApiKey("");
+        } else {
+          onConnect();
+        }
+      }}>
         <div className="provider-mark" aria-hidden="true">OR</div>
         <div>
           <h2 id="connect-heading">Connect OpenRouter</h2>
@@ -530,7 +545,43 @@ function LoginScreen({
           </p>
         </div>
         {error ? <p className="error-banner" role="alert">{error}</p> : null}
-        <label className="login-persistence">
+        {showApiKey ? (
+          <div id="login-key-fields" className="login-key-form">
+            <label htmlFor="openrouter-api-key">OpenRouter API key</label>
+            <input
+              id="openrouter-api-key"
+              name="openrouter-api-key"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={512}
+              value={apiKey}
+              disabled={connecting}
+              onChange={(event) => setApiKey(event.target.value)}
+              required
+            />
+          </div>
+        ) : null}
+        <button
+          className="primary-button"
+          disabled={connecting || (showApiKey && !apiKey.trim())}
+          type="submit"
+        >
+          {connecting ? "Connecting…" : showApiKey ? "Connect with API key" : "Connect OpenRouter"}
+        </button>
+        <button
+          className="login-key-toggle"
+          type="button"
+          aria-expanded={showApiKey}
+          disabled={connecting}
+          onClick={() => {
+            setShowApiKey(!showApiKey);
+            setApiKey("");
+          }}
+        >
+          {showApiKey ? "Use an OpenRouter account instead" : "Use an API key instead"}
+        </button>
+        <label className="login-persistence login-persistence-footer">
           <input
             checked={keepSignedIn}
             disabled={connecting}
@@ -545,15 +596,7 @@ function LoginScreen({
             </small>
           </span>
         </label>
-        <button
-          className="primary-button"
-          disabled={connecting}
-          onClick={onConnect}
-          type="button"
-        >
-          {connecting ? "Connecting…" : "Connect OpenRouter"}
-        </button>
-      </section>
+      </form>
     </main>
   );
 }
@@ -2595,11 +2638,15 @@ function App(): React.JSX.Element {
     };
   }, []);
 
-  const connect = (): void => {
+  const connect = (apiKey?: string): void => {
     setConnecting(true);
     setError(null);
-    void sendAuthRequest({
+    void sendAuthRequest(apiKey === undefined ? {
       type: AUTH_CONNECT_REQUEST,
+      persistent: keepSignedIn,
+    } : {
+      type: AUTH_API_KEY_REQUEST,
+      apiKey,
       persistent: keepSignedIn,
     })
       .then(setAuthStatus)
@@ -2620,7 +2667,8 @@ function App(): React.JSX.Element {
         connecting={connecting}
         error={error}
         keepSignedIn={keepSignedIn}
-        onConnect={connect}
+        onConnect={() => connect()}
+        onConnectWithKey={connect}
         onKeepSignedInChange={setKeepSignedIn}
       />
     );

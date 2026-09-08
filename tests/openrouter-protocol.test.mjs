@@ -42,6 +42,18 @@ test("validates credential persistence requests", () => {
   );
 });
 
+test("validates supplied-key login requests", () => {
+  const request = {
+    type: protocol.AUTH_API_KEY_REQUEST,
+    apiKey: "sk-or-v1-test-key",
+    persistent: false,
+  };
+  assert.equal(protocol.isAuthRequest(request), true);
+  assert.equal(protocol.isAuthRequest({ ...request, apiKey: null }), false);
+  assert.equal(protocol.isAuthRequest({ ...request, persistent: undefined }), false);
+  assert.equal(protocol.isAuthRequest({ ...request, apiKey: "x".repeat(1025) }), false);
+});
+
 test("requires persistence state in authentication responses", () => {
   assert.equal(
     protocol.isAuthResponse({

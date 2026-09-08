@@ -74,3 +74,45 @@ test("validates token and key metadata responses", () => {
     { label: "GM Tools", limitRemaining: 12.5 },
   );
 });
+
+test("validates a supplied key with OpenRouter and trims surrounding whitespace", async (t) => {
+  const key = "sk-or-v1-supplied-test-key";
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    assert.equal(url, auth.OPENROUTER_KEY_INFO_URL);
+    assert.equal(options.headers.Authorization, `Bearer ${key}`);
+    assert.equal(options.redirect, "error");
+    assert.ok(options.signal);
+    return Response.json({ data: { label: "Beta", limit_remaining: 0 } });
+  });
+  assert.deepEqual(await auth.validateOpenRouterApiKey(`  ${key}\n`), {
+    key, keyInfo: { label: "Beta", limitRemaining: 0 },
+  });
+});
+
+test("key verification fails closed and does not echo secrets or server bodies", async (t) => {
+  const key = "sk-or-v1-sensitive-test-key";
+  let result;
+  const mocked = t.mock.method(globalThis, "fetch", async () => {
+    if (result instanceof Error) throw result;
+    return result;
+  });
+  for (const invalid of ["", "short", "sk-or-v1-has whitespace", "x".repeat(513)]) {
+    await assert.rejects(auth.validateOpenRouterApiKey(invalid));
+  }
+  assert.equal(mocked.mock.callCount(), 0);
+  for (result of [
+    new Response(key, { status: 401 }),
+    new Response(key, { status: 403 }),
+    new Response(key, { status: 429 }),
+    new Response(key, { status: 500 }),
+    new Error(`Network failure containing ${key}`),
+    Response.json({}),
+    Response.json({ data: { is_management_key: true } }),
+    new Response("invalid json"),
+  ]) {
+    await assert.rejects(auth.validateOpenRouterApiKey(key), (error) => {
+      assert.equal(error.message.includes(key), false);
+      return true;
+    });
+  }
+});
