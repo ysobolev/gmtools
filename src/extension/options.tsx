@@ -680,7 +680,10 @@ function CampaignMemorySettings({
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState("");
-  const [message, setMessage] = useState("");
+  const [feedback, setFeedback] = useState<{
+    readonly kind: "success" | "error";
+    readonly message: string;
+  } | null>(null);
   const [clearPrompt, setClearPrompt] = useState(false);
   const [deletePromptId, setDeletePromptId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -690,9 +693,12 @@ function CampaignMemorySettings({
       setMemories(loadedMemories);
       onCountChange(loadedMemories.length);
     }).catch(
-      (error: unknown) => setMessage(
-        error instanceof Error ? error.message : "Could not load campaign memory.",
-      ),
+      (error: unknown) => setFeedback({
+        kind: "error",
+        message: error instanceof Error
+          ? error.message
+          : "Could not load campaign memory.",
+      }),
     );
   };
 
@@ -716,7 +722,7 @@ function CampaignMemorySettings({
   const saveEdit = (): void => {
     if (!editingId) return;
     setBusy(true);
-    setMessage("");
+    setFeedback(null);
     void updateCampaignMemory(
       campaign.campaignId,
       editingId,
@@ -726,36 +732,44 @@ function CampaignMemorySettings({
       setEditingId(null);
       setDeletePromptId(null);
       setEditingContent("");
-      setMessage("Memory updated.");
+      setFeedback({ kind: "success", message: "Memory updated." });
       refreshMemories();
-    }).catch((error: unknown) => setMessage(
-      error instanceof Error ? error.message : "Could not update memory.",
-    )).finally(() => setBusy(false));
+    }).catch((error: unknown) => setFeedback({
+      kind: "error",
+      message: error instanceof Error ? error.message : "Could not update memory.",
+    })).finally(() => setBusy(false));
   };
 
   const removeMemory = (memoryId: string): void => {
     setBusy(true);
-    setMessage("");
+    setFeedback(null);
     void deleteCampaignMemory(campaign.campaignId, memoryId, false).then(() => {
       if (editingId === memoryId) setEditingId(null);
-      setMessage("Memory deleted.");
+      setFeedback({ kind: "success", message: "Memory deleted." });
       refreshMemories();
-    }).catch((error: unknown) => setMessage(
-      error instanceof Error ? error.message : "Could not delete memory.",
-    )).finally(() => setBusy(false));
+    }).catch((error: unknown) => setFeedback({
+      kind: "error",
+      message: error instanceof Error ? error.message : "Could not delete memory.",
+    })).finally(() => setBusy(false));
   };
 
   const clearAll = (): void => {
     setBusy(true);
-    setMessage("");
+    setFeedback(null);
     void deleteAllCampaignMemories(campaign.campaignId).then((count) => {
       setClearPrompt(false);
       setEditingId(null);
-      setMessage(`Deleted ${count} ${count === 1 ? "memory" : "memories"}.`);
+      setFeedback({
+        kind: "success",
+        message: `Deleted ${count} ${count === 1 ? "memory" : "memories"}.`,
+      });
       refreshMemories();
-    }).catch((error: unknown) => setMessage(
-      error instanceof Error ? error.message : "Could not clear campaign memory.",
-    )).finally(() => setBusy(false));
+    }).catch((error: unknown) => setFeedback({
+      kind: "error",
+      message: error instanceof Error
+        ? error.message
+        : "Could not clear campaign memory.",
+    })).finally(() => setBusy(false));
   };
 
   return (
@@ -787,7 +801,14 @@ function CampaignMemorySettings({
         </label>
         <span>{memories?.length ?? 0} stored</span>
       </div>
-      {message ? <p className="saved-message" role="status">{message}</p> : null}
+      {feedback ? (
+        <p
+          className={`feedback-message ${feedback.kind}`}
+          role={feedback.kind === "error" ? "alert" : "status"}
+        >
+          {feedback.message}
+        </p>
+      ) : null}
       {memories === null ? <p>Loading memories…</p> : null}
       {memories !== null && visible.length === 0 ? (
         <p className="campaign-memory-empty">
@@ -800,6 +821,8 @@ function CampaignMemorySettings({
             {editingId === memory.id ? (
               <>
                 <textarea
+                  aria-label="Memory content"
+                  className="campaign-memory-editor"
                   maxLength={4000}
                   onChange={(event) => setEditingContent(event.target.value)}
                   rows={6}
@@ -828,7 +851,7 @@ function CampaignMemorySettings({
                         <button className="secondary-button" disabled={busy} onClick={() => {
                           setEditingId(memory.id);
                           setEditingContent(memory.content);
-                          setMessage("");
+                          setFeedback(null);
                         }} type="button">Edit</button>
                         <button className="danger-button" disabled={busy} onClick={() => setDeletePromptId(memory.id)} type="button">Delete</button>
                       </>

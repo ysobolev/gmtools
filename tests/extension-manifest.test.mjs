@@ -32,6 +32,7 @@ test("registers and builds both browser extensions", async () => {
     await Promise.all(
       [
         "content-script.js",
+        "design-system.css",
         "options.html",
         "options.css",
         "options.js",

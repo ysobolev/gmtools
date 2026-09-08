@@ -1,0 +1,136 @@
+:root {
+  color-scheme: dark;
+
+  /* Type, space, and shape */
+  --font-body: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-heading: Georgia, "Times New Roman", serif;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --radius-sm: 7px;
+  --radius-md: 9px;
+  --radius-lg: 13px;
+
+  /* Semantic color roles */
+  --surface-canvas: #0d1017;
+  --surface-raised: #191e28;
+  --surface-control: #151a23;
+  --surface-hover: #222a36;
+  --surface-selected: #251c20;
+  --surface-active: #202631;
+  --surface-header: #171c25;
+  --text-primary: #f5f1e8;
+  --text-secondary: #c9cdd4;
+  --text-muted: #9fa7b4;
+  --text-on-accent: #fff;
+  --border-default: #343b48;
+  --border-strong: #4c5564;
+  --accent: #c9573f;
+  --accent-hover: #dc674e;
+  --accent-text: #efb09b;
+  --accent-border: #8b6559;
+  --accent-surface: var(--surface-selected);
+  --accent-halo: rgb(203 91 66 / 18%);
+  --informational: #8caac7;
+  --informational-surface: #172531;
+  --informational-border: #3e5367;
+  --informational-hover: #223442;
+  --success: #82c89a;
+  --success-surface: #16271d;
+  --success-border: #3d4f46;
+  --success-halo: rgb(103 185 133 / 12%);
+  --warning: #e2bd69;
+  --warning-surface: #332a1d;
+  --warning-border: #675537;
+  --warning-hover: #403321;
+  --danger: #ffb2a3;
+  --danger-strong: #df8a78;
+  --danger-surface: #2c191a;
+  --danger-border: #874e46;
+  --danger-hover: #382123;
+  --danger-button: #8a4034;
+  --focus-ring: #efaa87;
+  --shadow-raised: 0 20px 48px rgb(0 0 0 / 28%);
+  --shadow-color: rgb(0 0 0 / 28%);
+  --overlay-scrim: rgb(0 0 0 / 40%);
+  --ambient-glow: rgb(172 76 58 / 16%);
+  --transparent: transparent;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --surface-canvas: #f5f2ec;
+  --surface-raised: #fffdfa;
+  --surface-control: #fffdfa;
+  --surface-hover: #eee9e2;
+  --surface-selected: #fff1eb;
+  --surface-active: #eee9e2;
+  --surface-header: #f7f3ed;
+  --text-primary: #29272b;
+  --text-secondary: #4f4b51;
+  --text-muted: #6f6b72;
+  --border-default: #d4cec5;
+  --border-strong: #aaa197;
+  /* Primary buttons share the original warm red and brighter hover in both themes. */
+  --accent-text: #9f402f;
+  --accent-border: #c49687;
+  --informational: #315f82;
+  --informational-surface: #d2dfea;
+  --informational-border: #a7b9ca;
+  --informational-hover: #c3d4e3;
+  --success: #28733f;
+  --success-surface: #edf7f0;
+  --success-border: #c7d7cb;
+  --warning: #76520d;
+  --warning-surface: #fff7df;
+  --warning-border: #d7bd82;
+  --warning-hover: #fff2cf;
+  --danger: #8f3426;
+  --danger-strong: #782d22;
+  --danger-surface: #fff0eb;
+  --danger-border: #d58b7d;
+  --danger-hover: #fbe4de;
+  --danger-button: #a64737;
+  --focus-ring: #a77a64;
+  --shadow-raised: 0 20px 48px rgb(75 57 44 / 12%);
+  --shadow-color: rgb(75 57 44 / 12%);
+  --overlay-scrim: rgb(58 48 42 / 38%);
+  --ambient-glow: rgb(194 93 68 / 10%);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
