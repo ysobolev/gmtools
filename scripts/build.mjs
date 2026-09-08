@@ -102,6 +102,7 @@ await Promise.all([
       banner: generatedBanner,
     }),
     copyFile(manifest, `${outdir}/manifest.json`),
+    copyFile("src/extension/static/design-system.css", `${outdir}/design-system.css`),
     copyFile("src/extension/static/options.html", `${outdir}/options.html`),
     copyFile("src/extension/static/options.css", `${outdir}/options.css`),
     copyFile("src/extension/static/sidepanel.html", `${outdir}/sidepanel.html`),

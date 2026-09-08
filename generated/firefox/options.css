@@ -1,10 +1,8 @@
 :root {
   color-scheme: dark;
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
-  background: #0d1017;
-  color: #f5f1e8;
+  font-family: var(--font-body);
+  background: var(--surface-canvas);
+  color: var(--text-primary);
   font-synthesis: none;
 }
 
@@ -41,7 +39,7 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid #efaa87;
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -57,7 +55,7 @@ p {
   place-content: center;
   justify-items: center;
   gap: 14px;
-  color: #9fa7b4;
+  color: var(--text-muted);
   font-size: 13px;
 }
 
@@ -100,7 +98,7 @@ p {
   border-radius: 11px;
   background: #24191b;
   color: #e48d72;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-heading);
   font-size: 19px;
 }
 
@@ -116,7 +114,7 @@ p {
 
 .options-header h1 {
   margin-bottom: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-heading);
   font-size: 25px;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -196,7 +194,7 @@ p {
 
 .sidebar-heading h2 {
   margin-bottom: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-heading);
   font-size: 24px;
   font-weight: 600;
 }
@@ -325,7 +323,7 @@ p {
 
 .editor-heading h2 {
   margin-bottom: 7px;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-heading);
   font-size: 27px;
   font-weight: 600;
   letter-spacing: -0.015em;
@@ -452,7 +450,7 @@ p {
 
 .primary-button {
   border: 0;
-  background: #c9573f;
+  background: var(--accent);
   color: white;
 }
 
@@ -475,7 +473,7 @@ p {
 }
 
 .primary-button:hover:not(:disabled) {
-  background: #dc674e;
+  background: var(--accent-hover);
 }
 
 .secondary-button,
@@ -526,7 +524,7 @@ p {
 
 .campaign-delete-dialog h2 {
   margin-bottom: 8px;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-heading);
 }
 
 .campaign-delete-dialog p {
@@ -733,7 +731,7 @@ p {
 
 .settings-panel-heading h2 {
   margin-bottom: 7px;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-heading);
   font-size: 27px;
   font-weight: 600;
 }
@@ -1232,4 +1230,75 @@ p {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/* Shared semantic component roles; page-specific dimensions remain above. */
+.feedback-message {
+  margin: var(--space-3) 28px 0;
+  padding: 10px 12px;
+  border: 1px solid currentcolor;
+  border-radius: var(--radius-md);
+  font-size: 11px;
+}
+
+.feedback-message.success,
+.saved-message {
+  color: var(--success);
+}
+
+.feedback-message.success {
+  background: var(--success-surface);
+}
+
+.feedback-message.error,
+.settings-error,
+.campaign-delete-error {
+  color: var(--danger);
+  background: var(--danger-surface);
+}
+
+.primary-button { background: var(--accent); }
+.primary-button:hover:not(:disabled) { background: var(--accent-hover); }
+.secondary-button {
+  border-color: var(--border-default);
+  background: var(--surface-control);
+  color: var(--text-secondary);
+}
+.secondary-button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+.danger-button {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border-default));
+  background: var(--surface-control);
+  color: var(--danger);
+}
+.danger-button:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-surface);
+}
+
+.field input,
+.field select,
+.field textarea,
+.campaign-memory-editor {
+  border-color: var(--border-default);
+  background: var(--surface-control);
+  color: var(--text-primary);
+}
+
+.campaign-memory-editor {
+  width: 100%;
+  padding: 10px 11px;
+  resize: vertical;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  line-height: 1.5;
+}
+
+.warning-note,
+.campaign-delete-warning { color: var(--warning); }
+
+@media (max-width: 520px) {
+  .feedback-message { margin-inline: 18px; }
 }

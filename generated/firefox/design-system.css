@@ -1,0 +1,104 @@
+:root {
+  color-scheme: dark;
+
+  /* Type, space, and shape */
+  --font-body: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-heading: Georgia, "Times New Roman", serif;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --radius-sm: 7px;
+  --radius-md: 9px;
+  --radius-lg: 13px;
+
+  /* Semantic color roles */
+  --surface-canvas: #0d1017;
+  --surface-raised: #191e28;
+  --surface-control: #151a23;
+  --surface-hover: #222a36;
+  --surface-selected: #251c20;
+  --text-primary: #f5f1e8;
+  --text-secondary: #c9cdd4;
+  --text-muted: #9fa7b4;
+  --border-default: #343b48;
+  --border-strong: #4c5564;
+  --accent: #c9573f;
+  --accent-hover: #dc674e;
+  --accent-text: #efb09b;
+  --informational: #8caac7;
+  --informational-surface: #172531;
+  --success: #82c89a;
+  --success-surface: #16271d;
+  --warning: #e2bd69;
+  --warning-surface: #332a1d;
+  --danger: #ffb2a3;
+  --danger-strong: #df8a78;
+  --danger-surface: #2c191a;
+  --focus-ring: #efaa87;
+  --shadow-raised: 0 20px 48px rgb(0 0 0 / 28%);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --surface-canvas: #f5f2ec;
+  --surface-raised: #fffdfa;
+  --surface-control: #fffdfa;
+  --surface-hover: #eee9e2;
+  --surface-selected: #fff1eb;
+  --text-primary: #29272b;
+  --text-secondary: #4f4b51;
+  --text-muted: #6f6b72;
+  --border-default: #d4cec5;
+  --border-strong: #aaa197;
+  --accent: #b34f3a;
+  --accent-hover: #963d2c;
+  --accent-text: #9f402f;
+  --informational: #315f82;
+  --informational-surface: #edf5fb;
+  --success: #28733f;
+  --success-surface: #edf7f0;
+  --warning: #76520d;
+  --warning-surface: #fff7df;
+  --danger: #8f3426;
+  --danger-strong: #782d22;
+  --danger-surface: #fff0eb;
+  --focus-ring: #315f82;
+  --shadow-raised: 0 20px 48px rgb(75 57 44 / 12%);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
