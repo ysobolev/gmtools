@@ -1,4 +1,5 @@
 import "./configure-csp";
+import { useModalEscape } from "./use-modal-escape";
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -124,6 +125,7 @@ function ProfilesSettings(): React.JSX.Element {
     readonly campaignCount: number;
   } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const deleteModalRef = useModalEscape(Boolean(deletePrompt), deleteBusy, () => setDeletePrompt(null));
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const pendingDraftsRef = useRef(new Map<string, AssistantProfile>());
   const saveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -316,6 +318,8 @@ function ProfilesSettings(): React.JSX.Element {
     setSavedMessage("");
     scheduleProfileSave(next, immediate);
   };
+
+  const fallbackProfileName = profiles.find((profile) => profile.id === DEFAULT_PROFILE.id)?.name ?? DEFAULT_PROFILE.name;
 
   const beginDeleteProfile = (): void => {
     if (
@@ -595,6 +599,7 @@ function ProfilesSettings(): React.JSX.Element {
         <div className="campaign-delete-backdrop">
           <section
             aria-label={`Delete ${deletePrompt.profile.name}`}
+            ref={deleteModalRef}
             aria-modal="true"
             className="campaign-delete-dialog"
             role="alertdialog"
@@ -608,7 +613,7 @@ function ProfilesSettings(): React.JSX.Element {
                     <li>
                       {deletePrompt.chatCount} {deletePrompt.chatCount === 1
                         ? "chat uses"
-                        : "chats use"} this profile and will switch to General.
+                        : "chats use"} this profile and will switch to {fallbackProfileName}.
                     </li>
                   ) : null}
                   {deletePrompt.campaignCount > 0 ? (
@@ -616,7 +621,7 @@ function ProfilesSettings(): React.JSX.Element {
                       {deletePrompt.campaignCount} {deletePrompt.campaignCount === 1
                         ? "campaign uses"
                         : "campaigns use"} this as its default profile and will
-                      switch to General.
+                      switch to {fallbackProfileName}.
                     </li>
                   ) : null}
                 </ul>
@@ -630,20 +635,20 @@ function ProfilesSettings(): React.JSX.Element {
             ) : null}
             <div className="campaign-delete-actions">
               <button
-                className="danger-button"
-                disabled={deleteBusy}
-                onClick={confirmDeleteProfile}
-                type="button"
-              >
-                Delete profile
-              </button>
-              <button
                 className="secondary-button"
                 disabled={deleteBusy}
                 onClick={() => setDeletePrompt(null)}
                 type="button"
               >
                 Cancel
+              </button>
+              <button
+                className="danger-button"
+                disabled={deleteBusy}
+                onClick={confirmDeleteProfile}
+                type="button"
+              >
+                Delete profile
               </button>
             </div>
           </section>
@@ -687,6 +692,7 @@ function CampaignMemorySettings({
   const [clearPrompt, setClearPrompt] = useState(false);
   const [deletePromptId, setDeletePromptId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const clearModalRef = useModalEscape(clearPrompt, busy, () => setClearPrompt(false));
 
   const refreshMemories = (): void => {
     void listCampaignMemories(campaign.campaignId).then((loadedMemories) => {
@@ -870,12 +876,12 @@ function CampaignMemorySettings({
       ) : null}
       {clearPrompt ? (
         <div className="campaign-delete-backdrop">
-          <section aria-modal="true" className="campaign-delete-dialog" role="alertdialog">
+          <section ref={clearModalRef} aria-modal="true" className="campaign-delete-dialog" role="alertdialog">
             <h2>Clear memory for {campaign.name}?</h2>
             <p>This permanently deletes all {memories?.length ?? 0} stored memories.</p>
             <div className="campaign-delete-actions">
-              <button className="danger-button" disabled={busy} onClick={clearAll} type="button">Clear all memory</button>
               <button className="secondary-button" disabled={busy} onClick={() => setClearPrompt(false)} type="button">Cancel</button>
+              <button className="danger-button" disabled={busy} onClick={clearAll} type="button">Clear all memory</button>
             </div>
           </section>
         </div>
@@ -915,8 +921,10 @@ function CampaignsSettings({
     readonly activeChatCount: number;
     readonly pendingApprovalChatCount: number;
     readonly memoryCount: number;
+    readonly deleteChats: boolean;
   } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const deleteModalRef = useModalEscape(Boolean(deletePrompt), deleteBusy, () => setDeletePrompt(null));
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const pendingCampaignWritesRef = useRef(new Map<string, number>());
   const refreshAfterCampaignWritesRef = useRef(false);
@@ -1076,6 +1084,7 @@ function CampaignsSettings({
       setDeletePrompt({
         campaign: selected,
         ...response.preview,
+        deleteChats: false,
       });
     }).catch((error: unknown) => {
       setSavedMessage(
@@ -1266,7 +1275,7 @@ function CampaignsSettings({
 
       {deletePrompt ? (
         <div className="campaign-delete-backdrop">
-          <section aria-modal="true" className="campaign-delete-dialog" role="alertdialog">
+          <section ref={deleteModalRef} aria-modal="true" className="campaign-delete-dialog" role="alertdialog">
             <h2>Delete {deletePrompt.campaign.name}?</h2>
             <p>This campaign has {deletePrompt.chatCount} attached {deletePrompt.chatCount === 1 ? "chat" : "chats"}.</p>
             <ul className="campaign-delete-impact">
@@ -1279,11 +1288,28 @@ function CampaignsSettings({
                 Roll20 actions already sent to the campaign cannot be canceled and may still finish after deletion.
               </p>
             ) : null}
+            {deletePrompt.chatCount > 0 ? (
+              <>
+                <label className="campaign-delete-chat-option">
+                  <input
+                    type="checkbox"
+                    checked={deletePrompt.deleteChats}
+                    disabled={deleteBusy}
+                    onChange={(event) => {
+                      const deleteChats = event.target.checked;
+                      setDeletePrompt((current) => current ? { ...current, deleteChats } : null);
+                    }}
+                  />
+                  <span>Also delete associated chats and images</span>
+                </label>
+              </>
+            ) : null}
             {deleteError ? <p className="campaign-delete-error" role="alert">{deleteError}</p> : null}
             <div className="campaign-delete-actions">
-              <button className="primary-button" disabled={deleteBusy} onClick={() => confirmDelete("detach-chats")} type="button">Detach and keep chats</button>
-              <button className="danger-button" disabled={deleteBusy} onClick={() => confirmDelete("delete-chats")} type="button">Delete chats too</button>
               <button className="secondary-button" disabled={deleteBusy} onClick={() => setDeletePrompt(null)} type="button">Cancel</button>
+              <button className="danger-button" disabled={deleteBusy} onClick={() => confirmDelete(deletePrompt.deleteChats ? "delete-chats" : "detach-chats")} type="button">
+                {deletePrompt.chatCount === 0 ? "Delete campaign" : deletePrompt.deleteChats ? "Delete campaign and chats" : "Delete campaign and detach chats"}
+              </button>
             </div>
           </section>
         </div>

@@ -68,3 +68,80 @@ test("disabled attach banners fade except while discovering campaigns", async ()
   assert.ok(discovering);
   assert.match(discovering[1], /opacity:\s*1;/);
 });
+
+test("chat and profile deletion share the complete danger-button component", async () => {
+  const source = await readFile("src/extension/sidepanel.tsx", "utf8");
+  const css = await readFile("src/extension/static/design-system.css", "utf8");
+  const panel = await readFile("src/extension/static/sidepanel.css", "utf8");
+  const options = await readFile("src/extension/static/options.css", "utf8");
+  assert.match(source, /className="danger-button button-small"\s+disabled=\{deleting\}/);
+  const button = css.match(/button\.danger-button\s*\{([^}]*)\}/);
+  assert.ok(button);
+  assert.match(button[1], /color: var\(--danger\);/);
+  assert.match(button[1], /background: var\(--surface-control\);/);
+  assert.match(button[1], /font-weight: 750;/);
+  assert.match(button[1], /font-size: 11px;/);
+  assert.match(button[1], /min-height: 39px;/);
+  assert.match(button[1], /padding: 0 14px;/);
+  const hover = css.match(/button\.danger-button:hover:not\(:disabled\)\s*\{([^}]*)\}/);
+  assert.ok(hover);
+  assert.match(hover[1], /border-color: var\(--danger\);/);
+  assert.match(hover[1], /background: var\(--danger-surface\);/);
+  assert.match(css, /button\.danger-button:disabled\s*\{[^}]*opacity: 0\.38;/);
+  for (const pageCss of [panel, options]) {
+    assert.doesNotMatch(pageCss, /(?<!not\()\.danger-button(?:\s*\{|:hover|:disabled)/);
+  }
+  assert.doesNotMatch(panel, /\.chat-delete-confirm button/);
+  const profileSource = await readFile("src/extension/options.tsx", "utf8");
+  assert.match(profileSource, /className="danger-button"/);
+});
+
+test("chat Cancel shares secondary styling with compact size", async () => {
+  const source = await readFile("src/extension/sidepanel.tsx", "utf8");
+  const css = await readFile("src/extension/static/design-system.css", "utf8");
+  assert.match(source, /className="secondary-button button-small"/);
+  assert.match(css, /button\.secondary-button,\s*button\.danger-button\s*\{/);
+  assert.match(css, /button\.secondary-button:hover:not\(:disabled\)/);
+});
+
+test("compact buttons override size without changing semantic styling", async () => {
+  const css = await readFile("src/extension/static/design-system.css", "utf8");
+  const small = css.match(/button\.button-small\s*\{([^}]*)\}/);
+  assert.ok(small);
+  assert.match(small[1], /min-height: 0;/);
+  assert.match(small[1], /padding: 5px 8px;/);
+  assert.match(small[1], /font-size: 10px;/);
+  assert.doesNotMatch(small[1], /font-weight|color|background|opacity/);
+  assert.ok(css.indexOf("button.button-small {") > css.indexOf("button.danger-button {"));
+});
+
+test("settings deletion dialogs align right with Cancel first and destruction last", async () => {
+  const source = await readFile("src/extension/options.tsx", "utf8");
+  const css = await readFile("src/extension/static/options.css", "utf8");
+  const groups = [...source.matchAll(/<div className="campaign-delete-actions">([\s\S]*?)<\/div>/g)];
+  assert.equal(groups.length, 3);
+  for (const [, group] of groups) {
+    const buttons = [...group.matchAll(/<button[\s\S]*?<\/button>/g)].map(([button]) => button);
+    assert.match(buttons[0], />\s*Cancel\s*<\/button>/);
+    assert.match(buttons.at(-1), /className="danger-button"/);
+  }
+  assert.match(css, /\.campaign-delete-actions\s*\{[^}]*justify-content: flex-end;/);
+});
+
+test("profile deletion describes the current fallback profile name", async () => {
+  const source = await readFile("src/extension/options.tsx", "utf8");
+  assert.match(source, /fallbackProfileName = profiles\.find\(\(profile\) => profile\.id === DEFAULT_PROFILE\.id\)\?\.name \?\? DEFAULT_PROFILE\.name/);
+  assert.equal([...source.matchAll(/switch to \{fallbackProfileName\}/g)].length, 2);
+  assert.doesNotMatch(source, /switch to General/);
+});
+
+test("campaign deletion defaults to keeping chats and uses a single conditional action", async () => {
+  const source = await readFile("src/extension/options.tsx", "utf8");
+  assert.match(source, /\.\.\.response\.preview,\s*deleteChats: false/);
+  assert.match(source, /checked=\{deletePrompt.deleteChats\}\s+disabled=\{deleteBusy\}/);
+  assert.match(source, /confirmDelete\(deletePrompt.deleteChats \? "delete-chats" : "detach-chats"\)/);
+  assert.match(source, /"Delete campaign and chats" : "Delete campaign and detach chats"/);
+  assert.doesNotMatch(source, />Delete chats too<|>Detach and keep chats</);
+  assert.match(source, /Also delete associated chats and images/);
+  assert.doesNotMatch(source, /campaign-delete-explanation|Their history and images will be kept/);
+});

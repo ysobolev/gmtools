@@ -125,6 +125,49 @@ textarea:disabled {
   opacity: 0.5;
 }
 
+/* Shared destructive action component for settings and the side panel. */
+button.secondary-button,
+button.danger-button {
+  min-height: 39px;
+  padding: 0 14px;
+  border: 1px solid var(--danger-border);
+  border-radius: 8px;
+  background: var(--surface-control);
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+button.secondary-button {
+  border-color: var(--border-default);
+  color: var(--text-secondary);
+}
+
+button.secondary-button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+button.danger-button:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-surface);
+}
+
+button.secondary-button:disabled,
+button.danger-button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+/* Size only: retain the button's semantic colors, weight, and interaction states. */
+button.button-small {
+  min-height: 0;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

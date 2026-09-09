@@ -1,4 +1,5 @@
 import "./configure-csp";
+import { useModalEscape } from "./use-modal-escape";
 import { FeedbackDialog, type FeedbackTarget } from "./feedback-dialog";
 import { isCampaignAttachmentNotice, isVisibleCampaignAttachmentNotice } from "./campaign-attachment-notice";
 import { useChat } from "@ai-sdk/react";
@@ -1546,6 +1547,7 @@ function ChatDrawer({
     null,
   );
   const [deleting, setDeleting] = useState(false);
+  const deleteModalRef = useModalEscape<HTMLDivElement>(Boolean(deleteCandidateId), deleting, () => setDeleteCandidateId(null));
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const deleteCandidate = chats.find(
     (candidate) => candidate.id === deleteCandidateId,
@@ -1673,6 +1675,8 @@ function ChatDrawer({
             aria-label="Confirm chat deletion"
             className="chat-delete-confirm"
             role="alertdialog"
+            aria-modal="true"
+            ref={deleteModalRef}
           >
             <p
               title={`Delete “${deleteCandidate.title}” from “${deleteCandidate.campaignName ?? "No campaign"}”?`}
@@ -1689,12 +1693,13 @@ function ChatDrawer({
               <button
                 disabled={deleting}
                 onClick={() => setDeleteCandidateId(null)}
+                className="secondary-button button-small"
                 type="button"
               >
                 Cancel
               </button>
               <button
-                className="danger"
+                className="danger-button button-small"
                 disabled={deleting}
                 onClick={() => {
                   setDeleting(true);
@@ -1894,14 +1899,7 @@ function ChatScreen({
     campaignStatus.campaignId && campaignStatus.name,
   );
 
-  useEffect(() => {
-    if (campaignCandidates.length <= 1) return;
-    const handleKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === "Escape") setCampaignCandidates([]);
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [campaignCandidates.length]);
+  const attachModalRef = useModalEscape<HTMLDivElement>(campaignCandidates.length > 1, false, () => setCampaignCandidates([]));
 
   const attachCandidate = async (
     candidate: CampaignCandidate,
@@ -2123,6 +2121,7 @@ function ChatScreen({
             aria-modal="true"
             className="campaign-candidate-picker"
             role="dialog"
+            ref={attachModalRef}
           >
             <h2 id="campaign-candidate-heading">Attach this chat to</h2>
             <div className="campaign-candidate-list">

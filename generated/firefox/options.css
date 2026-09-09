@@ -433,7 +433,7 @@ p {
   gap: 9px;
 }
 
-.form-actions button {
+.form-actions button:not(.danger-button):not(.secondary-button) {
   min-height: 39px;
   padding: 0 14px;
   border-radius: 8px;
@@ -442,7 +442,7 @@ p {
   font-weight: 750;
 }
 
-.form-actions button:disabled {
+.form-actions button:not(.danger-button):not(.secondary-button):disabled {
   cursor: default;
   opacity: 0.38;
 }
@@ -453,9 +453,7 @@ p {
   color: var(--text-on-accent);
 }
 
-.primary-button,
-.secondary-button,
-.danger-button {
+.primary-button {
   min-height: 39px;
   padding: 0 14px;
   border-radius: 8px;
@@ -464,29 +462,13 @@ p {
   font-weight: 750;
 }
 
-.primary-button:disabled,
-.secondary-button:disabled,
-.danger-button:disabled {
+.primary-button:disabled {
   cursor: default;
   opacity: 0.38;
 }
 
 .primary-button:hover:not(:disabled) {
   background: var(--accent-hover);
-}
-
-.secondary-button,
-.danger-button {
-  border: 1px solid var(--border-default);
-  background: var(--surface-control);
-}
-
-.secondary-button {
-  color: var(--text-primary);
-}
-
-.danger-button {
-  color: var(--danger);
 }
 
 .saved-message {
@@ -565,12 +547,26 @@ p {
 
 .campaign-delete-actions {
   display: flex;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 9px;
   margin-top: 20px;
 }
 
-.campaign-delete-actions button {
+.campaign-delete-chat-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  cursor: pointer;
+}
+
+.campaign-delete-chat-option input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.campaign-delete-actions button:not(.danger-button):not(.secondary-button) {
   min-height: 39px;
   padding: 0 14px;
   border-radius: 8px;
@@ -579,7 +575,7 @@ p {
   font-weight: 750;
 }
 
-.campaign-delete-actions button:disabled {
+.campaign-delete-actions button:not(.danger-button):not(.secondary-button):disabled {
   cursor: default;
   opacity: 0.45;
 }
@@ -1075,20 +1071,6 @@ p {
   border-color: var(--border-default);
 }
 
-:root[data-theme="light"] .secondary-button,
-:root[data-theme="light"] .danger-button {
-  border-color: var(--border-default);
-  background: var(--surface-control);
-}
-
-:root[data-theme="light"] .secondary-button {
-  color: var(--text-secondary);
-}
-
-:root[data-theme="light"] .danger-button {
-  color: var(--danger);
-}
-
 :root[data-theme="light"] .mode-badge {
   background: var(--surface-active);
   color: var(--text-muted);
@@ -1257,25 +1239,6 @@ p {
 
 .primary-button { background: var(--accent); }
 .primary-button:hover:not(:disabled) { background: var(--accent-hover); }
-.secondary-button {
-  border-color: var(--border-default);
-  background: var(--surface-control);
-  color: var(--text-secondary);
-}
-.secondary-button:hover:not(:disabled) {
-  border-color: var(--border-strong);
-  background: var(--surface-hover);
-}
-.danger-button {
-  border-color: var(--danger-border);
-  background: var(--surface-control);
-  color: var(--danger);
-}
-.danger-button:hover:not(:disabled) {
-  border-color: var(--danger);
-  background: var(--danger-surface);
-}
-
 .field input,
 .field select,
 .field textarea,

@@ -619,21 +619,6 @@ h1 {
   gap: 7px;
 }
 
-.chat-delete-confirm button {
-  padding: 5px 8px;
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  background: var(--surface-control);
-  cursor: pointer;
-  font-size: 10px;
-}
-
-.chat-delete-confirm button.danger {
-  border-color: var(--danger-border);
-  background: var(--danger-button);
-  color: var(--text-on-accent);
-}
-
 .chat-header {
   position: relative;
   z-index: 3;
@@ -2078,17 +2063,6 @@ h1 {
 
 :root[data-theme="light"] .chat-delete-confirm p {
   color: var(--text-secondary);
-}
-
-:root[data-theme="light"] .chat-delete-confirm button:not(.danger) {
-  border-color: var(--border-default);
-  background: var(--surface-control);
-  color: var(--text-secondary);
-}
-
-:root[data-theme="light"] .chat-delete-confirm button:not(.danger):hover {
-  border-color: var(--border-strong);
-  background: var(--surface-hover);
 }
 
 :root[data-theme="light"] .chat-context-row select,
