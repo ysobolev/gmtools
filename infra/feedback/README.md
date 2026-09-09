@@ -41,15 +41,18 @@ This lets the Worker be deployed and its URL obtained before building the extens
 
 ## GitHub Actions
 
-Run **Feedback Terraform** manually. The optional `ref` accepts a trusted branch,
-tag, or commit SHA; blank uses the selected workflow ref. `operation` defaults to
-`plan`; choose `apply` to build, plan, and apply that saved plan in one run.
+Run **Feedback Terraform** manually. Checkout uses the commit resolved for the
+workflow's selected ref. `operation` defaults to `plan`; choose `apply` to build,
+plan, and apply that saved plan in one run. To run a release tag from the CLI:
+
+```sh
+gh workflow run terraform.yml --ref <release-tag> -f operation=plan
+```
 
 Create the `feedback-production` GitHub environment with these secrets:
 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `CLOUDFLARE_API_TOKEN`, and
 `CLOUDFLARE_ACCOUNT_ID`. Configure environment approval/branch rules as desired.
-Those rules govern the workflow ref, not the optional checkout ref: only select
-trusted code, since Terraform runs it with production credentials.
+Only select trusted code, since Terraform runs it with production credentials.
 
 Runs are serialized without cancelling an active deployment. Plans/state are not
 uploaded as artifacts. The workflow logs the resolved commit and, after apply,

@@ -3,10 +3,6 @@ name: Feedback Terraform
 on:
   workflow_dispatch:
     inputs:
-      ref:
-        description: "Trusted branch, tag, or commit SHA (blank uses the selected workflow ref)"
-        required: false
-        type: string
       operation:
         description: "Plan only, or create and apply a plan"
         required: true
@@ -34,10 +30,10 @@ jobs:
       TF_INPUT: "false"
 
     steps:
-      - name: Check out requested ref
+      - name: Check out workflow ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Record resolved commit
