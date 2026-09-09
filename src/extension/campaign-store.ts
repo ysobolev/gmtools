@@ -15,11 +15,13 @@ import {
   CAMPAIGNS_STORE,
   CAMPAIGN_MEMORIES_STORE,
   CHATS_STORE,
+  RUN_SNAPSHOTS_STORE,
   IMAGES_STORE,
   MESSAGES_STORE,
   PROFILES_STORE,
   ROLL20_APPROVALS_STORE,
 } from "./indexed-db-migrations";
+import { releaseChatSnapshots } from "./run-snapshot-store";
 import { isAssistantProfile } from "./profile-config";
 import { applyCampaignAttachmentNotice, isCampaignAttachmentNotice } from "./campaign-attachment-notice";
 
@@ -236,6 +238,7 @@ export async function deleteCampaign(
         MESSAGES_STORE,
         IMAGES_STORE,
         ROLL20_APPROVALS_STORE,
+        RUN_SNAPSHOTS_STORE,
       ]
     : [CAMPAIGNS_STORE, CAMPAIGN_MEMORIES_STORE, CHATS_STORE];
   const transaction = database.transaction(stores, "readwrite");
@@ -256,6 +259,7 @@ export async function deleteCampaign(
     for (const chat of affected) {
       chats.delete(chat.id);
       transaction.objectStore(MESSAGES_STORE).delete(chat.id);
+      await releaseChatSnapshots(transaction, chat.id);
       const imageKeys = await requestResult(
         transaction.objectStore(IMAGES_STORE).index("chatId").getAllKeys(chat.id),
       );

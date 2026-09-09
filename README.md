@@ -79,6 +79,29 @@ configuration is stored in extension local storage and synchronizes with the
 side panel while both are open. Profiles can be changed per chat without
 clearing its history.
 
+### Local run diagnostics
+
+Before each model run, the worker saves a deduplicated configuration snapshot in
+the `runSnapshots` IndexedDB store. It records the resolved system prompt, model
+and provider options, active tool definitions, effective behavior settings,
+extension build, and profile/campaign identities and names. Authentication keys
+are not included. Prompts and campaign names may still contain private data.
+
+The initiating user message's `metadata.gmToolsSubmissions` array records the
+run ID, timestamp, submission kind, and snapshot hash. Resume, Retry, and approval
+responses append their own markers without adding visible or model-facing prose.
+Reconnecting to an existing stream does not create a new run. Snapshots are
+collected when their last owning chat is deleted; detaching keeps diagnostics.
+Existing conversations are not backfilled. This is local diagnostic storage,
+not telemetry or an automatic feedback upload.
+
+The **Feedback** button beside the model name opens a local report form. **Export**
+downloads a JSON file to share manually by email or direct message. Conversation
+history is included by default, while stored images are opt-in. Unchecking the
+conversation excludes its history, snapshots, campaign details, and visible error.
+Reports use saved history, so an in-progress response may be absent. Review the
+file before sharing: conversations and prompts can contain private information.
+
 ## Development
 
 Useful commands:

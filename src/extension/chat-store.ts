@@ -3,7 +3,10 @@ import {
   IMAGES_STORE,
   MESSAGES_STORE,
   ROLL20_APPROVALS_STORE,
+  RUN_SNAPSHOTS_STORE,
 } from "./indexed-db-migrations";
+import { releaseChatSnapshots } from "./run-snapshot-store";
+import { preserveSubmissionMetadata } from "./submission-metadata";
 import {
   openDatabase,
   requestResult,
@@ -245,10 +248,11 @@ export async function saveChatMessages(
     throw new Error("The chat no longer exists.");
   }
   const updatedAt = Date.now();
+  const stored = await requestResult(transaction.objectStore(MESSAGES_STORE).get(chatId));
   chats.put({ ...chatValue, updatedAt } satisfies ChatRecord);
   transaction.objectStore(MESSAGES_STORE).put({
     chatId,
-    messages: [...messages],
+    messages: preserveSubmissionMetadata(messages, stored?.messages ?? []),
     updatedAt,
   } satisfies ChatMessagesRecord);
   await transactionComplete(transaction);
@@ -274,11 +278,12 @@ export async function renameChat(
 export async function deleteChat(chatId: string): Promise<void> {
   const database = await openDatabase();
   const transaction = database.transaction(
-    [CHATS_STORE, MESSAGES_STORE, IMAGES_STORE, ROLL20_APPROVALS_STORE],
+    [CHATS_STORE, MESSAGES_STORE, IMAGES_STORE, ROLL20_APPROVALS_STORE, RUN_SNAPSHOTS_STORE],
     "readwrite",
   );
   transaction.objectStore(CHATS_STORE).delete(chatId);
   transaction.objectStore(MESSAGES_STORE).delete(chatId);
+  await releaseChatSnapshots(transaction, chatId);
   transaction.objectStore(ROLL20_APPROVALS_STORE).index("chatId").openKeyCursor(
     IDBKeyRange.only(chatId),
   ).onsuccess = (event) => {

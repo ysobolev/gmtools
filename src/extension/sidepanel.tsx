@@ -1,4 +1,5 @@
 import "./configure-csp";
+import { FeedbackDialog, type FeedbackTarget } from "./feedback-dialog";
 import { isCampaignAttachmentNotice, isVisibleCampaignAttachmentNotice } from "./campaign-attachment-notice";
 import { useChat } from "@ai-sdk/react";
 import {
@@ -1109,6 +1110,7 @@ function ChatComposer({
   error,
   initialDraft,
   modelLabel,
+  onFeedback,
   onClearError,
   onResumeAfterError,
   onDraftChange,
@@ -1123,6 +1125,7 @@ function ChatComposer({
   readonly error: Error | undefined;
   readonly initialDraft: string;
   readonly modelLabel: string;
+  readonly onFeedback: () => void;
   readonly onClearError: () => void;
   readonly onResumeAfterError: () => void;
   readonly onDraftChange: (chatId: string, draft: string) => void;
@@ -1516,6 +1519,7 @@ function ChatComposer({
       </form>
       <div className="composer-meta">
         <span>{modelLabel} via OpenRouter</span>
+        <button className="feedback-link" onClick={onFeedback} type="button">Feedback</button>
       </div>
     </footer>
   );
@@ -1728,6 +1732,7 @@ function ChatScreen({
   initialScrollPosition,
   onCampaignBindingChanged,
   onDraftChange,
+  onFeedback,
   onManageProfiles,
   onOpenChatDrawer,
   onRenameChat,
@@ -1744,6 +1749,7 @@ function ChatScreen({
   readonly initialScrollPosition: ChatScrollPosition | undefined;
   readonly onCampaignBindingChanged: () => Promise<void>;
   readonly onDraftChange: (chatId: string, draft: string) => void;
+  readonly onFeedback: (target: FeedbackTarget) => void;
   readonly onManageProfiles: () => void;
   readonly onOpenChatDrawer: () => void;
   readonly onRenameChat: (title: string) => void;
@@ -2178,6 +2184,13 @@ function ChatScreen({
         error={error}
         initialDraft={initialDraft}
         modelLabel={getModelSelectionLabel(activeProfile.modelSelection)}
+        onFeedback={() => onFeedback({
+          chatId,
+          title: chat.title,
+          campaignName: chat.campaignName ?? "No campaign",
+          visibleError: error?.message,
+          runningWhenOpened: busy,
+        })}
         onClearError={clearError}
         onResumeAfterError={resumeAfterError}
         onDraftChange={onDraftChange}
@@ -2190,6 +2203,7 @@ function ChatScreen({
 }
 
 function ChatWorkspace(): React.JSX.Element {
+  const [feedbackTarget, setFeedbackTarget] = useState<FeedbackTarget | null>(null);
   const [profiles, setProfiles] = useState<AssistantProfile[] | null>(null);
   const [chats, setChats] = useState<ChatRecord[]>([]);
   const chatsRef = useRef<ChatRecord[]>([]);
@@ -2558,6 +2572,7 @@ function ChatWorkspace(): React.JSX.Element {
         key={storedChat.chat.id}
         onCampaignBindingChanged={refreshCurrentChatBinding}
         onDraftChange={updateDraft}
+        onFeedback={setFeedbackTarget}
         onManageProfiles={() => void chrome.runtime.openOptionsPage()}
         onOpenChatDrawer={openDrawer}
         onRenameChat={renameCurrentChat}
@@ -2580,6 +2595,16 @@ function ChatWorkspace(): React.JSX.Element {
         <div className="workspace-toast" role="status">
           {transientNotice}
         </div>
+      ) : null}
+      {feedbackTarget ? (
+        <FeedbackDialog
+          target={feedbackTarget}
+          onClose={() => setFeedbackTarget(null)}
+          onExported={() => {
+            setFeedbackTarget(null);
+            showTransientNotice("Report download started. Share the JSON file with the developer.");
+          }}
+        />
       ) : null}
     </div>
   );

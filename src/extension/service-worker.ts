@@ -1,4 +1,6 @@
 import "./configure-csp";
+import { recordRunSubmission, snapshotTools } from "./run-snapshot-store";
+import { submissionMarkers } from "./submission-metadata";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import {
   convertToModelMessages,
@@ -323,6 +325,7 @@ interface ConversationJob {
   targetTabId: number | undefined;
   campaignId?: string;
   campaignName?: string;
+  campaignModVersion?: string;
   readonly abortController: AbortController;
   readonly chunks: UIMessageChunk[];
   readonly subscribers: Map<chrome.runtime.Port, string>;
@@ -2300,7 +2303,7 @@ async function streamChat(
     messages: untrustedMessages,
   });
   if (!validation.success) throw new Error("The chat history is invalid.");
-  const conversationMessages = validation.data;
+  let conversationMessages = validation.data;
   job.inputMessages = conversationMessages;
   await persistConversationInput(job, conversationMessages);
 
@@ -2319,12 +2322,15 @@ async function streamChat(
     Profile: { id: profile.id, name: profile.name, modelId },
   });
 
-  const openrouter = createOpenRouter({
-    apiKey: stored.openRouterApiKey,
-    compatibility: "strict",
+  const providerConfig = {
+    compatibility: "strict" as const,
     appName: "GM Tools for VTT",
     appUrl: "https://github.com/ysobolev/gmtools",
     headers: createOpenRouterRequestHeaders(job.chatId),
+  };
+  const openrouter = createOpenRouter({
+    ...providerConfig,
+    apiKey: stored.openRouterApiKey,
   });
   const tools = {
     image_generation: createOpenRouterImageGenerationTool(),
@@ -2725,24 +2731,57 @@ async function streamChat(
     );
   }
   if (job.webSearchEnabled) activeTools.unshift("web_search");
+  const system = [
+    buildProfileInstructions(profile, {
+      roll20Available: Boolean(job.campaignId),
+      memoryAvailable: job.memoryEnabled,
+    }),
+    job.continuation?.reason === "stream-error"
+      ? "The previous response stream failed after one or more Roll20 actions returned. Generate a fresh answer from the recorded results and do not repeat completed actions."
+      : "",
+    generatedImageSystemContext(conversationMessages),
+  ].filter(Boolean).join("\n\n");
+  const modelOptions = createOpenRouterModelSettings(modelId);
+  if (abortController.signal.aborted) return;
+  conversationMessages = await recordRunSubmission(job.chatId, conversationMessages, {
+    formatVersion: 1,
+    system,
+    modelId,
+    modelOptions,
+    provider: {
+      name: "openrouter",
+      ...providerConfig,
+    },
+    tools: await snapshotTools(tools, activeTools),
+    behavior: {
+      maximumSteps: job.maxSteps,
+      unrestrictedWebFetchEnabled: job.unrestrictedWebFetchEnabled,
+      webSearchEnabled: job.webSearchEnabled,
+      requireRoll20Approval: job.requireRoll20Approval,
+      memoryEnabled: job.memoryEnabled,
+    },
+    extension: { version: EXTENSION_VERSION, buildId: EXTENSION_BUILD_ID, browser: EXTENSION_BROWSER_NAME },
+    profile: { id: profile.id, name: profile.name },
+    campaign: job.campaignId ? {
+      id: job.campaignId, name: job.campaignName ?? "",
+      modVersion: job.campaignModVersion,
+    } : null,
+  }, job.continuation);
+  job.inputMessages = conversationMessages;
+  const submission = conversationMessages.flatMap(submissionMarkers).at(-1);
+  debug.group("Conversation submission recorded", {
+    "Run ID": submission?.runId,
+    "Snapshot hash": submission?.snapshotHash,
+    "Submission kind": submission?.kind,
+  });
+  if (abortController.signal.aborted) return;
   const inactivity = createModelInactivityMonitor((inactive) => {
     debug.group(inactive ? "Model stream inactive for 60 seconds" : "Model inactivity warning cleared", {});
     setJobActivity(job, job.activity.state, job.activity.summary, inactive);
   }, abortController.signal);
   const result = streamText({
-    model: openrouter(modelId, createOpenRouterModelSettings(modelId)),
-    system: [
-      buildProfileInstructions(profile, {
-        roll20Available: Boolean(job.campaignId),
-        memoryAvailable: job.memoryEnabled,
-      }),
-      job.continuation?.reason === "stream-error"
-        ? "The previous response stream failed after one or more Roll20 actions returned. Generate a fresh answer from the recorded results and do not repeat completed actions."
-        : "",
-      generatedImageSystemContext(conversationMessages),
-    ]
-      .filter(Boolean)
-      .join("\n\n"),
+    model: openrouter(modelId, modelOptions),
+    system,
     messages: await convertToModelMessages(conversationMessages, {
       convertDataPart: imageDataPartForModel,
     }),
@@ -3386,6 +3425,7 @@ chrome.runtime.onConnect.addListener((port) => {
           ? {
               campaignId: campaignBinding.campaignId,
               campaignName: campaignBinding.name,
+              campaignModVersion: campaignBinding.modVersion,
             }
           : {}),
         abortController,

@@ -342,7 +342,7 @@ test("the generated Firefox worker starts without browser-global errors", async 
   assert.equal(contentScriptHandled, false);
 
   const campaignDatabase = await new Promise((resolve, reject) => {
-    const request = testIndexedDB.open("gmToolsChats", 6);
+    const request = testIndexedDB.open("gmToolsChats");
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
@@ -373,7 +373,7 @@ test("the generated Firefox worker starts without browser-global errors", async 
   }
   await new Promise((resolve) => setImmediate(resolve));
   const verifyCampaignDatabase = await new Promise((resolve, reject) => {
-    const request = testIndexedDB.open("gmToolsChats", 6);
+    const request = testIndexedDB.open("gmToolsChats");
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });

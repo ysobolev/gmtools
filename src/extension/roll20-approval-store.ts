@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import { sanitizeStoppedConversation } from "./chat-persistence";
+import { preserveSubmissionMetadata } from "./submission-metadata";
 import {
   openDatabase,
   requestResult,
@@ -227,9 +228,10 @@ export async function saveMessagesAndRegisterRoll20Approvals(
     } satisfies Roll20ApprovalRecord);
   }
   transaction.objectStore(CHATS_STORE).put({ ...chat, updatedAt: now });
+  const stored = await requestResult(transaction.objectStore(MESSAGES_STORE).get(chatId));
   transaction.objectStore(MESSAGES_STORE).put({
     chatId,
-    messages: [...messages],
+    messages: preserveSubmissionMetadata(messages, stored?.messages ?? []),
     updatedAt: now,
   } satisfies ChatMessagesRecord);
   await transactionComplete(transaction);
@@ -321,7 +323,7 @@ export async function saveConversationInputWithApprovals(
   transaction.objectStore(CHATS_STORE).put({ ...chat, updatedAt: now });
   transaction.objectStore(MESSAGES_STORE).put({
     chatId,
-    messages: [...messages],
+    messages: preserveSubmissionMetadata(messages, storedMessages),
     updatedAt: now,
   } satisfies ChatMessagesRecord);
   await transactionComplete(transaction);

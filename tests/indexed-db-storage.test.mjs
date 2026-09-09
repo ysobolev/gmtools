@@ -66,6 +66,7 @@ test("a fresh database runs every structural migration", async () => {
     "messages",
     "profiles",
     "roll20Approvals",
+    "runSnapshots",
     "settings",
   ]);
 
@@ -85,6 +86,24 @@ test("a fresh database runs every structural migration", async () => {
   );
   await transactionComplete(transaction);
   database.close();
+});
+
+test("upgrading version 6 adds empty snapshot storage without changing history", async () => {
+  const name = `gmtools-test-snapshots-${crypto.randomUUID()}`;
+  const old = await openVersion(name, 6);
+  const messages = [{ id: "user", role: "user", parts: [{ type: "text", text: "Hello" }] }];
+  const write = old.transaction("messages", "readwrite");
+  write.objectStore("messages").put({ chatId: "existing", messages, updatedAt: 1 });
+  await transactionComplete(write);
+  old.close();
+  const upgraded = await openVersion(name, migrations.CHAT_DATABASE_VERSION);
+  const read = upgraded.transaction(["messages", "runSnapshots"], "readonly");
+  const done = transactionComplete(read);
+  assert.deepEqual((await requestResult(read.objectStore("messages").get("existing"))).messages, messages);
+  assert.equal(await requestResult(read.objectStore("runSnapshots").count()), 0);
+  assert.equal(read.objectStore("runSnapshots").index("chatIds").multiEntry, true);
+  await done;
+  upgraded.close();
 });
 
 test("upgrading version 5 creates memory storage and disables it for existing campaigns", async () => {
