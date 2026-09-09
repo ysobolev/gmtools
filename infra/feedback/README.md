@@ -107,6 +107,13 @@ Use a synthetic report for smoke tests rather than private campaign data.
   endpoints and no logging of report bodies, images, or provider errors.
 - Workers observability persists sanitized `feedback_response` events with HTTP
   status codes, and `feedback_validation_failed` events for 400/413/415 rejections.
+  Events include `payloadBytes` after the full body is read (actual UTF-8 bytes,
+  including base64), and `imageCount` after envelope validation. Unknown metrics
+  are omitted, including on requests rejected before reading the body.
+  Validated reports also log `hasEmail` (boolean only). Successful writes log the
+  server-generated `reportId` for correlation with the R2 key. Failures log a
+  server-defined `failureCategory` distinguishing JSON/schema/image validation,
+  size/count limits, rate limits, and infrastructure failures; no raw errors.
   Automatic invocation logs are disabled to avoid request metadata;
   custom logs contain no email addresses or IPs. View them in Cloudflare's Worker
   observability dashboard after deployment.

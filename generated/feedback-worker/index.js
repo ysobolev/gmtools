@@ -18933,15 +18933,17 @@ var MAX_REPORT_BYTES = 50 * 1024 * 1024;
 var MAX_IMAGES = 5;
 var BODY_TIMEOUT_MS = 3e4;
 var RequestError = class extends Error {
-  constructor(status, message) {
+  constructor(status, message, category) {
     super(message);
     this.status = status;
+    this.category = category;
   }
   status;
+  category;
 };
-function response(status, body, extra = {}) {
+function jsonResponse(status, body, extra, metrics) {
   const event = [400, 413, 415].includes(status) ? "feedback_validation_failed" : "feedback_response";
-  console.info({ event, status });
+  console.info({ event, status, ...metrics });
   return Response.json(body, {
     status,
     headers: {
@@ -18953,12 +18955,12 @@ function response(status, body, extra = {}) {
     }
   });
 }
-async function readBody(request) {
+async function readBody(request, metrics) {
   const length = request.headers.get("content-length");
   if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_REPORT_BYTES)) {
-    throw new RequestError(413, "Reports must be 50 MiB or smaller, including encoded images.");
+    throw new RequestError(413, "Reports must be 50 MiB or smaller, including encoded images.", "payload_size_limit");
   }
-  if (!request.body) throw new RequestError(400, "A JSON report is required.");
+  if (!request.body) throw new RequestError(400, "A JSON report is required.", "missing_body");
   const reader = request.body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
   const chunks = [];
@@ -18971,34 +18973,35 @@ async function readBody(request) {
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (timedOut) throw new RequestError(408, "Report upload timed out.");
+      if (timedOut) throw new RequestError(408, "Report upload timed out.", "body_timeout");
       if (done) break;
       bytes += value.byteLength;
       if (bytes > MAX_REPORT_BYTES) {
-        throw new RequestError(413, "Reports must be 50 MiB or smaller, including encoded images.");
+        throw new RequestError(413, "Reports must be 50 MiB or smaller, including encoded images.", "payload_size_limit");
       }
       chunks.push(decoder.decode(value, { stream: true }));
     }
     chunks.push(decoder.decode());
+    metrics.payloadBytes = bytes;
     return chunks.join("");
   } catch (error61) {
     void reader.cancel().catch(() => void 0);
     if (error61 instanceof RequestError) throw error61;
-    throw new RequestError(400, "Could not read a UTF-8 JSON report.");
+    throw new RequestError(400, "Could not read a UTF-8 JSON report.", "body_read_failure");
   } finally {
     clearTimeout(timeout);
     reader.releaseLock();
   }
 }
-function invalid(message) {
-  throw new RequestError(400, message);
+function invalid(message, category = "invalid_image") {
+  throw new RequestError(400, message, category);
 }
 function validateImage(image) {
   const data = image.data;
   const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
   const decodedSize = data.length / 4 * 3 - padding;
   if (image.size > MAX_UPLOADED_IMAGE_BYTES || decodedSize > MAX_UPLOADED_IMAGE_BYTES) {
-    throw new RequestError(413, "Each image must be 10 MiB or smaller.");
+    throw new RequestError(413, "Each image must be 10 MiB or smaller.", "image_size_limit");
   }
   if (data.length % 4 !== 0 || decodedSize !== image.size) invalid("Invalid image base64 or size.");
   for (let i = 0; i < data.length - padding; i++) {
@@ -19009,14 +19012,16 @@ function validateImage(image) {
   const matches = image.mediaType === "image/png" ? head.startsWith("\x89PNG\r\n\n") : image.mediaType === "image/jpeg" ? head.startsWith("\xFF\xD8\xFF") : image.mediaType === "image/gif" ? /^(GIF87a|GIF89a)/.test(head) : head.startsWith("RIFF") && head.slice(8, 12) === "WEBP";
   if (!matches) invalid("Image contents do not match the declared MIME type.");
 }
-function validateReport(value) {
+function validateReport(value, metrics) {
   const parsed = feedbackReportSchema.safeParse(value);
   if (!parsed.success) {
-    invalid("Expected a version 1 GM Tools feedback export with nonempty feedback (at most 100,000 characters).");
+    invalid("Expected a version 1 GM Tools feedback export with nonempty feedback (at most 100,000 characters).", "invalid_schema");
   }
   const chat = parsed.data.conversation;
+  metrics.imageCount = chat?.images.length ?? 0;
+  metrics.hasEmail = parsed.data.email !== void 0;
   if (!chat) return;
-  if (chat.images.length > MAX_IMAGES) throw new RequestError(413, "Reports may contain at most five images.");
+  if (chat.images.length > MAX_IMAGES) throw new RequestError(413, "Reports may contain at most five images.", "image_count_limit");
   const ids = /* @__PURE__ */ new Set();
   for (const image of chat.images) {
     validateImage(image);
@@ -19027,11 +19032,16 @@ function validateReport(value) {
 }
 var index_default = {
   async fetch(request, env) {
+    const metrics = {};
+    const response = (status, body, extra = {}) => jsonResponse(status, body, extra, metrics);
     const path = new URL(request.url).pathname;
     if (path === "/" && request.method === "GET") {
       return response(200, { service: "gmtools-feedback", uploadsEnabled: env.FEEDBACK_UPLOADS_ENABLED === "true" });
     }
-    if (path !== "/feedback") return response(404, { error: "Not found." });
+    if (path !== "/feedback") {
+      metrics.failureCategory = "not_found";
+      return response(404, { error: "Not found." });
+    }
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: {
         "Access-Control-Allow-Origin": "*",
@@ -19041,36 +19051,49 @@ var index_default = {
         "Cache-Control": "no-store"
       } });
     }
-    if (request.method !== "POST") return response(405, { error: "Use POST." }, { Allow: "POST, OPTIONS" });
+    if (request.method !== "POST") {
+      metrics.failureCategory = "unsupported_method";
+      return response(405, { error: "Use POST." }, { Allow: "POST, OPTIONS" });
+    }
     if (env.FEEDBACK_UPLOADS_ENABLED !== "true") {
+      metrics.failureCategory = "uploads_disabled";
       return response(503, { error: "Feedback uploads are disabled. Export a report instead." });
     }
     if (request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json" || request.headers.has("content-encoding") && request.headers.get("content-encoding") !== "identity") {
+      metrics.failureCategory = "unsupported_content_type";
       return response(415, { error: "Send uncompressed application/json." });
     }
+    let failureCategory = "limiter_unavailable";
     try {
       const ip = request.headers.get("cf-connecting-ip") || "unknown";
       const perIp = await env.FEEDBACK_RATE_LIMITER.limit({ key: ip });
       const global = perIp.success && (await env.FEEDBACK_GLOBAL_RATE_LIMITER.limit({ key: "reports" })).success;
-      if (!global) return response(429, { error: "Too many reports. Try again later." }, { "Retry-After": "60" });
-      const body = await readBody(request);
+      if (!global) {
+        metrics.failureCategory = perIp.success ? "shared_rate_limit" : "ip_rate_limit";
+        return response(429, { error: "Too many reports. Try again later." }, { "Retry-After": "60" });
+      }
+      failureCategory = "processing_failure";
+      const body = await readBody(request, metrics);
       let report;
       try {
         report = JSON.parse(body);
       } catch {
-        invalid("Invalid JSON report.");
+        invalid("Invalid JSON report.", "invalid_json");
       }
-      validateReport(report);
+      validateReport(report, metrics);
       const id = crypto.randomUUID();
       const receivedAt = (/* @__PURE__ */ new Date()).toISOString();
       const key = `${receivedAt.replaceAll(":", "-")}_${id}.json`;
+      failureCategory = "storage_failure";
       const saved = await env.FEEDBACK_BUCKET.put(key, body, {
         httpMetadata: { contentType: "application/json" },
         onlyIf: { etagDoesNotMatch: "*" }
       });
       if (!saved) throw new Error("Storage write did not succeed.");
+      metrics.reportId = id;
       return response(201, { reportId: id, receivedAt });
     } catch (error61) {
+      metrics.failureCategory = error61 instanceof RequestError ? error61.category : failureCategory;
       if (error61 instanceof RequestError) return response(error61.status, { error: error61.message });
       return response(503, { error: "Could not store feedback. Please export it and try again later." });
     }
