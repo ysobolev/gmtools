@@ -180,6 +180,8 @@ for Worker deployment and validation.
   The read-only `read_guide` tool loads bundled sheet guides on demand for any
   profile. Its catalog lives in `src/extension/prompts/guides.ts`; detailed D&D
   recipes are tool results rather than part of every system prompt.
+  Guide text lives in `src/extension/prompts/guides/*.md` and is bundled as text
+  at build time; reading a guide requires no network or filesystem access.
 - **Assets and builds** — manifest templates live in `src/extension/`; static
   styles, HTML, and icons live in `src/extension/static/`. `scripts/build.mjs`
   produces `generated/chrome/` and `generated/firefox/`.

@@ -5,6 +5,7 @@ import { build } from "esbuild";
 async function load(path) {
   const { outputFiles } = await build({
     entryPoints: [path], bundle: true, format: "esm", platform: "node", write: false,
+    loader: { ".md": "text" },
   });
   return import(`data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`);
 }

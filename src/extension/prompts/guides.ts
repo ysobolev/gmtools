@@ -1,23 +1,20 @@
-import { DND5E_GUIDE } from "./dnd5e-guide";
+import beacon from "./guides/beacon.md";
+import dnd5eRoll20 from "./guides/dnd5e-roll20.md";
 
+// D&D guidance incorporates our Beacon experiments and the 2014 importer references:
+// https://github.com/ByteBard97/roll20-5e-npc-json-importer/blob/master/scripts/5e_NPC_JSON_Importer.js
+// https://github.com/ByteBard97/roll20-5e-npc-json-importer/blob/master/README.md
+// Raw Beacon store structures remain experimental, not a stable public API.
 const GUIDES = [
   {
     id: "beacon",
     description: "Game-independent Beacon sheet inspection and safe API use; read before working with an unfamiliar Beacon sheet.",
-    content: [
-      "## Beacon sheet fundamentals",
-      "Beacon is a sheet technology, not a game system. Identify the actual sheet before choosing game-specific guidance. D&D initialization fields and store paths are not a universal Beacon schema.",
-      "Use documented sheet interfaces and inspect the target's exposed computed-property metadata before modifying unfamiliar data. getComputed/setComputed require Sandbox v1.5; getSheetItem/setSheetItem exist in both sandbox versions and are not themselves evidence of Beacon support. Await asynchronous reads and writes. Verify exact names and whether computed properties are writable before using setComputed; do not infer identifiers from UI labels or legacy-sheet attribute names.",
-      "Legacy Attribute objects do not necessarily represent Beacon's effective sheet values. Do not create guessed legacy attributes to work around missing sheet items. A sheet-owned store, when present, is implementation-specific: do not transplant D&D store structures, initialization flags, or action/spell schemas into another game's sheet.",
-      "Read current target values before changes, and verify effective computed values afterward. Initialization and recalculation can be delayed; use bounded polling without repeatedly rewriting a value that does not match. A missing field or unfinished initialization is not proof that no sheet is configured. Do not claim success from a successful write alone.",
-      "Use web_fetch for relevant Roll20 documentation when behavior is uncertain. If neither documentation nor inspection establishes a safe schema, explain the specific limitation and ask the game master for sheet-specific help rather than inventing a schema.",
-      "For the supported D&D sheets, read dnd5e-roll20 for the tested initialization sequence, field mappings, and NPC recipes. Do not apply those recipes to other sheets merely because they use Beacon.",
-    ].join("\n\n"),
+    content: beacon.trim(),
   },
   {
     id: "dnd5e-roll20",
     description: "Roll20 D&D 2014 and 2024 sheet identification, initialization, and complete NPC/spell creation recipes. Supported sheet IDs: ogl5e, dnd2014byroll20, dnd2024byroll20.",
-    content: DND5E_GUIDE,
+    content: dnd5eRoll20.trim(),
   },
 ] as const;
 

@@ -4,6 +4,7 @@ import { build } from "esbuild";
 
 const { outputFiles } = await build({
   entryPoints: ["src/extension/prompts/build-profile-instructions.ts"],
+  loader: { ".md": "text" },
   bundle: true,
   format: "esm",
   platform: "node",
@@ -16,6 +17,7 @@ const prompts = await import(
 
 const guideBuild = await build({
   entryPoints: ["src/extension/prompts/guides.ts"],
+  loader: { ".md": "text" },
   bundle: true, format: "esm", platform: "node", write: false,
 });
 const guides = await import(`data:text/javascript;base64,${Buffer.from(guideBuild.outputFiles[0].text).toString("base64")}`);

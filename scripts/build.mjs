@@ -97,6 +97,7 @@ await Promise.all([
         "src/extension/service-worker.ts",
         "src/extension/sidepanel.tsx",
       ],
+      loader: { ".md": "text" },
       outdir,
       bundle: true,
       format: "iife",
