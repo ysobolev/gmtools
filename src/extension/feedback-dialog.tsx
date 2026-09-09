@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { EXTENSION_BROWSER_NAME, EXTENSION_BUILD_ID, EXTENSION_VERSION } from "../build-info";
 import { createFeedbackReport, downloadFeedbackReport } from "./feedback-report";
+import { submitFeedbackReport } from "./feedback-upload";
 
 export interface FeedbackTarget {
   readonly chatId: string;
@@ -10,16 +11,19 @@ export interface FeedbackTarget {
   readonly runningWhenOpened: boolean;
 }
 
-export function FeedbackDialog({ target, onClose, onExported }: {
+export function FeedbackDialog({ target, onClose, onExported, onSubmitted }: {
   readonly target: FeedbackTarget;
   readonly onClose: () => void;
   readonly onExported: () => void;
+  readonly onSubmitted: () => void;
 }): React.JSX.Element {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [feedback, setFeedback] = useState("");
   const [includeChat, setIncludeChat] = useState(true);
   const [includeImages, setIncludeImages] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const busy = exporting || submitting;
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -32,22 +36,28 @@ export function FeedbackDialog({ target, onClose, onExported }: {
     };
   }, []);
 
-  async function exportReport(): Promise<void> {
-    setExporting(true);
+  async function finishReport(submit: boolean): Promise<void> {
+    if (busy) return;
+    if (submit) setSubmitting(true);
+    else setExporting(true);
     setError(null);
     try {
       const report = await createFeedbackReport({
         ...target, feedback, includeChat, includeImages,
         extension: { version: EXTENSION_VERSION, buildId: EXTENSION_BUILD_ID, browser: EXTENSION_BROWSER_NAME },
       });
-      downloadFeedbackReport(report);
+      if (submit) await submitFeedbackReport(report);
+      else downloadFeedbackReport(report);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not export feedback.");
+      const message = error instanceof Error ? error.message : "Could not prepare feedback.";
+      setError(message);
       return;
     } finally {
       setExporting(false);
+      setSubmitting(false);
     }
-    onExported();
+    if (submit) onSubmitted();
+    else onExported();
   }
 
   return (
@@ -56,17 +66,17 @@ export function FeedbackDialog({ target, onClose, onExported }: {
       className="feedback-dialog"
       onCancel={(event) => {
         event.preventDefault();
-        if (!exporting) onClose();
+        if (!busy) onClose();
       }}
       ref={dialogRef}
     >
-      <form onSubmit={(event) => { event.preventDefault(); void exportReport(); }}>
+      <form onSubmit={(event) => { event.preventDefault(); void finishReport(true); }}>
         <h2 id="feedback-heading">Feedback</h2>
-        <p className="feedback-description">Export a JSON report to email or message to the developer. Nothing is sent automatically.</p>
+        <p className="feedback-description">Submit feedback and the selected attachments to the developer, or export a JSON report to share yourself.</p>
         <label className="feedback-text-label" htmlFor="feedback-text">What would you like to share?</label>
         <textarea
           autoFocus
-          disabled={exporting}
+          disabled={busy}
           id="feedback-text"
           name="feedback"
           onChange={(event) => setFeedback(event.target.value)}
@@ -76,7 +86,7 @@ export function FeedbackDialog({ target, onClose, onExported }: {
           value={feedback}
         />
         <label className="feedback-checkbox">
-          <input checked={includeChat} disabled={exporting} name="include-chat" type="checkbox"
+          <input checked={includeChat} disabled={busy} name="include-chat" type="checkbox"
             onChange={(event) => setIncludeChat(event.target.checked)} />
           <span>Include this conversation</span>
         </label>
@@ -86,19 +96,27 @@ export function FeedbackDialog({ target, onClose, onExported }: {
         </div>
         <p className="feedback-description">Includes messages, tool activity, and diagnostic settings. May contain private campaign information.</p>
         <label className="feedback-checkbox">
-          <input checked={includeChat && includeImages} disabled={exporting || !includeChat} name="include-images" type="checkbox"
+          <input checked={includeChat && includeImages} disabled={busy || !includeChat} name="include-images" type="checkbox"
             onChange={(event) => setIncludeImages(event.target.checked)} />
           <span>Include stored images</span>
         </label>
         {includeChat && target.runningWhenOpened ? (
-          <p className="feedback-description">The chat was still running when this screen opened. Only saved history is exported; the in-progress response may be missing.</p>
+          <p className="feedback-description">The chat was still running when this screen opened. Only saved history is included; the in-progress response may be missing.</p>
         ) : null}
         {error ? <p className="feedback-error" role="alert">{error}</p> : null}
-        <div className="feedback-actions">
-          <button disabled={exporting} onClick={onClose} type="button">Cancel</button>
-          <button className="feedback-export" disabled={exporting || !feedback.trim()} type="submit">
-            {exporting ? "Exporting…" : "Export"}
+        <div className="feedback-footer">
+          <div className="feedback-export-link">
+            <button className="link-button" disabled={busy || !feedback.trim()}
+              onClick={() => void finishReport(false)} type="button">
+              {exporting ? "Exporting…" : "Export as JSON"}
+            </button>
+          </div>
+          <div className="feedback-actions">
+          <button disabled={busy} onClick={onClose} type="button">Cancel</button>
+          <button className="feedback-export" disabled={busy || !feedback.trim()} type="submit">
+            {submitting ? "Submitting…" : "Submit"}
           </button>
+          </div>
         </div>
       </form>
     </dialog>

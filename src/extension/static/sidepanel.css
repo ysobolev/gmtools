@@ -1815,11 +1815,18 @@ h1 {
   font-size: 12px;
 }
 
+.feedback-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
 .feedback-actions {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
-  margin-top: var(--space-1);
 }
 
 .feedback-actions button {
@@ -1849,7 +1856,23 @@ h1 {
   cursor: default;
 }
 
-.feedback-error { color: var(--danger); }
+.feedback-error {
+  padding: var(--space-3);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-md);
+  background: var(--danger-surface);
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.feedback-export-link {
+  text-align: left;
+}
+
+.feedback-export-link .link-button {
+  padding: 0;
+  font-size: 12px;
+}
 
 .chat-error button:hover {
   color: var(--accent-text);

@@ -50,10 +50,20 @@ for (const file of hashedFiles) {
   sourceHash.update(file);
   sourceHash.update(await readFile(file));
 }
+const feedbackSubmissionUrl = process.env.GMTOOLS_FEEDBACK_SUBMISSION_URL;
+if (feedbackSubmissionUrl !== undefined) {
+  const url = new URL(feedbackSubmissionUrl);
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.hash) {
+    throw new Error("GMTOOLS_FEEDBACK_SUBMISSION_URL must be an HTTP(S) URL without credentials or a fragment.");
+  }
+  sourceHash.update(`feedbackSubmissionUrl:${feedbackSubmissionUrl}`);
+}
 const extensionBuildId = sourceHash.digest("hex").slice(0, 12);
 const extensionDefines = {
   __GMTOOLS_BUILD_ID__: JSON.stringify(extensionBuildId),
   __GMTOOLS_EXTENSION_VERSION__: JSON.stringify(packageJson.version),
+  __GMTOOLS_FEEDBACK_SUBMISSION_URL__: feedbackSubmissionUrl === undefined
+    ? "undefined" : JSON.stringify(feedbackSubmissionUrl),
 };
 
 const generatedBanner = {

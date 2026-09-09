@@ -2603,6 +2603,10 @@ function ChatWorkspace(): React.JSX.Element {
             setFeedbackTarget(null);
             showTransientNotice("Report download started. Share the JSON file with the developer.");
           }}
+          onSubmitted={() => {
+            setFeedbackTarget(null);
+            showTransientNotice("Feedback submitted. Thank you!");
+          }}
         />
       ) : null}
     </div>

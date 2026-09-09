@@ -37,6 +37,19 @@ non-archived whisper that the extension removes before display.
 - An OpenRouter account with available credit, or a provided OpenRouter API key
 - A Roll20 game whose creator has a Pro subscription when testing the Mod bridge
 
+## Feedback upload testing
+
+Override the full submission URL at build time to use a test server:
+
+```sh
+GMTOOLS_FEEDBACK_SUBMISSION_URL=http://localhost:8787/feedback pnpm build
+```
+
+The override applies to both browsers and is included in the build ID. Without
+it, the URL in `src/extension/feedback-config.ts` is used. The test server must
+allow cross-origin requests from the extension. Rebuild without the variable to
+restore the production destination.
+
 ## Load the Chrome extension
 
 1. Install the development dependencies and build the extension:
