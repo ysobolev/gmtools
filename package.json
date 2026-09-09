@@ -6,6 +6,7 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "build": "pnpm typecheck && node scripts/build.mjs",
+    "feedback:build": "tsc --project tsconfig.feedback-worker.json && node scripts/build-feedback.mjs",
     "chrome:package": "pnpm build && web-ext build --source-dir generated/chrome --artifacts-dir dist/chrome --overwrite-dest",
     "firefox:lint": "pnpm build && web-ext lint --source-dir generated/firefox",
     "firefox:run": "pnpm build && web-ext run --source-dir generated/firefox",

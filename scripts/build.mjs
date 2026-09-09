@@ -66,6 +66,7 @@ await Promise.all(
 await mkdir("generated/roll20-mod", { recursive: true });
 
 await Promise.all([
+  import("./build-feedback.mjs"),
   ...extensionBuilds.flatMap(({ browser, outdir, target, manifest }) => {
     const browserDefines = {
       ...extensionDefines,
