@@ -39,6 +39,22 @@ terraform output -raw worker_url
 
 This lets the Worker be deployed and its URL obtained before building the extensions.
 
+## GitHub Actions
+
+Run **Feedback Terraform** manually. The optional `ref` accepts a trusted branch,
+tag, or commit SHA; blank uses the selected workflow ref. `operation` defaults to
+`plan`; choose `apply` to build, plan, and apply that saved plan in one run.
+
+Create the `feedback-production` GitHub environment with these secrets:
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `CLOUDFLARE_API_TOKEN`, and
+`CLOUDFLARE_ACCOUNT_ID`. Configure environment approval/branch rules as desired.
+Those rules govern the workflow ref, not the optional checkout ref: only select
+trusted code, since Terraform runs it with production credentials.
+
+Runs are serialized without cancelling an active deployment. Plans/state are not
+uploaded as artifacts. The workflow logs the resolved commit and, after apply,
+the Worker URL.
+
 ## Validation
 
 Run `pnpm test` from the repository root, then from this directory:
