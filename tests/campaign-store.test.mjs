@@ -25,6 +25,31 @@ const [campaigns, chats, profiles] = await Promise.all([
   bundle("src/extension/profile-store.ts"),
 ]);
 
+test("handshake sandbox metadata persists on campaigns and is reused for offline attachment", async () => {
+  const first = await chats.createChat("general-gm");
+  const binding = { campaignId: "sandbox-test", name: "Sandbox test", modVersion: "0.2.0" };
+  const sandboxVersion = "1.5";
+  await campaigns.attachChatToCampaign(first.chat.id, { ...binding, sandboxVersion });
+  const campaign = await campaigns.getCampaign(binding.campaignId);
+  assert.equal(campaign.sandboxVersion, sandboxVersion);
+  assert.equal(typeof campaign.sandboxObservedAt, "number");
+  const second = await chats.createChat("general-gm");
+  await campaigns.attachChatToCampaign(second.chat.id, binding);
+  const stored = await chats.getStoredChat(second.chat.id);
+  assert.match(stored.messages[0].parts[0].text, /Last-known Roll20 sandbox version: "1.5"/);
+  assert.doesNotMatch(stored.messages[0].parts[0].text, /APIs|getSheetItem|getComputed/);
+  await campaigns.updateObservedCampaignSandbox(binding.campaignId, "1.0");
+  const legacy = await chats.createChat("general-gm");
+  await campaigns.attachChatToCampaign(legacy.chat.id, binding);
+  const legacyNotice = (await chats.getStoredChat(legacy.chat.id)).messages[0].parts[0].text;
+  assert.match(legacyNotice, /sandbox version: "1.0"/);
+  await campaigns.updateObservedCampaignSandbox(binding.campaignId, "default");
+  assert.equal((await campaigns.getCampaign(binding.campaignId)).sandboxVersion, "default");
+  const third = await chats.createChat("general-gm");
+  await campaigns.attachChatToCampaign(third.chat.id, { ...binding, campaignId: "unknown-sandbox" });
+  assert.match((await chats.getStoredChat(third.chat.id)).messages[0].parts[0].text, /version is unknown/);
+});
+
 test("attachment warns only for retained campaign tool history and persists a model-visible boundary", async () => {
   for (const toolName of [undefined, "web_fetch", "view_image", "web_search", "execute_roll20", "memory_search", "memory_store", "memory_update", "memory_delete"]) {
     const created = await chats.createChat("general-gm");
@@ -109,6 +134,7 @@ test("coalesces pending attachments and deletes the pending notice on restoratio
     await chats.updateChatCampaign(created.chat.id, undefined);
     await campaigns.attachChatToCampaign(created.chat.id, {
       campaignId, name: campaignId, modVersion: "0.2.0",
+      sandboxVersion: campaignId === "coalesce-A" ? "default" : "v1.5",
     });
     return (await chats.getStoredChat(created.chat.id)).messages;
   };
@@ -124,6 +150,8 @@ test("coalesces pending attachments and deletes the pending notice on restoratio
   const b = await attach("coalesce-B");
   assert.equal(b.length, history.length + 1);
   assert.equal(b.at(-1).metadata.warnAboutHistory, true);
+  assert.match(b.at(-1).parts[0].text, /"v1.5"/);
+  assert.match(history[0].parts[0].text, /"default"/);
   const c = await attach("coalesce-C");
   assert.equal(c.length, history.length + 1);
   assert.deepEqual(c.slice(0, -1), history);

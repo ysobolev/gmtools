@@ -13,6 +13,18 @@ const protocol = await import(
   `data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`
 );
 
+test("acknowledgements retain runtime identity independently of the bridge version", () => {
+  for (const sandboxVersion of ["1.0", "1.5", "v1", "v1.0", "default", "experimental", undefined]) {
+    const encoded = protocol.formatRoll20Acknowledgement("12345678-abcd", "campaign-test", true, true, undefined, sandboxVersion);
+    const message = protocol.parseRoll20AcknowledgementText(encoded);
+    assert.equal(message.sandboxVersion, sandboxVersion);
+    assert.equal(message.modVersion, protocol.ROLL20_MOD_VERSION);
+    for (const invalid of [1.5, null, {}, "", "x".repeat(129)]) {
+      assert.equal(protocol.isRoll20AcknowledgementMessage({ ...message, sandboxVersion: invalid }), false);
+    }
+  }
+});
+
 test("round-trips JavaScript through the Roll20 command protocol", () => {
   const requestId = "12345678-abcd-4abc-8def-123456789abc";
   const code = 'return { message: "Café 🐉", roll: randomInteger(20) };';

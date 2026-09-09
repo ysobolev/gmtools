@@ -15,11 +15,26 @@ const protocol = await import(
   `data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`
 );
 
-async function loadMod() {
+test("handshake reports the runtime's exact version string without capability probes", async () => {
+  for (const runtime of [
+    {},
+    ...["1.0", "1.5", "v1", "v1.0", "default", "experimental"].map((sandboxVersion) => ({ Campaign: () => ({ sandboxVersion }) })),
+  ]) {
+    const { handlers, sentMessages, state } = await loadMod(runtime);
+    const { message } = executeMessage("", state.GMTools.campaignId, "gm", "identify");
+    await handlers.get("chat:message")(message);
+    const acknowledgement = protocol.parseRoll20AcknowledgementText(sentMessages[0][1]);
+    assert.equal(acknowledgement.sandboxVersion, runtime.Campaign?.().sandboxVersion);
+    assert.equal(acknowledgement.sandbox, undefined);
+  }
+});
+
+async function loadMod(runtime = {}) {
   const handlers = new Map();
   const sentMessages = [];
   const logs = [];
   const sandbox = {
+    ...runtime,
     Function: undefined,
     state: {},
     log(message) {

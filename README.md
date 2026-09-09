@@ -1,5 +1,26 @@
 # GM Tools for VTT
 
+### Sandbox runtime diagnostics
+
+Campaign handshakes record the last-known Roll20 `sandboxVersion` as a string,
+without probing or listing API capabilities. This is separate from the GM Tools
+bridge version. Replacing the campaign Mod script with the newly built script is
+required to report these diagnostics; an older bridge remains compatible but
+does not report them. The campaign record caches the observation for offline
+attachments, and attachment notices and run-configuration snapshots include it.
+No extra handshake is introduced on chat switching. Failed handshakes do not
+overwrite the last successful observation.
+
+The runtime identifier comes from `Campaign().sandboxVersion`, a direct JavaScript
+property documented by the [Roll20 production team](https://app.roll20.net/forum/post/12319797/mod-api-server-release-apr-18th-2025).
+Historically it returned `default` or `experimental`; these are preserved verbatim,
+not translated into guessed numeric versions. Missing identifiers are recorded as
+unknown (the optional field is omitted). No `v` prefix is added or removed.
+Prompt guidance uses documented version differences: `getSheetItem`/`setSheetItem`
+exist in both generations, while `getComputed`/`setComputed` require v1.5.
+Legacy 2014 sheet work remains supported;
+Beacon 2024 work requires the v1.5 capabilities.
+
 GM Tools for VTT is a Chrome and Firefox sidebar assistant for virtual tabletop
 game masters, initially integrating with Roll20. It connects directly to
 OpenRouter, streams ordinary chat responses in the panel, and keeps the

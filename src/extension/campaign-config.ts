@@ -1,4 +1,5 @@
 import type { GlobalPreferences } from "./global-preferences";
+import { isRoll20SandboxVersion, type Roll20SandboxVersion } from "../protocol";
 import { DEFAULT_PROFILE } from "./profile-config";
 
 export const CAMPAIGN_OVERRIDE_VALUES = [
@@ -22,6 +23,8 @@ export interface CampaignRecord {
   readonly memoryEnabled: boolean;
   readonly createdAt: number;
   readonly updatedAt: number;
+  readonly sandboxVersion?: Roll20SandboxVersion;
+  readonly sandboxObservedAt?: number;
 }
 
 export const DEFAULT_CAMPAIGN_OVERRIDES: CampaignOverrides = {
@@ -51,6 +54,8 @@ export function isCampaignRecord(value: unknown): value is CampaignRecord {
     isCampaignOverride(value.overrides.webSearch) &&
     isCampaignOverride(value.overrides.requireRoll20Approval) &&
     typeof value.memoryEnabled === "boolean" &&
+    (value.sandboxVersion === undefined || isRoll20SandboxVersion(value.sandboxVersion)) &&
+    (value.sandboxObservedAt === undefined || (typeof value.sandboxObservedAt === "number" && Number.isFinite(value.sandboxObservedAt))) &&
     typeof value.createdAt === "number" &&
     Number.isFinite(value.createdAt) &&
     typeof value.updatedAt === "number" &&

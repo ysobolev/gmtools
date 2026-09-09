@@ -58,12 +58,15 @@ function sendAcknowledgement(
   accepted: boolean,
   error?: Roll20ExecutionOutcome & { readonly ok: false },
 ): void {
+  // Runtime-provided JS property, not Campaign().get("sandboxVersion").
+  const version = typeof Campaign === "function" ? Campaign().sandboxVersion : undefined;
   const response = formatRoll20Acknowledgement(
     requestId,
     getGMToolsState().campaignId,
     playerIsGM(message.playerid),
     accepted,
     error?.error,
+    typeof version === "string" && version.length > 0 && version.length <= 128 ? version : undefined,
   );
   sendChat(
     "GM Tools",

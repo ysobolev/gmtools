@@ -59,8 +59,11 @@ test("composes base, ruleset, sheet variants, and user guidance", () => {
   assert.match(prompt, /### Legacy D&D 5e 2014 sheet/);
   assert.match(prompt, /### Beacon-based D&D 5e 2024 sheet/);
   assert.match(prompt, /mixture of both/);
-  assert.match(prompt, /Mod Sandbox v1\.5/);
-  assert.match(prompt, /do not use workarounds intended only for the legacy sandbox/);
+  assert.match(prompt, /Sandbox v1\.5/);
+  assert.match(prompt, /Legacy Roll20 v1 sandboxes remain usable/);
+  assert.match(prompt, /requires Sandbox v1.5 capabilities/);
+  assert.match(prompt, /getSheetItem and setSheetItem exist in both v1 and v1.5/);
+  assert.match(prompt, /getComputed and setComputed require v1.5/);
   assert.match(prompt, /Campaign\(\)\.sheetName/);
   assert.match(prompt, /"ogl5e"/);
   assert.match(prompt, /"dnd2014byroll20"/);
@@ -130,7 +133,7 @@ test("includes the sandbox version in shared Roll20 guidance", () => {
     additionalInstructions: "",
   });
 
-  assert.match(prompt, /Roll20 Mod Sandbox v1\.5/);
+  assert.match(prompt, /Sandbox v1\.5/);
   assert.match(prompt, /community or custom sheets/);
   assert.doesNotMatch(prompt, /Dungeons & Dragons Fifth Edition/);
   assert.doesNotMatch(prompt, /Build a complete NPC on the Beacon/);

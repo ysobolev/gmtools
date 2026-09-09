@@ -55,6 +55,13 @@ export interface Roll20AcknowledgementMessage {
   readonly accepted: boolean;
   readonly error?: Roll20ExecutionError;
   readonly pageTitle?: string;
+  readonly sandboxVersion?: Roll20SandboxVersion;
+}
+
+export type Roll20SandboxVersion = string;
+
+export function isRoll20SandboxVersion(value: unknown): value is Roll20SandboxVersion {
+  return typeof value === "string" && value.length > 0 && value.length <= 128;
 }
 
 export interface Roll20ExecuteCommand {
@@ -223,7 +230,8 @@ export function isRoll20AcknowledgementMessage(
     typeof value.isGM === "boolean" &&
     typeof value.accepted === "boolean" &&
     (value.error === undefined || isExecutionError(value.error)) &&
-    (value.pageTitle === undefined || typeof value.pageTitle === "string")
+    (value.pageTitle === undefined || typeof value.pageTitle === "string") &&
+    (value.sandboxVersion === undefined || isRoll20SandboxVersion(value.sandboxVersion))
   );
 }
 
@@ -340,6 +348,7 @@ export function formatRoll20Acknowledgement(
   isGM: boolean,
   accepted: boolean,
   error?: Roll20ExecutionError,
+  sandboxVersion?: Roll20SandboxVersion,
 ): string {
   if (!isValidRequestId(requestId)) {
     throw new Error("Invalid GM Tools request ID.");
@@ -351,6 +360,7 @@ export function formatRoll20Acknowledgement(
     isGM,
     accepted,
     ...(error ? { error } : {}),
+    ...(sandboxVersion ? { sandboxVersion } : {}),
   });
   return `${ACKNOWLEDGEMENT_PREFIX}${requestId}:${encodeBase64Url(serialized)}`;
 }

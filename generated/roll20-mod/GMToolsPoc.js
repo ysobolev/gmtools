@@ -120,7 +120,7 @@
     }
     return `${RESPONSE_PREFIX}${requestId}:${encodeBase64Url(serialized)}`;
   }
-  function formatRoll20Acknowledgement(requestId, campaignId, isGM, accepted, error) {
+  function formatRoll20Acknowledgement(requestId, campaignId, isGM, accepted, error, sandboxVersion) {
     if (!isValidRequestId(requestId)) {
       throw new Error("Invalid GM Tools request ID.");
     }
@@ -130,7 +130,8 @@
       campaignId,
       isGM,
       accepted,
-      ...error ? { error } : {}
+      ...error ? { error } : {},
+      ...sandboxVersion ? { sandboxVersion } : {}
     });
     return `${ACKNOWLEDGEMENT_PREFIX}${requestId}:${encodeBase64Url(serialized)}`;
   }
@@ -171,12 +172,14 @@
     return name ? `"${name}"` : "gm";
   }
   function sendAcknowledgement(message, requestId, accepted, error) {
+    const version = typeof Campaign === "function" ? Campaign().sandboxVersion : void 0;
     const response = formatRoll20Acknowledgement(
       requestId,
       getGMToolsState().campaignId,
       playerIsGM(message.playerid),
       accepted,
-      error == null ? void 0 : error.error
+      error == null ? void 0 : error.error,
+      typeof version === "string" && version.length > 0 && version.length <= 128 ? version : void 0
     );
     sendChat(
       "GM Tools",

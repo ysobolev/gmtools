@@ -6,6 +6,7 @@ interface Roll20ChatMessage {
 }
 
 declare const state: Record<string, unknown>;
+declare function Campaign(): { readonly sandboxVersion?: unknown };
 
 declare function on(event: "ready", callback: () => void): void;
 declare function on(

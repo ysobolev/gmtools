@@ -24,6 +24,7 @@ import {
 import { releaseChatSnapshots } from "./run-snapshot-store";
 import { isAssistantProfile } from "./profile-config";
 import { applyCampaignAttachmentNotice, isCampaignAttachmentNotice } from "./campaign-attachment-notice";
+import type { Roll20SandboxVersion } from "../protocol";
 
 export type CampaignDeletionMode = "detach-chats" | "delete-chats";
 
@@ -91,6 +92,7 @@ export async function attachChatToCampaign(
     readonly campaignId: string;
     readonly name: string;
     readonly modVersion: string;
+    readonly sandboxVersion?: Roll20SandboxVersion;
   },
 ): Promise<ChatRecord> {
   const database = await openDatabase();
@@ -109,9 +111,12 @@ export async function attachChatToCampaign(
     campaigns.get(binding.campaignId),
   );
   const now = Date.now();
-  const campaign = isCampaignRecord(campaignValue)
+  const existingCampaign = isCampaignRecord(campaignValue)
     ? { ...campaignValue, name: binding.name, updatedAt: now }
     : createCampaignRecord(binding.campaignId, binding.name, now);
+  const campaign = binding.sandboxVersion
+    ? { ...existingCampaign, sandboxVersion: binding.sandboxVersion, sandboxObservedAt: now }
+    : existingCampaign;
   campaigns.put(campaign);
 
   const messagesValue: unknown = await requestResult(
@@ -125,7 +130,7 @@ export async function attachChatToCampaign(
   const empty = messages.every(isCampaignAttachmentNotice);
   transaction.objectStore(MESSAGES_STORE).put({
     chatId,
-    messages: applyCampaignAttachmentNotice(messages, binding.campaignId, campaign.name),
+    messages: applyCampaignAttachmentNotice(messages, binding.campaignId, campaign.name, campaign.sandboxVersion),
     updatedAt: now,
   });
   const updated: ChatRecord = {
@@ -148,6 +153,19 @@ export async function attachChatToCampaign(
   await transactionComplete(transaction);
   notifyDurableDataChanged(["campaigns", "chats"]);
   return updated;
+}
+
+export async function updateObservedCampaignSandbox(campaignId: string, sandboxVersion: Roll20SandboxVersion): Promise<void> {
+  const database = await openDatabase();
+  const transaction = database.transaction(CAMPAIGNS_STORE, "readwrite");
+  const store = transaction.objectStore(CAMPAIGNS_STORE);
+  const value: unknown = await requestResult(store.get(campaignId));
+  if (isCampaignRecord(value)) {
+    const now = Date.now();
+    store.put({ ...value, sandboxVersion, sandboxObservedAt: now, updatedAt: now });
+  }
+  await transactionComplete(transaction);
+  notifyDurableDataChanged(["campaigns"]);
 }
 
 export async function updateObservedCampaignName(

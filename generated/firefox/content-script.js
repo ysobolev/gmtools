@@ -11,6 +11,9 @@
   var RESPONSE_PREFIX = "GMTOOLS_EXECUTION_RESPONSE:";
   var ACKNOWLEDGEMENT_PREFIX = "GMTOOLS_EXECUTION_ACKNOWLEDGED:";
   var BASE64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  function isRoll20SandboxVersion(value) {
+    return typeof value === "string" && value.length > 0 && value.length <= 128;
+  }
   function isRecord(value) {
     return typeof value === "object" && value !== null;
   }
@@ -82,7 +85,7 @@
     return isRecord(value) && value.type === ROLL20_EXECUTE_REQUEST_TYPE && isValidRequestId(value.requestId) && (value.kind === "identify" || value.kind === "execute") && typeof value.extensionVersion === "string" && typeof value.buildId === "string" && typeof value.protocolVersion === "number" && typeof value.code === "string" && typeof value.issuedAt === "number" && typeof value.expiresAt === "number" && (value.expectedCampaignId === void 0 || typeof value.expectedCampaignId === "string") && (value.kind === "identify" || value.code.length > 0 && typeof value.expectedCampaignId === "string" && value.expectedCampaignId.length > 0);
   }
   function isRoll20AcknowledgementMessage(value) {
-    return isRecord(value) && value.type === ROLL20_ACKNOWLEDGEMENT_TYPE && isValidRequestId(value.requestId) && typeof value.protocolVersion === "number" && typeof value.modVersion === "string" && typeof value.campaignId === "string" && typeof value.isGM === "boolean" && typeof value.accepted === "boolean" && (value.error === void 0 || isExecutionError(value.error)) && (value.pageTitle === void 0 || typeof value.pageTitle === "string");
+    return isRecord(value) && value.type === ROLL20_ACKNOWLEDGEMENT_TYPE && isValidRequestId(value.requestId) && typeof value.protocolVersion === "number" && typeof value.modVersion === "string" && typeof value.campaignId === "string" && typeof value.isGM === "boolean" && typeof value.accepted === "boolean" && (value.error === void 0 || isExecutionError(value.error)) && (value.pageTitle === void 0 || typeof value.pageTitle === "string") && (value.sandboxVersion === void 0 || isRoll20SandboxVersion(value.sandboxVersion));
   }
   function formatRoll20ExecuteCommand(requestId, code, options = {}) {
     if (!isValidRequestId(requestId)) {
@@ -153,7 +156,7 @@
   }
 
   // src/build-info.ts
-  var EXTENSION_BUILD_ID = "7c28bb6c17f9";
+  var EXTENSION_BUILD_ID = "bb81321d3dce";
   var EXTENSION_VERSION = "0.2.0";
 
   // src/extension/roll20-response-tracker.ts

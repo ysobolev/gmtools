@@ -44,6 +44,8 @@ export interface RunSnapshot {
     readonly id: string;
     readonly name: string;
     readonly modVersion?: string | undefined;
+    readonly sandboxVersion?: import("../protocol").Roll20SandboxVersion | undefined;
+    readonly sandboxObservedAt?: number | undefined;
   } | null;
 }
 

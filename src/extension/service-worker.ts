@@ -49,6 +49,7 @@ import {
   deleteCampaign,
   getCampaign,
   updateObservedCampaignName,
+  updateObservedCampaignSandbox,
 } from "./campaign-store";
 import { resolveCampaignBehavior } from "./campaign-config";
 import {
@@ -235,6 +236,7 @@ const campaignRouteDiscoveryAttempts = new Map<
 >();
 
 interface CampaignIdentity {
+  readonly sandboxVersion?: import("../protocol").Roll20SandboxVersion;
   readonly campaignId: string;
   readonly name: string;
   readonly tabId: number;
@@ -243,6 +245,7 @@ interface CampaignIdentity {
 }
 
 interface CampaignBinding {
+  readonly sandboxVersion?: import("../protocol").Roll20SandboxVersion;
   readonly campaignId: string;
   readonly name: string;
   readonly modVersion: string;
@@ -326,6 +329,8 @@ interface ConversationJob {
   campaignId?: string;
   campaignName?: string;
   campaignModVersion?: string;
+  campaignSandboxVersion?: import("../protocol").Roll20SandboxVersion | undefined;
+  campaignSandboxObservedAt?: number | undefined;
   readonly abortController: AbortController;
   readonly chunks: UIMessageChunk[];
   readonly subscribers: Map<chrome.runtime.Port, string>;
@@ -1361,6 +1366,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender): void => {
       clearTimeout(discovery.timeoutId);
       pendingCampaignDiscoveries.delete(message.requestId);
       discovery.debug.group("Roll20 campaign handshake received", {
+        "Sandbox runtime": message.sandboxVersion ?? "unknown",
         "Bridge request ID": message.requestId,
         "Tab ID": senderTabId,
         "Campaign ID": message.campaignId,
@@ -1391,6 +1397,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender): void => {
           tabId: senderTabId,
           isGM: message.isGM,
           modVersion: message.modVersion,
+          ...(message.sandboxVersion ? { sandboxVersion: message.sandboxVersion } : {}),
         });
       }
       return;
@@ -1708,7 +1715,11 @@ async function discoverCampaignInTab(
     if (!acknowledgement.ok) {
       throw new Error(acknowledgement.error ?? "Could not use Roll20 chat.");
     }
-    return await identityPromise;
+    const identity = await identityPromise;
+    if (identity.isGM && identity.sandboxVersion) {
+      await updateObservedCampaignSandbox(identity.campaignId, identity.sandboxVersion);
+    }
+    return identity;
   } catch (error) {
     const pending = pendingCampaignDiscoveries.get(requestId);
     if (pending) clearTimeout(pending.timeoutId);
@@ -1808,6 +1819,7 @@ async function discoverAttachCandidates(
           campaignId: identity.campaignId,
           name: identity.name,
           modVersion: identity.modVersion,
+          ...(identity.sandboxVersion ? { sandboxVersion: identity.sandboxVersion } : {}),
           tabId: identity.tabId,
           activeTab: identity.tabId === activeTab?.id,
         }]
@@ -1964,6 +1976,7 @@ async function attachCampaign(
           campaignId: identity.campaignId,
           name: identity.name,
           modVersion: identity.modVersion,
+          ...(identity.sandboxVersion ? { sandboxVersion: identity.sandboxVersion } : {}),
         };
         liveTabId = identity.tabId;
       } else {
@@ -2765,6 +2778,8 @@ async function streamChat(
     campaign: job.campaignId ? {
       id: job.campaignId, name: job.campaignName ?? "",
       modVersion: job.campaignModVersion,
+      sandboxVersion: job.campaignSandboxVersion,
+      sandboxObservedAt: job.campaignSandboxObservedAt,
     } : null,
   }, job.continuation);
   job.inputMessages = conversationMessages;
@@ -3426,6 +3441,8 @@ chrome.runtime.onConnect.addListener((port) => {
               campaignId: campaignBinding.campaignId,
               campaignName: campaignBinding.name,
               campaignModVersion: campaignBinding.modVersion,
+              campaignSandboxVersion: campaign?.sandboxVersion,
+              campaignSandboxObservedAt: campaign?.sandboxObservedAt,
             }
           : {}),
         abortController,

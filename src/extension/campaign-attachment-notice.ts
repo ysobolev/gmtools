@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import type { Roll20SandboxVersion } from "../protocol";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -24,6 +25,7 @@ export function createCampaignAttachmentNotice(
   campaignId: string,
   name: string,
   warnAboutHistory: boolean,
+  sandboxVersion?: Roll20SandboxVersion,
 ): UIMessage {
   return {
     id: crypto.randomUUID(),
@@ -31,7 +33,8 @@ export function createCampaignAttachmentNotice(
     metadata: { kind: "campaign-attachment-notice", campaignId, warnAboutHistory },
     parts: [{
       type: "text",
-      text: `GM Tools attachment notice: This chat is now attached to ${JSON.stringify(name)} (campaign ID ${JSON.stringify(campaignId)}).` + (warnAboutHistory
+      text: `GM Tools attachment notice: This chat is now attached to ${JSON.stringify(name)} (campaign ID ${JSON.stringify(campaignId)}).` +
+        (sandboxVersion ? ` Last-known Roll20 sandbox version: ${JSON.stringify(sandboxVersion)}. This is cached handshake information, not a live guarantee.` : " Roll20 sandbox version is unknown (not yet recorded).") + (warnAboutHistory
         ? " Earlier Roll20 and memory tool results may refer to another campaign. Do not assume prior sheet findings, object IDs, or remembered campaign facts apply here; re-establish relevant campaign-specific facts before acting. Chat history has been preserved."
         : ""),
     }],
@@ -65,6 +68,7 @@ export function applyCampaignAttachmentNotice(
   messages: readonly unknown[],
   campaignId: string,
   name: string,
+  sandboxVersion?: Roll20SandboxVersion,
 ): readonly unknown[] {
   let boundary = messages.length;
   while (boundary > 0 && isCampaignAttachmentNotice(messages[boundary - 1])) {
@@ -83,6 +87,7 @@ export function applyCampaignAttachmentNotice(
       campaignId,
       name,
       hasCampaignToolHistory(history) && previousCampaignId !== campaignId,
+      sandboxVersion,
     ),
   ];
 }
