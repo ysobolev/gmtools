@@ -27,3 +27,9 @@ variable "retention_days" {
     error_message = "Retention must be a positive whole number of days."
   }
 }
+
+variable "uploads_enabled" {
+  description = "Accept feedback uploads; false is the service kill switch."
+  type        = bool
+  default     = true
+}

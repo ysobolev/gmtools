@@ -43,6 +43,20 @@ resource "cloudflare_workers_script" "feedback" {
     name        = "FEEDBACK_BUCKET"
     type        = "r2_bucket"
     bucket_name = cloudflare_r2_bucket.feedback.name
+    }, {
+    name = "FEEDBACK_UPLOADS_ENABLED"
+    type = "plain_text"
+    text = tostring(var.uploads_enabled)
+    }, {
+    name         = "FEEDBACK_RATE_LIMITER"
+    type         = "ratelimit"
+    namespace_id = "2026090801"
+    simple       = { limit = 5, period = 60 }
+    }, {
+    name         = "FEEDBACK_GLOBAL_RATE_LIMITER"
+    type         = "ratelimit"
+    namespace_id = "2026090802"
+    simple       = { limit = 30, period = 60 }
   }]
 }
 
