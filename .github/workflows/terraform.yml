@@ -1,4 +1,5 @@
 name: Feedback Terraform
+run-name: Feedback Terraform — ${{ inputs.operation }} — ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
