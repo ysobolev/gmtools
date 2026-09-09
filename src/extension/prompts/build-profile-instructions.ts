@@ -8,6 +8,7 @@ import {
   UNBOUND_ROLL20_INSTRUCTIONS,
 } from "./core";
 import { RULESET_INSTRUCTIONS } from "./rulesets";
+import { GUIDE_INSTRUCTIONS } from "./guides";
 
 export function buildProfileInstructions(
   profile: AssistantProfile,
@@ -25,6 +26,7 @@ export function buildProfileInstructions(
       ? UNBOUND_ROLL20_INSTRUCTIONS
       : ROLL20_INSTRUCTIONS,
     GENERAL_CAPABILITY_INSTRUCTIONS,
+    GUIDE_INSTRUCTIONS,
     options.memoryAvailable
       ? MEMORY_INSTRUCTIONS
       : MEMORY_UNAVAILABLE_INSTRUCTIONS,

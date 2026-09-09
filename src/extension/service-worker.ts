@@ -171,6 +171,7 @@ import {
   createOpenRouterRequestHeaders,
 } from "./openrouter-cache";
 import { createViewRemoteImageTool } from "./remote-image-view";
+import { createReadGuideTool } from "./read-guide-tool";
 
 const API_KEY_STORAGE_KEY = "openRouterApiKey";
 const USER_ID_STORAGE_KEY = "openRouterUserId";
@@ -2346,6 +2347,7 @@ async function streamChat(
     apiKey: stored.openRouterApiKey,
   });
   const tools = {
+    read_guide: createReadGuideTool(),
     image_generation: createOpenRouterImageGenerationTool(),
     view_image: tool({
       description:
@@ -2729,6 +2731,7 @@ async function streamChat(
     }),
   };
   const activeTools: Array<keyof typeof tools> = [
+    "read_guide",
     "image_generation",
     "view_image",
     "web_fetch",

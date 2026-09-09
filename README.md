@@ -177,6 +177,9 @@ for Worker deployment and validation.
 - **Profiles and prompts** — `src/extension/profile-config.ts` defines profile
   configuration; `src/extension/prompts/` holds prompt text and assembly. The
   resolved prompt is rebuilt for each submission from the current configuration.
+  The read-only `read_guide` tool loads bundled sheet guides on demand for any
+  profile. Its catalog lives in `src/extension/prompts/guides.ts`; detailed D&D
+  recipes are tool results rather than part of every system prompt.
 - **Assets and builds** — manifest templates live in `src/extension/`; static
   styles, HTML, and icons live in `src/extension/static/`. `scripts/build.mjs`
   produces `generated/chrome/` and `generated/firefox/`.

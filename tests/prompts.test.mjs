@@ -14,6 +14,13 @@ const prompts = await import(
   `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
 );
 
+const guideBuild = await build({
+  entryPoints: ["src/extension/prompts/guides.ts"],
+  bundle: true, format: "esm", platform: "node", write: false,
+});
+const guides = await import(`data:text/javascript;base64,${Buffer.from(guideBuild.outputFiles[0].text).toString("base64")}`);
+const dndGuide = guides.readGuide("dnd5e-roll20").content;
+
 const dndProfile = {
   id: "waterdeep",
   name: "Waterdeep",
@@ -25,8 +32,11 @@ const dndProfile = {
   additionalInstructions: "Call the players heroes.",
 };
 
-test("composes base, ruleset, sheet variants, and user guidance", () => {
-  const prompt = prompts.buildProfileInstructions(dndProfile);
+test("base prompt and on-demand guide preserve sheet and user guidance", () => {
+  const prompt = prompts.buildProfileInstructions(dndProfile).replace(
+    "Additional instructions from the game master:",
+    `${dndGuide}\n\nAdditional instructions from the game master:`,
+  );
 
   assert.match(prompt, /execute_roll20/);
   assert.match(prompt, /Every execute_roll20 call must include a concise/);
@@ -140,7 +150,7 @@ test("includes the sandbox version in shared Roll20 guidance", () => {
 });
 
 test("includes the validated Beacon NPC workflow and its limitations", () => {
-  const prompt = prompts.buildProfileInstructions(dndProfile);
+  const prompt = dndGuide;
   assert.match(prompt, /Build a complete NPC on the Beacon 2024 sheet/);
   assert.match(prompt, /Default to 2024\/5\.5e rules and spell definitions/);
   assert.match(prompt, /Prefer Compact layout/);
@@ -166,7 +176,7 @@ test("includes the validated Beacon NPC workflow and its limitations", () => {
 });
 
 test("Beacon NPC creation records target stats and compares readbacks explicitly", () => {
-  const prompt = prompts.buildProfileInstructions(dndProfile);
+  const prompt = dndGuide;
   assert.match(prompt, /return \{ characterId, source, expected \}/);
   assert.match(prompt, /Transcribe first, then interpret/);
   assert.match(prompt, /literal printed values before calculating/);
@@ -187,7 +197,7 @@ test("Beacon NPC creation records target stats and compares readbacks explicitly
 });
 
 test("Beacon total overrides follow mechanic construction and verified mismatches", () => {
-  const prompt = prompts.buildProfileInstructions(dndProfile);
+  const prompt = dndGuide;
   assert.match(prompt, /defer numeric final-total overrides until verification/);
   assert.match(prompt, /does not prohibit necessary base\/source assignments/);
   assert.match(prompt, /verify pb again before building dependent saves/);
