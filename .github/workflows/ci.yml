@@ -37,6 +37,23 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Validate Terraform and run mocked tests
+        working-directory: infra/feedback
+        env:
+          TF_IN_AUTOMATION: "true"
+          TF_INPUT: "false"
+        run: |
+          terraform init -backend=false -lockfile=readonly
+          terraform fmt -check
+          terraform validate
+          terraform test
+
       - name: Verify generated extensions are current
         run: |
           git add --intent-to-add -- generated
