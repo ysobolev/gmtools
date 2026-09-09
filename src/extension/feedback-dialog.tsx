@@ -19,6 +19,7 @@ export function FeedbackDialog({ target, onClose, onExported, onSubmitted }: {
 }): React.JSX.Element {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [feedback, setFeedback] = useState("");
+  const [email, setEmail] = useState("");
   const [includeChat, setIncludeChat] = useState(true);
   const [includeImages, setIncludeImages] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -43,7 +44,7 @@ export function FeedbackDialog({ target, onClose, onExported, onSubmitted }: {
     setError(null);
     try {
       const report = await createFeedbackReport({
-        ...target, feedback, includeChat, includeImages,
+        ...target, feedback, email, includeChat, includeImages,
         extension: { version: EXTENSION_VERSION, buildId: EXTENSION_BUILD_ID, browser: EXTENSION_BROWSER_NAME },
       });
       if (submit) await submitFeedbackReport(report);
@@ -85,6 +86,13 @@ export function FeedbackDialog({ target, onClose, onExported, onSubmitted }: {
           rows={5}
           value={feedback}
         />
+        <div className="feedback-email-field">
+          <label className="feedback-text-label" htmlFor="feedback-email">Email (optional)</label>
+          <input id="feedback-email" name="email" type="email" autoComplete="email"
+            aria-describedby="feedback-email-help" maxLength={254} disabled={busy}
+            value={email} onChange={(event) => setEmail(event.target.value)} />
+          <p id="feedback-email-help" className="feedback-description">Include your email if you’d like a reply.</p>
+        </div>
         <label className="feedback-checkbox">
           <input checked={includeChat} disabled={busy} name="include-chat" type="checkbox"
             onChange={(event) => setIncludeChat(event.target.checked)} />

@@ -156,7 +156,7 @@
   }
 
   // src/build-info.ts
-  var EXTENSION_BUILD_ID = "cc1ce31b87e9";
+  var EXTENSION_BUILD_ID = "c3a046974ae4";
   var EXTENSION_VERSION = "0.2.0";
 
   // src/extension/roll20-response-tracker.ts

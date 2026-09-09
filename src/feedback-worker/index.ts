@@ -28,6 +28,10 @@ class RequestError extends Error {
 }
 
 function response(status: number, body: unknown, extra: Record<string, string> = {}): Response {
+  // Only server-defined outcomes: never log bodies, email, headers, URLs, IPs,
+  // validation details, or provider exceptions.
+  const event = [400, 413, 415].includes(status) ? "feedback_validation_failed" : "feedback_response";
+  console.info({ event, status });
   return Response.json(body, {
     status,
     headers: {

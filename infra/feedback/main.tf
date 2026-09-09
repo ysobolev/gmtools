@@ -39,6 +39,15 @@ resource "cloudflare_workers_script" "feedback" {
   main_module        = "index.js"
   content_file       = local.worker_bundle
   content_sha256     = filesha256(local.worker_bundle)
+  observability = {
+    enabled            = true
+    head_sampling_rate = 1
+    logs = {
+      enabled         = true
+      persist         = true
+      invocation_logs = false # Keep request metadata out of stored invocation logs.
+    }
+  }
   bindings = [{
     name        = "FEEDBACK_BUCKET"
     type        = "r2_bucket"

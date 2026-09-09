@@ -2,6 +2,7 @@ import { z } from "zod";
 import { isSupportedUploadedImageType } from "./extension/chat-images";
 
 const nonempty = z.string().min(1);
+export const feedbackEmailSchema = z.email().max(254);
 const opaqueObject = z.custom<object>((value) =>
   value !== null && typeof value === "object" && !Array.isArray(value));
 
@@ -23,6 +24,7 @@ export const feedbackReportSchema = z.object({
   reportId: nonempty,
   exportedAt: nonempty.refine((value) => Number.isFinite(Date.parse(value))),
   feedback: nonempty.max(100_000).refine((value) => value.trim().length > 0),
+  email: feedbackEmailSchema.optional(),
   extension: z.object({ version: nonempty, buildId: nonempty, browser: nonempty }),
   includes: z.object({ chat: z.boolean(), images: z.boolean() }),
   conversation: z.object({

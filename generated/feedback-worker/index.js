@@ -18885,6 +18885,7 @@ function date4(params) {
 
 // src/feedback-schema.ts
 var nonempty = external_exports.string().min(1);
+var feedbackEmailSchema = external_exports.email().max(254);
 var opaqueObject = external_exports.custom((value) => value !== null && typeof value === "object" && !Array.isArray(value));
 var feedbackImageSchema = external_exports.object({
   imageId: nonempty,
@@ -18900,6 +18901,7 @@ var feedbackReportSchema = external_exports.object({
   reportId: nonempty,
   exportedAt: nonempty.refine((value) => Number.isFinite(Date.parse(value))),
   feedback: nonempty.max(1e5).refine((value) => value.trim().length > 0),
+  email: feedbackEmailSchema.optional(),
   extension: external_exports.object({ version: nonempty, buildId: nonempty, browser: nonempty }),
   includes: external_exports.object({ chat: external_exports.boolean(), images: external_exports.boolean() }),
   conversation: external_exports.object({
@@ -18938,6 +18940,8 @@ var RequestError = class extends Error {
   status;
 };
 function response(status, body, extra = {}) {
+  const event = [400, 413, 415].includes(status) ? "feedback_validation_failed" : "feedback_response";
+  console.info({ event, status });
   return Response.json(body, {
     status,
     headers: {

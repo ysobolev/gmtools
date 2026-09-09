@@ -70,6 +70,27 @@ test("accepts chat diagnostics and valid encoded images", async () => {
   assert.deepEqual(JSON.parse(writes[0][1]), value);
 });
 
+test("accepts optional email without logging private report data", async (t) => {
+  const log = t.mock.method(console, "info", () => {});
+  const { env, writes } = setup();
+  const value = { ...report(), email: "gm@example.com" };
+  assert.equal((await worker.fetch(post(value), env)).status, 201);
+  assert.equal(JSON.parse(writes[0][1]).email, value.email);
+  assert.deepEqual(log.mock.calls.map(call => call.arguments), [
+    [{ event: "feedback_response", status: 201 }],
+  ]);
+  for (const email of ["", "invalid", 123, "x".repeat(250) + "@example.com"]) {
+    assert.equal((await worker.fetch(post({ ...report(), email }), env)).status, 400);
+  }
+  assert.equal(writes.length, 1);
+  assert.deepEqual(log.mock.calls.slice(1).map(call => call.arguments),
+    Array.from({ length: 4 }, () => [{ event: "feedback_validation_failed", status: 400 }]));
+  const text = JSON.stringify(log.mock.calls.map(call => call.arguments));
+  assert.equal(text.includes(value.email), false);
+  assert.equal(text.includes(value.feedback), false);
+  assert.equal(text.includes("192.0.2.1"), false);
+});
+
 test("disabled uploads fail closed without reading the body or accessing storage", async () => {
   for (const enabled of ["false", undefined]) {
     const { env, writes, limits } = setup({ FEEDBACK_UPLOADS_ENABLED: enabled });

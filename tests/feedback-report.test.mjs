@@ -24,6 +24,16 @@ const options = {
   extension,
 };
 
+test("optional reply email is trimmed, validated and omitted when blank", async () => {
+  const opts = { ...options, includeChat: false };
+  const report = await reports.createFeedbackReport({ ...opts, email: " gm@example.com " });
+  assert.equal(report.email, "gm@example.com");
+  assert.equal(feedbackReportSchema.safeParse(report).success, true);
+  const blank = await reports.createFeedbackReport({ ...opts, email: "  " });
+  assert.equal(Object.hasOwn(blank, "email"), false);
+  await assert.rejects(reports.createFeedbackReport({ ...opts, email: "not-an-email" }), /valid email/);
+});
+
 test("feedback-only export contains no chat, error, campaign, or snapshots", async () => {
   const report = await reports.createFeedbackReport({ ...options, chatId: "nonexistent",
     includeChat: false, includeImages: true });

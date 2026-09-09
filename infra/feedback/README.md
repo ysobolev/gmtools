@@ -100,9 +100,16 @@ Use a synthetic report for smoke tests rather than private campaign data.
 - Maximum 50 MiB per JSON report including base64; five images; 10 MiB per image.
   PNG, JPEG, GIF, and WebP only. Encoded size and file signatures are checked, not
   full image decoding. Feedback text must be nonempty and at most 100,000 characters.
+- An optional `email` address (at most 254 characters) is stored with the report
+  for replies. Blank addresses are omitted by the extension.
 - Chat/tool/snapshot data is opaque diagnostics, not executed or rendered. Reports
   are private untrusted input; inspect them accordingly. No public read/list/delete
   endpoints and no logging of report bodies, images, or provider errors.
+- Workers observability persists sanitized `feedback_response` events with HTTP
+  status codes, and `feedback_validation_failed` events for 400/413/415 rejections.
+  Automatic invocation logs are disabled to avoid request metadata;
+  custom logs contain no email addresses or IPs. View them in Cloudflare's Worker
+  observability dashboard after deployment.
 - `GET /` reports service availability; `OPTIONS /feedback` supports CORS preflight.
   CORS permits anonymous clients; it is not authentication. Limits are best-effort
   abuse protection, not a hard budget. A retry after an ambiguous network failure

@@ -9,9 +9,11 @@ import { submissionMarkers } from "./submission-metadata";
 import type { RunSnapshot } from "./run-snapshot-store";
 import type { ChatRecord, StoredChatImage } from "./chat-store";
 import type { FeedbackImage, FeedbackReport } from "../feedback-schema";
+import { feedbackEmailSchema } from "../feedback-schema";
 
 export interface FeedbackReportOptions {
   readonly feedback: string;
+  readonly email?: string;
   readonly includeChat: boolean;
   readonly includeImages: boolean;
   readonly chatId: string;
@@ -81,12 +83,17 @@ async function encodeImage(image: StoredChatImage): Promise<FeedbackImage> {
 export async function createFeedbackReport(options: FeedbackReportOptions): Promise<FeedbackReport> {
   const feedback = options.feedback.trim();
   if (!feedback) throw new Error("Please describe your feedback first.");
+  const email = options.email?.trim();
+  if (email && !feedbackEmailSchema.safeParse(email).success) {
+    throw new Error("Please enter a valid email address or leave it blank.");
+  }
   const base: FeedbackReport = {
     format: "gmtools-feedback" as const,
     formatVersion: 1,
     reportId: crypto.randomUUID(),
     exportedAt: new Date().toISOString(),
     feedback,
+    ...(email ? { email } : {}),
     extension: options.extension,
     includes: { chat: options.includeChat, images: options.includeChat && options.includeImages },
   };

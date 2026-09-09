@@ -8,6 +8,16 @@ run "private_feedback_recipe" {
   command = plan
 
   assert {
+    condition = (
+      cloudflare_workers_script.feedback.observability.enabled &&
+      cloudflare_workers_script.feedback.observability.logs.enabled &&
+      cloudflare_workers_script.feedback.observability.logs.persist &&
+      !cloudflare_workers_script.feedback.observability.logs.invocation_logs
+    )
+    error_message = "Persist sanitized Worker logs without automatic request metadata."
+  }
+
+  assert {
     condition     = cloudflare_workers_script.feedback.content_sha256 == filesha256("${path.module}/../../generated/feedback-worker/index.js")
     error_message = "Deploy the generated Worker bundle and track changes by its hash."
   }
