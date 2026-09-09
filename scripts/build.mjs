@@ -40,6 +40,7 @@ for (const extensionBuild of extensionBuilds) {
 const hashedFiles = [
   ...(await sourceFiles("src/extension")),
   "src/build-info.ts",
+  "src/feedback-schema.ts",
   "src/protocol.ts",
   "package.json",
   "pnpm-lock.yaml",

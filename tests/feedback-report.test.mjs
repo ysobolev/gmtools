@@ -17,6 +17,7 @@ const [reports, chats, runs, database] = await Promise.all([
   bundle("src/extension/database.ts"),
 ]);
 const extension = { version: "0.2.0", buildId: "feedback-test", browser: "Chrome" };
+const { feedbackReportSchema } = await bundle("src/feedback-schema.ts");
 const options = {
   feedback: " Initiative is incorrect. ", includeChat: true, includeImages: false,
   chatId: "", visibleError: "Account needs additional credit", runningWhenOpened: false,
@@ -27,6 +28,7 @@ test("feedback-only export contains no chat, error, campaign, or snapshots", asy
   const report = await reports.createFeedbackReport({ ...options, chatId: "nonexistent",
     includeChat: false, includeImages: true });
   assert.equal(report.format, "gmtools-feedback");
+  assert.equal(feedbackReportSchema.safeParse(report).success, true);
   assert.equal(report.feedback, "Initiative is incorrect.");
   assert.deepEqual(report.includes, { chat: false, images: false });
   assert.deepEqual(Object.keys(report).sort(), [
@@ -71,6 +73,7 @@ test("exports the selected saved history, snapshots, and only opted-in reference
   ] };
   await chats.saveChatMessages(a.chat.id, [...messages, assistant]);
   const noImages = await reports.createFeedbackReport({ ...options, chatId: a.chat.id });
+  assert.equal(feedbackReportSchema.safeParse(noImages).success, true);
   assert.equal(noImages.conversation.chat.id, a.chat.id);
   assert.equal(noImages.conversation.visibleError, options.visibleError);
   assert.equal(noImages.conversation.historySource, "indexeddb");
@@ -82,6 +85,7 @@ test("exports the selected saved history, snapshots, and only opted-in reference
   assert.equal(JSON.stringify(noImages).includes("unsent.png"), false);
 
   const withImages = await reports.createFeedbackReport({ ...options, chatId: a.chat.id, includeImages: true });
+  assert.equal(feedbackReportSchema.safeParse(withImages).success, true);
   assert.equal(withImages.conversation.images.length, 1);
   assert.equal(withImages.conversation.images[0].filename, image.filename);
   assert.deepEqual(Buffer.from(withImages.conversation.images[0].data, "base64"), Buffer.from(bytes));

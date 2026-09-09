@@ -1,8 +1,8 @@
-import { MAX_UPLOADED_IMAGE_BYTES, isSupportedUploadedImageType } from "../extension/chat-images";
+import { MAX_UPLOADED_IMAGE_BYTES } from "../extension/chat-images";
+import { feedbackReportSchema, type FeedbackImage } from "../feedback-schema";
 
 export const MAX_REPORT_BYTES = 50 * 1024 * 1024;
 const MAX_IMAGES = 5;
-const MAX_FEEDBACK_LENGTH = 100_000;
 const BODY_TIMEOUT_MS = 30_000;
 
 interface RateLimiter {
@@ -78,25 +78,11 @@ async function readBody(request: Request): Promise<string> {
   }
 }
 
-function record(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function string(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0;
-}
-
 function invalid(message: string): never {
   throw new RequestError(400, message);
 }
 
-function validateImage(image: unknown): void {
-  if (!record(image) || !string(image.imageId) || !string(image.filename) ||
-      !string(image.mediaType) || !isSupportedUploadedImageType(image.mediaType) ||
-      image.encoding !== "base64" || !string(image.data) ||
-      !Number.isInteger(image.size) || typeof image.size !== "number" || image.size <= 0) {
-    invalid("Images must have an ID, filename, supported MIME type, size, and base64 data.");
-  }
+function validateImage(image: FeedbackImage): void {
   const data = image.data;
   const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
   const decodedSize = data.length / 4 * 3 - padding;
@@ -121,31 +107,17 @@ function validateImage(image: unknown): void {
 /** Validate the export envelope and attachments. Chat/tool/snapshot contents are
  * opaque diagnostics: stored, never executed, fetched, or rendered by this Worker. */
 function validateReport(value: unknown): void {
-  if (!record(value) || value.format !== "gmtools-feedback" || value.formatVersion !== 1 ||
-      !string(value.reportId) || !string(value.exportedAt) ||
-      !Number.isFinite(Date.parse(value.exportedAt)) || !string(value.feedback) ||
-      !value.feedback.trim() || value.feedback.length > MAX_FEEDBACK_LENGTH ||
-      !record(value.extension) || !string(value.extension.version) ||
-      !string(value.extension.buildId) || !string(value.extension.browser) ||
-      !record(value.includes) || typeof value.includes.chat !== "boolean" ||
-      typeof value.includes.images !== "boolean") {
+  const parsed = feedbackReportSchema.safeParse(value);
+  if (!parsed.success) {
     invalid("Expected a version 1 GM Tools feedback export with nonempty feedback (at most 100,000 characters).");
   }
-  if (!value.includes.chat) {
-    if (value.includes.images || value.conversation !== undefined) invalid("Chat data was not opted in.");
-    return;
-  }
-  const chat = value.conversation;
-  if (!record(chat) || !record(chat.chat) || !Array.isArray(chat.messages) ||
-      !Array.isArray(chat.snapshots) || !Array.isArray(chat.images)) {
-    invalid("The conversation must contain a chat, messages, snapshots, and images array.");
-  }
-  if (!value.includes.images && chat.images.length > 0) invalid("Images were not opted in.");
+  const chat = parsed.data.conversation;
+  if (!chat) return;
   if (chat.images.length > MAX_IMAGES) throw new RequestError(413, "Reports may contain at most five images.");
   const ids = new Set<string>();
   for (const image of chat.images) {
     validateImage(image);
-    const id = (image as Record<string, string>).imageId!;
+    const id = image.imageId;
     if (ids.has(id)) invalid("Duplicate image ID.");
     ids.add(id);
   }

@@ -8,6 +8,7 @@ import {
 import { submissionMarkers } from "./submission-metadata";
 import type { RunSnapshot } from "./run-snapshot-store";
 import type { ChatRecord, StoredChatImage } from "./chat-store";
+import type { FeedbackImage, FeedbackReport } from "../feedback-schema";
 
 export interface FeedbackReportOptions {
   readonly feedback: string;
@@ -57,7 +58,7 @@ export function omitInlineImageBytes(value: unknown): unknown {
   return result;
 }
 
-async function encodeImage(image: StoredChatImage) {
+async function encodeImage(image: StoredChatImage): Promise<FeedbackImage> {
   const bytes = new Uint8Array(await image.blob.arrayBuffer());
   const chunks: string[] = [];
   // A multiple of three permits independently encoded chunks to be joined.
@@ -77,10 +78,10 @@ async function encodeImage(image: StoredChatImage) {
 
 /** Read only the selected chat and its referenced diagnostics in one consistent
  * transaction. Never enumerate profiles, preferences, credentials, or memories. */
-export async function createFeedbackReport(options: FeedbackReportOptions) {
+export async function createFeedbackReport(options: FeedbackReportOptions): Promise<FeedbackReport> {
   const feedback = options.feedback.trim();
   if (!feedback) throw new Error("Please describe your feedback first.");
-  const base = {
+  const base: FeedbackReport = {
     format: "gmtools-feedback" as const,
     formatVersion: 1,
     reportId: crypto.randomUUID(),
@@ -124,7 +125,7 @@ export async function createFeedbackReport(options: FeedbackReportOptions) {
     }
   }
   await done;
-  const report = {
+  const report: FeedbackReport = {
     ...base,
     conversation: {
       chat,
@@ -139,7 +140,8 @@ export async function createFeedbackReport(options: FeedbackReportOptions) {
       ...(options.visibleError ? { visibleError: options.visibleError } : {}),
     },
   };
-  return options.includeImages ? report : omitInlineImageBytes(report);
+  // Redaction replaces only diagnostic image bytes, preserving the envelope.
+  return options.includeImages ? report : omitInlineImageBytes(report) as FeedbackReport;
 }
 
 export function downloadFeedbackReport(report: unknown): void {

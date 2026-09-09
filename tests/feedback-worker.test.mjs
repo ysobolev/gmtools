@@ -65,6 +65,7 @@ test("accepts chat diagnostics and valid encoded images", async () => {
   const { env, writes } = setup();
   const value = withImage();
   value.conversation.messages = [{ role: "assistant", parts: [{ type: "text", text: "example" }] }];
+  value.futureDiagnostic = { note: "preserve fields not recognized by the envelope schema" };
   assert.equal((await worker.fetch(post(value), env)).status, 201);
   assert.deepEqual(JSON.parse(writes[0][1]), value);
 });
@@ -123,6 +124,8 @@ test("rejects invalid JSON and invalid export envelopes", async () => {
   assert.equal((await worker.fetch(malformed, env)).status, 400);
   for (const value of [null, [], {}, { ...report(), formatVersion: 2 },
     { ...report(), feedback: " " }, { ...report(), feedback: "x".repeat(100_001) },
+    { ...report(), exportedAt: "not a date" },
+    { ...report(), extension: { version: "1", buildId: 123, browser: "Chrome" } },
     { ...report(), includes: { chat: true, images: false } },
     { ...report(), conversation: {} }]) {
     assert.equal((await worker.fetch(post(value), env)).status, 400);
@@ -136,6 +139,9 @@ test("validates image type, bytes, encoded size, count, duplicate IDs, and opt-i
     [413, (v) => { v.conversation.images = Array(6).fill(v.conversation.images[0]); }],
     [400, (v) => { v.conversation.images.push(v.conversation.images[0]); }],
     [400, (v) => { v.conversation.images[0].mediaType = "image/svg+xml"; }],
+    [400, (v) => { v.conversation.chat = []; }],
+    [400, (v) => { v.conversation.images[0].encoding = "hex"; }],
+    [400, (v) => { v.conversation.images[0].size = "100"; }],
     [400, (v) => { v.conversation.images[0].mediaType = "image/jpeg"; }],
     [400, (v) => { v.conversation.images[0].size++; }],
     [413, (v) => { v.conversation.images[0].size = 10 * 1024 * 1024 + 1; }],
