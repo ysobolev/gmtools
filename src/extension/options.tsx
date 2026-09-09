@@ -36,7 +36,6 @@ import {
   deleteAllCampaignMemories,
   deleteCampaignMemory,
   listCampaignMemories,
-  updateCampaignMemory,
   type CampaignMemoryRecord,
 } from "./campaign-memory-store";
 import {
@@ -683,8 +682,6 @@ function CampaignMemorySettings({
 }): React.JSX.Element {
   const [memories, setMemories] = useState<CampaignMemoryRecord[] | null>(null);
   const [query, setQuery] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingContent, setEditingContent] = useState("");
   const [feedback, setFeedback] = useState<{
     readonly kind: "success" | "error";
     readonly message: string;
@@ -693,6 +690,8 @@ function CampaignMemorySettings({
   const [deletePromptId, setDeletePromptId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const clearModalRef = useModalEscape(clearPrompt, busy, () => setClearPrompt(false));
+  const deleteMemory = memories?.find((memory) => memory.id === deletePromptId);
+  const deleteMemoryModalRef = useModalEscape(Boolean(deleteMemory), busy, () => setDeletePromptId(null));
 
   const refreshMemories = (): void => {
     void listCampaignMemories(campaign.campaignId).then((loadedMemories) => {
@@ -725,32 +724,11 @@ function CampaignMemorySettings({
     !normalizedQuery || memory.content.toLocaleLowerCase().includes(normalizedQuery)
   );
 
-  const saveEdit = (): void => {
-    if (!editingId) return;
-    setBusy(true);
-    setFeedback(null);
-    void updateCampaignMemory(
-      campaign.campaignId,
-      editingId,
-      editingContent,
-      false,
-    ).then(() => {
-      setEditingId(null);
-      setDeletePromptId(null);
-      setEditingContent("");
-      setFeedback({ kind: "success", message: "Memory updated." });
-      refreshMemories();
-    }).catch((error: unknown) => setFeedback({
-      kind: "error",
-      message: error instanceof Error ? error.message : "Could not update memory.",
-    })).finally(() => setBusy(false));
-  };
-
   const removeMemory = (memoryId: string): void => {
     setBusy(true);
     setFeedback(null);
     void deleteCampaignMemory(campaign.campaignId, memoryId, false).then(() => {
-      if (editingId === memoryId) setEditingId(null);
+      setDeletePromptId(null);
       setFeedback({ kind: "success", message: "Memory deleted." });
       refreshMemories();
     }).catch((error: unknown) => setFeedback({
@@ -764,7 +742,6 @@ function CampaignMemorySettings({
     setFeedback(null);
     void deleteAllCampaignMemories(campaign.campaignId).then((count) => {
       setClearPrompt(false);
-      setEditingId(null);
       setFeedback({
         kind: "success",
         message: `Deleted ${count} ${count === 1 ? "memory" : "memories"}.`,
@@ -807,7 +784,7 @@ function CampaignMemorySettings({
         </label>
         <span>{memories?.length ?? 0} stored</span>
       </div>
-      {feedback ? (
+      {feedback && !deleteMemory ? (
         <p
           className={`feedback-message ${feedback.kind}`}
           role={feedback.kind === "error" ? "alert" : "status"}
@@ -824,54 +801,40 @@ function CampaignMemorySettings({
       <div className="campaign-memory-list">
         {visible.map((memory) => (
           <article className="campaign-memory-item" key={memory.id}>
-            {editingId === memory.id ? (
-              <>
-                <textarea
-                  aria-label="Memory content"
-                  className="campaign-memory-editor"
-                  maxLength={4000}
-                  onChange={(event) => setEditingContent(event.target.value)}
-                  rows={6}
-                  value={editingContent}
-                />
-                <div className="campaign-memory-actions">
-                  <button className="secondary-button" disabled={busy} onClick={() => setEditingId(null)} type="button">Cancel</button>
-                  <button className="primary-button" disabled={busy || !editingContent.trim()} onClick={saveEdit} type="button">Save</button>
-                </div>
-              </>
-            ) : (
-              <>
-                <p>{memory.content}</p>
-                <div className="campaign-memory-meta">
-                  <time dateTime={new Date(memory.updatedAt).toISOString()}>
-                    Updated {new Date(memory.updatedAt).toLocaleString()}
-                  </time>
-                  <div className="campaign-memory-actions">
-                    {deletePromptId === memory.id ? (
-                      <>
-                        <button className="secondary-button" disabled={busy} onClick={() => setDeletePromptId(null)} type="button">Cancel</button>
-                        <button className="danger-button" disabled={busy} onClick={() => removeMemory(memory.id)} type="button">Confirm delete</button>
-                      </>
-                    ) : (
-                      <>
-                        <button className="secondary-button" disabled={busy} onClick={() => {
-                          setEditingId(memory.id);
-                          setEditingContent(memory.content);
-                          setFeedback(null);
-                        }} type="button">Edit</button>
-                        <button className="danger-button" disabled={busy} onClick={() => setDeletePromptId(memory.id)} type="button">Delete</button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
+            <p>{memory.content}</p>
+            <div className="campaign-memory-meta">
+              <time dateTime={new Date(memory.updatedAt).toISOString()}>
+                Updated {new Date(memory.updatedAt).toLocaleString()}
+              </time>
+              <div className="campaign-memory-actions">
+                <button className="danger-button" disabled={busy} onClick={() => {
+                  setFeedback(null);
+                  setDeletePromptId(memory.id);
+                }} type="button">Delete</button>
+              </div>
+            </div>
           </article>
         ))}
       </div>
       {memories?.length ? (
         <div className="form-actions campaign-memory-footer">
           <button className="danger-button" disabled={busy} onClick={() => setClearPrompt(true)} type="button">Clear all memory</button>
+        </div>
+      ) : null}
+      {deleteMemory ? (
+        <div className="campaign-delete-backdrop">
+          <section ref={deleteMemoryModalRef} aria-modal="true" aria-labelledby="memory-delete-heading" className="campaign-delete-dialog" role="alertdialog">
+            <h2 id="memory-delete-heading">Delete this memory?</h2>
+            <p>This permanently deletes the memory from {campaign.name}.</p>
+            <p className="memory-delete-preview">{deleteMemory.content.length > 240
+              ? `${deleteMemory.content.slice(0, 240)}…`
+              : deleteMemory.content}</p>
+            {feedback?.kind === "error" ? <p className="campaign-delete-error" role="alert">{feedback.message}</p> : null}
+            <div className="campaign-delete-actions">
+              <button className="secondary-button button-small" disabled={busy} onClick={() => setDeletePromptId(null)} type="button">Cancel</button>
+              <button className="danger-button button-small" disabled={busy} onClick={() => removeMemory(deleteMemory.id)} type="button">Delete</button>
+            </div>
+          </section>
         </div>
       ) : null}
       {clearPrompt ? (

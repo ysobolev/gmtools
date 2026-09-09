@@ -513,6 +513,12 @@ p {
   font-size: 12px;
 }
 
+.campaign-delete-dialog .memory-delete-preview {
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .campaign-delete-impact {
   display: grid;
   gap: 6px;
@@ -1241,20 +1247,10 @@ p {
 .primary-button:hover:not(:disabled) { background: var(--accent-hover); }
 .field input,
 .field select,
-.field textarea,
-.campaign-memory-editor {
+.field textarea {
   border-color: var(--border-default);
   background: var(--surface-control);
   color: var(--text-primary);
-}
-
-.campaign-memory-editor {
-  width: 100%;
-  padding: 10px 11px;
-  resize: vertical;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  line-height: 1.5;
 }
 
 .warning-note,

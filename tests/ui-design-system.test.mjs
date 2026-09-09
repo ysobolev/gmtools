@@ -119,13 +119,23 @@ test("settings deletion dialogs align right with Cancel first and destruction la
   const source = await readFile("src/extension/options.tsx", "utf8");
   const css = await readFile("src/extension/static/options.css", "utf8");
   const groups = [...source.matchAll(/<div className="campaign-delete-actions">([\s\S]*?)<\/div>/g)];
-  assert.equal(groups.length, 3);
+  assert.equal(groups.length, 4);
   for (const [, group] of groups) {
     const buttons = [...group.matchAll(/<button[\s\S]*?<\/button>/g)].map(([button]) => button);
     assert.match(buttons[0], />\s*Cancel\s*<\/button>/);
-    assert.match(buttons.at(-1), /className="danger-button"/);
+    assert.match(buttons.at(-1), /className="danger-button(?: button-small)?"/);
   }
   assert.match(css, /\.campaign-delete-actions\s*\{[^}]*justify-content: flex-end;/);
+});
+
+test("single memory deletion uses a compact modal rather than replacing row actions", async () => {
+  const source = await readFile("src/extension/options.tsx", "utf8");
+  assert.match(source, /ref=\{deleteMemoryModalRef\} aria-modal="true"/);
+  assert.match(source, /useModalEscape\(Boolean\(deleteMemory\), busy/);
+  assert.match(source, /deleteMemory.content.slice\(0, 240\)/);
+  assert.match(source, /removeMemory\(deleteMemory.id\)/);
+  assert.doesNotMatch(source, /Confirm delete|deletePromptId === memory.id/);
+  assert.doesNotMatch(source, /updateCampaignMemory|campaign-memory-editor|setEditingContent/);
 });
 
 test("profile deletion describes the current fallback profile name", async () => {
