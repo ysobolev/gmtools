@@ -1729,16 +1729,6 @@ h1 {
 
 .feedback-link {
   flex-shrink: 0;
-  padding: 2px 0;
-  border: 0;
-  background: var(--transparent);
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.feedback-link:hover {
-  color: var(--text-primary);
-  text-decoration: underline;
 }
 
 .feedback-dialog {

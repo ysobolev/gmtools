@@ -586,8 +586,16 @@ p {
   opacity: 0.45;
 }
 
+.toggle-card.campaign-memory-card {
+  display: block;
+  cursor: default;
+}
+
 .campaign-memory-toggle {
+  display: flex;
   align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
 }
 
 .campaign-memory-toggle span {
@@ -604,13 +612,15 @@ p {
 }
 
 .campaign-memory-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  border: 1px solid var(--border-default);
-  border-radius: 10px;
-  background: var(--surface-raised);
+  margin: 12px 0 0;
+  color: var(--text-primary);
+  font-weight: 400;
+}
+
+.campaign-memory-summary .link-button {
+  margin-inline-start: 6px;
+  padding-block: 0;
+  color: var(--accent-text);
 }
 
 .campaign-memory-panel {
@@ -1125,7 +1135,6 @@ p {
   color: var(--danger);
 }
 
-:root[data-theme="light"] .campaign-memory-summary,
 :root[data-theme="light"] .campaign-memory-item {
   border-color: var(--border-default);
   background: var(--surface-raised);

@@ -139,6 +139,27 @@ test("single memory deletion uses a compact modal rather than replacing row acti
   assert.doesNotMatch(source, /updateCampaignMemory|campaign-memory-editor|setEditingContent/);
 });
 
+test("campaign memory card combines its toggle, grammatical count, and separate Manage link", async () => {
+  const source = await readFile("src/extension/options.tsx", "utf8");
+  const css = await readFile("src/extension/static/options.css", "utf8");
+  assert.match(source, /className="toggle-card field-wide campaign-memory-card"/);
+  assert.match(source, /<\/label>\s*<p className="campaign-memory-summary">/);
+  assert.match(source, /There are no stored memories\./);
+  assert.match(source, /There is 1 stored memory\./);
+  assert.match(source, /There are \$\{memoryCount\} stored memories\./);
+  assert.match(source, /\{memoryCount > 0 \? <button className="link-button"/);
+  assert.match(css, /\.campaign-memory-summary\s*\{\s*margin: 12px 0 0;\s*color: var\(--text-primary\);/);
+  assert.match(css, /\.campaign-memory-summary \.link-button\s*\{\s*margin-inline-start: 6px;\s*padding-block: 0;\s*color: var\(--accent-text\);/);
+});
+
+test("Manage and Feedback use the shared link-like button component", async () => {
+  const css = await readFile("src/extension/static/design-system.css", "utf8");
+  const panel = await readFile("src/extension/sidepanel.tsx", "utf8");
+  assert.match(panel, /className="link-button feedback-link"/);
+  assert.match(css, /button\.link-button\s*\{[^}]*background: var\(--transparent\);/);
+  assert.match(css, /button\.link-button:hover:not\(:disabled\)\s*\{[^}]*text-decoration: underline;/);
+});
+
 test("memory dates align with the bottom of the compact action row", async () => {
   const css = await readFile("src/extension/static/options.css", "utf8");
   assert.match(css, /\.campaign-memory-meta\s*\{[^}]*align-items: flex-end;/);

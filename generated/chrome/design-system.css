@@ -125,7 +125,21 @@ textarea:disabled {
   opacity: 0.5;
 }
 
-/* Shared destructive action component for settings and the side panel. */
+/* Shared text action used by Feedback and memory management. */
+button.link-button {
+  padding: 2px 0;
+  border: 0;
+  background: var(--transparent);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+button.link-button:hover:not(:disabled) {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+/* Shared action components for settings and the side panel. */
 button.secondary-button,
 button.danger-button {
   min-height: 39px;

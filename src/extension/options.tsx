@@ -756,7 +756,7 @@ function CampaignMemorySettings({
   };
 
   return (
-    <section className="editor-panel campaign-memory-panel">
+    <section id="campaign-memory" className="editor-panel campaign-memory-panel">
       <div className="editor-heading campaign-memory-heading">
         <div>
           <nav aria-label="Campaign settings location" className="campaign-breadcrumbs">
@@ -1205,7 +1205,8 @@ function CampaignsSettings({
                 {overrideOptions(globalRequireRoll20Approval ? "required" : "not required")}
               </select>
             </label>
-            <label className="toggle-card field-wide campaign-memory-toggle">
+            <div className="toggle-card field-wide campaign-memory-card">
+            <label className="campaign-memory-toggle">
               <input
                 checked={draft.memoryEnabled}
                 onChange={(event) => {
@@ -1222,9 +1223,10 @@ function CampaignsSettings({
                 <small>Allow the assistant to store and retrieve durable information shared by chats attached to this campaign.</small>
               </span>
             </label>
-            <div className="campaign-memory-summary field-wide">
-              <span><strong>{memoryCount}</strong> stored {memoryCount === 1 ? "memory" : "memories"}</span>
-              <button className="secondary-button" onClick={() => setManagingMemory(true)} type="button">Manage memory</button>
+            <p className="campaign-memory-summary">
+              {memoryCount === 0 ? "There are no stored memories." : memoryCount === 1 ? "There is 1 stored memory." : `There are ${memoryCount} stored memories.`}{" "}
+              {memoryCount > 0 ? <button className="link-button" type="button" onClick={() => setManagingMemory(true)}>Manage</button> : null}
+            </p>
             </div>
           </div>
           <div className="form-actions">

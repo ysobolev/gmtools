@@ -1520,7 +1520,7 @@ function ChatComposer({
       </form>
       <div className="composer-meta">
         <span>{modelLabel} via OpenRouter</span>
-        <button className="feedback-link" onClick={onFeedback} type="button">Feedback</button>
+        <button className="link-button feedback-link" onClick={onFeedback} type="button">Feedback</button>
       </div>
     </footer>
   );
