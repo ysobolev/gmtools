@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { build } from "esbuild";
 
 async function sourceFiles(path) {
@@ -111,6 +111,7 @@ await Promise.all([
       banner: generatedBanner,
     }),
     buildManifest(manifest, `${outdir}/manifest.json`),
+    cp("src/extension/static/icons", `${outdir}/icons`, { recursive: true }),
     copyFile("src/extension/static/design-system.css", `${outdir}/design-system.css`),
     copyFile("src/extension/static/options.html", `${outdir}/options.html`),
     copyFile("src/extension/static/options.css", `${outdir}/options.css`),

@@ -22,6 +22,12 @@ test("registers and builds both browser extensions", async () => {
     assert.equal(manifest.version, packageJson.version);
     assert.equal(Object.hasOwn(template, "version"), false);
     assert.deepEqual(manifest, { ...template, version: packageJson.version });
+    for (const size of [16, 32, 48, 128]) {
+      assert.equal(manifest.icons[size], `icons/icon-${size}.png`);
+      const icon = await readFile(`${directory}/${manifest.icons[size]}`);
+      assert.equal(icon.readUInt32BE(16), size);
+      assert.equal(icon.readUInt32BE(20), size);
+    }
     assert.equal(
       manifest.homepage_url,
       "https://github.com/ysobolev/gmtools",
@@ -46,6 +52,7 @@ test("registers and builds both browser extensions", async () => {
         "sidepanel.html",
         "sidepanel.css",
         "sidepanel.js",
+        "icons/empty-chat.png",
       ].map((file) => access(`${directory}/${file}`)),
     );
   }

@@ -1002,10 +1002,10 @@ h1 {
 }
 
 .empty-glyph {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
   margin-bottom: 16px;
-  color: var(--accent-text);
-  font-family: Georgia, serif;
-  font-size: 29px;
 }
 
 .empty-state h2 {

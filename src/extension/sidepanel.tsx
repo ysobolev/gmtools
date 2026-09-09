@@ -880,7 +880,7 @@ const ConversationPane = memo(function ConversationPane({
       ))}
       {messages.every((message) => isCampaignAttachmentNotice(message) && !isVisibleCampaignAttachmentNotice(message)) ? (
         <div className="empty-state">
-          <div className="empty-glyph" aria-hidden="true">✦</div>
+          <img className="empty-glyph" src="icons/empty-chat.png" alt="" aria-hidden="true" />
           <h2>What does tonight need?</h2>
           <p>
             Sketch a scene, improvise an NPC, untangle a plot, or ask for a
