@@ -2,7 +2,6 @@
   "manifest_version": 3,
   "name": "GM Tools for VTT",
   "description": "An AI sidebar assistant for virtual tabletop game masters, with Roll20 integration.",
-  "version": "0.2.0",
   "homepage_url": "https://github.com/ysobolev/gmtools",
   "permissions": ["contextMenus", "identity", "storage", "scripting"],
   "host_permissions": [

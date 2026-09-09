@@ -2,7 +2,6 @@
   "manifest_version": 3,
   "name": "GM Tools for VTT",
   "description": "An AI side-panel assistant for virtual tabletop game masters, with Roll20 integration.",
-  "version": "0.2.0",
   "homepage_url": "https://github.com/ysobolev/gmtools",
   "minimum_chrome_version": "114",
   "permissions": [

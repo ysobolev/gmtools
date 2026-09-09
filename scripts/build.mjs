@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, readdir } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { build } from "esbuild";
 
 async function sourceFiles(path) {
@@ -19,22 +19,19 @@ const extensionBuilds = [
     browser: "Chrome",
     outdir: "generated/chrome",
     target: "chrome114",
-    manifest: "src/extension/static/manifest.chrome.json",
+    manifest: "src/extension/manifest.chrome.json",
   },
   {
     browser: "Firefox",
     outdir: "generated/firefox",
     target: "firefox140",
-    manifest: "src/extension/static/manifest.firefox.json",
+    manifest: "src/extension/manifest.firefox.json",
   },
 ];
-for (const extensionBuild of extensionBuilds) {
-  const manifest = JSON.parse(await readFile(extensionBuild.manifest, "utf8"));
-  if (packageJson.version !== manifest.version) {
-    throw new Error(
-      `package.json and ${extensionBuild.manifest} versions must match.`,
-    );
-  }
+async function buildManifest(source, destination) {
+  const manifest = JSON.parse(await readFile(source, "utf8"));
+  manifest.version = packageJson.version;
+  await writeFile(destination, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
 const hashedFiles = [
@@ -113,7 +110,7 @@ await Promise.all([
       minify: true,
       banner: generatedBanner,
     }),
-    copyFile(manifest, `${outdir}/manifest.json`),
+    buildManifest(manifest, `${outdir}/manifest.json`),
     copyFile("src/extension/static/design-system.css", `${outdir}/design-system.css`),
     copyFile("src/extension/static/options.html", `${outdir}/options.html`),
     copyFile("src/extension/static/options.css", `${outdir}/options.css`),

@@ -11,11 +11,17 @@ test("registers and builds both browser extensions", async () => {
   const packageJson = JSON.parse(await readFile("package.json", "utf8"));
 
   for (const { directory } of builds) {
+    const browser = directory.split("/").at(-1);
+    const template = JSON.parse(
+      await readFile(`src/extension/manifest.${browser}.json`, "utf8"),
+    );
     const manifest = JSON.parse(
       await readFile(`${directory}/manifest.json`, "utf8"),
     );
     assert.equal(manifest.name, "GM Tools for VTT");
     assert.equal(manifest.version, packageJson.version);
+    assert.equal(Object.hasOwn(template, "version"), false);
+    assert.deepEqual(manifest, { ...template, version: packageJson.version });
     assert.equal(
       manifest.homepage_url,
       "https://github.com/ysobolev/gmtools",
