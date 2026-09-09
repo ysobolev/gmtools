@@ -3,6 +3,13 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 import { IDBFactory } from "fake-indexeddb";
+import { build } from "esbuild";
+
+const { outputFiles } = await build({
+  entryPoints: ["src/extension/indexed-db-migrations.ts"],
+  bundle: true, format: "esm", platform: "node", write: false,
+});
+const migrations = await import(`data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString("base64")}`);
 
 test("the generated Firefox worker starts without browser-global errors", async () => {
   const listeners = new Map();
@@ -40,27 +47,9 @@ test("the generated Firefox worker starts without browser-global errors", async 
   const badgeTexts = [];
   const testIndexedDB = new IDBFactory();
   const database = await new Promise((resolve, reject) => {
-    const request = testIndexedDB.open("gmToolsChats", 4);
-    request.onupgradeneeded = () => {
-      const chats = request.result.createObjectStore("chats", {
-        keyPath: "id",
-      });
-      chats.createIndex("updatedAt", "updatedAt");
-      chats.createIndex("profileId", "profileId");
-      request.result.createObjectStore("messages", { keyPath: "chatId" });
-      const images = request.result.createObjectStore("images", {
-        keyPath: "id",
-      });
-      images.createIndex("chatId", "chatId");
-      request.result.createObjectStore("profiles", { keyPath: "id" });
-      request.result.createObjectStore("settings", { keyPath: "id" });
-      const approvals = request.result.createObjectStore("roll20Approvals", {
-        keyPath: ["chatId", "approvalId"],
-      });
-      approvals.createIndex("chatId", "chatId");
-      approvals.createIndex("chatToolCall", ["chatId", "toolCallId"], {
-        unique: true,
-      });
+    const request = testIndexedDB.open(migrations.CHAT_DATABASE_NAME, migrations.CHAT_DATABASE_VERSION);
+    request.onupgradeneeded = (event) => {
+      migrations.migrateDatabase(request.result, request.transaction, event.oldVersion, event.newVersion);
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
