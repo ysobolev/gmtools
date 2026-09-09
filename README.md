@@ -1,191 +1,211 @@
 # GM Tools for VTT
 
-### Sandbox runtime diagnostics
+GM Tools for VTT is an AI assistant for tabletop game masters, available as a
+Chrome side panel or Firefox sidebar. Use it to prepare sessions, improvise NPCs,
+develop plots, discuss rules, and work with images—all alongside your game.
 
-Campaign handshakes record the last-known Roll20 `sandboxVersion` as a string,
-without probing or listing API capabilities. This is separate from the GM Tools
-bridge version. Replacing the campaign Mod script with the newly built script is
-required to report these diagnostics; an older bridge remains compatible but
-does not report them. The campaign record caches the observation for offline
-attachments, and attachment notices and run-configuration snapshots include it.
-No extra handshake is introduced on chat switching. Failed handshakes do not
-overwrite the last successful observation.
+Attach a Roll20 campaign to let the assistant inspect and modify your game through
+the Roll20 Mod API. It can create characters, update sheets, and perform other
+sandbox operations.
 
-The runtime identifier comes from `Campaign().sandboxVersion`, a direct JavaScript
-property documented by the [Roll20 production team](https://app.roll20.net/forum/post/12319797/mod-api-server-release-apr-18th-2025).
-Historically it returned `default` or `experimental`; these are preserved verbatim,
-not translated into guessed numeric versions. Missing identifiers are recorded as
-unknown (the optional field is omitted). No `v` prefix is added or removed.
-Prompt guidance uses documented version differences: `getSheetItem`/`setSheetItem`
-exist in both generations, while `getComputed`/`setComputed` require v1.5.
-Legacy 2014 sheet work remains supported;
-Beacon 2024 work requires the v1.5 capabilities.
-
-GM Tools for VTT is a Chrome and Firefox sidebar assistant for virtual tabletop
-game masters, initially integrating with Roll20. It connects directly to
-OpenRouter, streams ordinary chat responses in the panel, and keeps the
-user-controlled API key in browser memory by default.
-
-The assistant has one model-visible Roll20 tool, `execute_roll20`, which relays
-JavaScript through a hidden API chat command and executes it in the campaign's
-Mod sandbox. Results and errors return to the model through a private,
-non-archived whisper that the extension removes before display.
+- Keep multiple chats organized by campaign.
+- Choose an OpenRouter model and customize assistant profiles for your game.
+- Paste or drag images into chat, and generate images with supported models.
+- Share memories between chats in the same campaign.
+- Control web access and execution approval globally or per campaign.
 
 ## Requirements
 
-- Chrome 114 or newer, or Firefox 140 or newer
-- An OpenRouter account with available credit, or a provided OpenRouter API key
-- A Roll20 game whose creator has a Pro subscription when testing the Mod bridge
+- **Browser:** Chrome 114 or newer, or Firefox 140 or newer.
+- **Model access:** an OpenRouter account with sufficient credit for the selected
+  model, or a provided OpenRouter API key. Model and server-tool usage is billed
+  by OpenRouter to the key owner's account. OpenRouter also offers some free models.
+- **For Roll20 integration:** GM access to a campaign whose creator has a Pro
+  subscription, plus the GM Tools Mod script installed in that campaign.
+- **For Beacon sheet operations:** Roll20 Mod Sandbox v1.5. Non-Beacon
+  sheet operations can also work with the v1.0 sandbox.
 
-## Feedback upload testing
+Roll20 access is not required for ordinary chat and campaign preparation.
 
-Override the full submission URL at build time to use a test server:
+## Quick start
 
-```sh
-GMTOOLS_FEEDBACK_SUBMISSION_URL=http://localhost:8787/feedback pnpm build
-```
+### 1. Install the extension
 
-The override applies to both browsers and is included in the build ID. Without
-it, the URL in `src/extension/feedback-config.ts` is used. The test server must
-allow cross-origin requests from the extension. Rebuild without the variable to
-restore the production destination.
+Until store builds are available, clone or download this repository. Its
+`generated/` directory contains the built extensions.
 
-## Load the Chrome extension
+**Chrome**
 
-1. Install the development dependencies and build the extension:
+1. Open `chrome://extensions` and enable **Developer mode**.
+2. Click **Load unpacked** and select `generated/chrome`.
+3. Click the GM Tools toolbar icon to open the side panel.
 
-   ```sh
-   pnpm install
-   pnpm build
-   ```
+**Firefox**
 
-2. Open `chrome://extensions`.
-3. Enable **Developer mode**.
-4. Click **Load unpacked** and select the `generated/chrome` directory.
-5. Click the extension toolbar icon to open **GM Tools for VTT** in the side panel.
-6. Click **Connect OpenRouter**, authorize the app, and send a message.
+1. Open `about:debugging#/runtime/this-firefox`.
+2. Click **Load Temporary Add-on** and select `generated/firefox/manifest.json`.
+3. Click the GM Tools toolbar icon to open the sidebar.
 
-## Load the Firefox extension
+Firefox temporary installations must be loaded again after restarting the browser.
 
-1. Install the development dependencies and build the extension:
+### 2. Connect OpenRouter
 
-   ```sh
-   pnpm install
-   pnpm build
-   ```
+Click **Connect OpenRouter** and complete authorization.
 
-2. Open `about:debugging#/runtime/this-firefox` in Firefox.
-3. Click **Load Temporary Add-on**.
-4. Select `generated/firefox/manifest.json`.
-5. Click the extension toolbar action to open **GM Tools for VTT** in the sidebar.
-6. Click **Connect OpenRouter**, authorize the app, and send a message.
+By default, you will need to sign in again after restarting the browser. Select
+**Keep me signed in** to remember your login on this device. You can change this
+choice under **Settings > Authentication**. Logging out removes the saved login.
 
-Alternatively, choose **Use an API key instead** on the login screen and paste a
-regular OpenRouter API key (not a management key). The extension verifies it
-before signing in. Usage is charged to the key owner's account; a tester using
-a provided key does not need their own OpenRouter account. Use a dedicated key
-with a spending limit when providing access to someone else.
+You can now send a message without connecting Roll20.
 
-The standard login uses OpenRouter's OAuth PKCE flow. It does not require an OAuth
-client ID or client secret. Each browser derives its own callback URL from its
-extension identity. Both login methods store the API key in extension session
-storage. The worker does not return it to the side panel or Roll20 content script,
-and it is cleared when the
-browser exits or the extension is reloaded. Users may opt
-into **Keep me signed in** on the login screen or from **Settings > Authentication**;
-this stores the key in extension local storage, which is not a credential vault,
-with a warning about storage on this device. Logging out clears both session and persistent
-credential storage.
+### 3. Connect a Roll20 campaign
 
-**Settings > Display** can follow the operating-system theme or force light or
-dark mode. The default is the system theme, and changes apply to both the full
-settings page and side panel.
+1. Open the campaign's landing page and choose **Settings > Mod (API) Scripts**.
+2. Create a script named `gmtools.js`, paste the contents of
+   [`generated/roll20-mod/GMToolsPoc.js`](generated/roll20-mod/GMToolsPoc.js), and save.
+3. Launch the game as GM and allow the sandbox to start.
+4. In GM Tools, create a chat and click **Attach** in the campaign banner.
+   Choose the campaign if prompted.
+5. Try: “Use Roll20 to roll a d20 and tell me the result.”
 
-Images can be pasted, dropped from disk, or dragged from another webpage into
-the message composer. Webpage image drags may prompt for access to that image's
-origin so the extension can download and store it locally with the chat.
+The attached campaign appears in the banner. Chats retain their campaign
+attachment when reopened; the extension rediscovers the appropriate tab as needed.
 
-Use **Settings** in the chat header to open the full-page profile editor. Each
-profile selects a game, Roll20 character sheet, and model, with optional custom
-prompt instructions. The first pass includes D&D 5e, Vampire: The Masquerade
-V5, and a custom game option, plus supported OpenAI and Claude models. Profile
-configuration is stored in extension local storage and synchronizes with the
-side panel while both are open. Profiles can be changed per chat without
-clearing its history.
+The assistant can execute GM-level code and make mistakes. For an approval step
+before execution, enable **Require approval for Roll20 execution** under
+**Settings > Behavior**, or override it for an individual campaign. Stopping a
+chat cannot undo or cancel code already dispatched to the Roll20 sandbox.
 
-### Local run diagnostics
+### 4. Customize your assistant
 
-Before each model run, the worker saves a deduplicated configuration snapshot in
-the `runSnapshots` IndexedDB store. It records the resolved system prompt, model
-and provider options, active tool definitions, effective behavior settings,
-extension build, and profile/campaign identities and names. Authentication keys
-are not included. Prompts and campaign names may still contain private data.
+Open the chat drawer and use **Settings** in its footer.
 
-The initiating user message's `metadata.gmToolsSubmissions` array records the
-run ID, timestamp, submission kind, and snapshot hash. Resume, Retry, and approval
-responses append their own markers without adding visible or model-facing prose.
-Reconnecting to an existing stream does not create a new run. Snapshots are
-collected when their last owning chat is deleted; detaching keeps diagnostics.
-Existing conversations are not backfilled. This is local diagnostic storage,
-not telemetry or an automatic feedback upload.
+- **Profiles:** choose a game, model, and optional custom instructions. Use the
+  D&D 5e game setting for the built-in character-creation guidance. Switching
+  profiles does not clear chat history; edits take effect on the next submission.
+- **Campaigns:** set a default profile, override behavior settings, and optionally
+  enable shared campaign memory. Stored memories can be viewed and deleted here.
+- **Behavior:** configure web searching, unrestricted web fetching, execution
+  approval, and the model step limit. Review the warnings before enabling web tools.
+- **Display:** use your system theme or select light or dark mode.
 
-The **Feedback** button beside the model name opens a local report form. **Export**
-downloads a JSON file to share manually by email or direct message. Conversation
-history is included by default, while stored images are opt-in. Unchecking the
-conversation excludes its history, snapshots, campaign details, and visible error.
-Reports use saved history, so an in-progress response may be absent. Review the
-file before sharing: conversations and prompts can contain private information.
+Paste or drag images into the composer to attach them. Some webpage image drops,
+particularly in Firefox, may require permission to download from the image's host.
+Generated images can be dragged directly from the sidebar onto the Roll20 canvas.
+To use Roll20's Art Library upload control instead, save the image to disk first.
+
+### Feedback and local data
+
+Use **Feedback** beside the model name to submit a report, optionally including an
+email address for a reply. Chat history and diagnostic snapshots are included by
+default; images are opt-in. **Export as JSON** saves a report for manual sharing.
+
+Your chats and settings are saved in your browser. You can choose to include chat
+data when submitting feedback. Only share campaign information you are comfortable
+sending to the developer.
 
 ## Development
 
-Useful commands:
+### Requirements
+
+- Git
+- Node.js 22 (the version used in CI)
+- pnpm 9.15.0 (pinned in `package.json`)
+- A supported browser for manual testing
+- OpenRouter access for live model tests, and a suitable Roll20 campaign for
+  integration tests
+
+The automated application tests do not require live OpenRouter or Roll20 access.
+Terraform is needed only for feedback infrastructure work; see
+[`infra/feedback/README.md`](infra/feedback/README.md).
+
+### Getting started
 
 ```sh
-pnpm typecheck
-pnpm test
-pnpm check
-pnpm chrome:package
-pnpm firefox:lint
-pnpm firefox:run
-pnpm firefox:package
+pnpm install --frozen-lockfile
+pnpm build
 ```
 
-Authored code lives under `src`:
+Load the extension using the [quick-start instructions](#1-install-the-extension).
+After source changes, rebuild and reload the extension. If you change the Mod
+implementation, also replace the script in your test campaign.
 
-- `src/extension/sidepanel.tsx` contains the React side-panel interface.
-- `src/extension/options.tsx` contains the full-page profile editor.
-- `src/extension/service-worker.ts` owns OAuth, credentials, and model requests.
-- `src/extension/extension-chat-transport.ts` bridges AI SDK UI streams over a
-  browser extension runtime port.
-- `src/extension/openrouter-auth.ts` contains the testable PKCE and response
-  parsing helpers.
-- `src/extension/profile-config.ts` defines supported games, sheets, models, and
-  profile validation.
-- `src/extension/prompts` contains the prompt text and profile prompt assembly.
-- `src/protocol.ts` and `src/extension/content-script.ts` implement the encoded
-  Roll20 Mod bridge.
-- `src/roll20-mod` contains the Mod implementation and Roll20 global types.
+Edit authored files under `src/`, not `generated/`. Generated artifacts are
+checked in; include rebuilt output with source changes. `package.json` is the
+single source of truth for the extension version, which the build inserts into
+both manifest templates. The Mod bridge and wire protocol are versioned separately.
 
-The checked-in `generated/chrome`, `generated/firefox`, and
-`generated/roll20-mod` directories are generated artifacts. Do not edit them
-directly.
+### Commands
 
-## Roll20 execution bridge
+| Command | Purpose |
+| --- | --- |
+| `pnpm build` | Type-check and build both extensions, the Mod, and feedback Worker |
+| `pnpm typecheck` | Type-check without generating output |
+| `pnpm test` | Build and run the automated tests |
+| `pnpm check` | Alias for `pnpm test` |
+| `pnpm chrome:package` | Build a Chrome ZIP under `dist/chrome/` |
+| `pnpm firefox:package` | Build a Firefox ZIP under `dist/firefox/` |
+| `pnpm firefox:lint` | Build and check Firefox extension packaging rules |
+| `pnpm firefox:run` | Build and launch Firefox with the extension |
+| `pnpm feedback:build` | Build just the feedback Worker |
 
-To load the Mod script for development:
+CI runs application tests, Terraform validation and mocked tests, and checks that
+the generated artifacts match the source. Packaging outputs under `dist/` are
+gitignored.
 
-1. Open the Roll20 game's landing page.
-2. Choose **Settings > Mod (API) Scripts**.
-3. Create a script named `GMToolsPoc`.
-4. Copy `generated/roll20-mod/GMToolsPoc.js` into the editor and save it.
+See [Diagnostics](docs/diagnostics.md) for run snapshots and sandbox-version
+observations, and the [feedback infrastructure guide](infra/feedback/README.md)
+for Worker deployment and validation.
 
-Reload the development extension after each build. The worker injects the
-content-script bridge on demand if an
-already-open Roll20 tab predates the extension reload. For example: “Use Roll20
-to roll a d20 and tell me the result.”
+## Architecture
 
-The code supplied to `execute_roll20` is evaluated as a function body with
-access to Roll20 Mod globals. Explicit return values must be JSON-serializable;
-returned promises are awaited. The bridge accepts commands only from a Roll20
-GM. API commands are hidden by Roll20, and marked result whispers use
-`noarchive` and are removed from the live chat DOM by a `MutationObserver`.
+### Browser extension
+
+- **Chat interface** — `src/extension/sidepanel.tsx` provides the React chat UI,
+  campaign attachment, image attachments, and chat navigation.
+- **Settings interface** — `src/extension/options.tsx` manages profiles,
+  campaigns, memory, appearance, authentication, and behavior.
+- **Background worker** — `src/extension/service-worker.ts` owns credentials,
+  model requests, active conversation jobs, and Roll20 routing. Tasks can continue
+  while the sidebar is closed. Different chats can run concurrently, while
+  Roll20 execution is serialized per campaign.
+- **Chat transport** — `src/extension/extension-chat-transport.ts` carries AI SDK
+  UI streams over extension runtime ports between the worker and sidebar.
+- **Persistence** — `src/extension/database.ts`, the migration registry, and
+  `*-store.ts` modules manage IndexedDB records and notify interfaces of changes.
+  Credentials remain separate in browser extension storage.
+- **Profiles and prompts** — `src/extension/profile-config.ts` defines profile
+  configuration; `src/extension/prompts/` holds prompt text and assembly. The
+  resolved prompt is rebuilt for each submission from the current configuration.
+- **Assets and builds** — manifest templates live in `src/extension/`; static
+  styles, HTML, and icons live in `src/extension/static/`. `scripts/build.mjs`
+  produces `generated/chrome/` and `generated/firefox/`.
+
+### Roll20 bridge and Mod
+
+`src/extension/content-script.ts` connects the extension to the Roll20 page.
+`src/protocol.ts` defines the shared message format, and `src/roll20-mod/` contains
+the sandbox implementation. The generated Mod lives in `generated/roll20-mod/`.
+
+The model's `execute_roll20` tool relays JavaScript through an encoded API chat
+command. The Mod runs on Roll20's servers, accepts commands only from a GM, and
+evaluates the code as a function body with access to Roll20 globals. Returned promises are awaited;
+return values must be JSON-serializable. Acknowledgments, results, and errors
+travel back through marked, non-archived whispers that the content script filters
+from the visible chat when recognized.
+
+Campaign handshakes establish identity and compatibility. Durable chat attachments
+are separate from ephemeral `campaignId -> tabId` routes shared by chats in the
+same campaign. The last-known sandbox runtime version is retained for diagnostics;
+switching chats does not trigger an extra sandbox handshake.
+
+### Feedback service
+
+The extension constructs reports locally and either downloads them as JSON or
+submits them to a Cloudflare Worker. `src/feedback-schema.ts` defines the shared
+report schema. Worker source lives under `src/feedback-worker/`, with its generated
+bundle under `generated/feedback-worker/`.
+
+The Worker validates and size-limits reports, applies rate limits, and writes them
+to a private R2 bucket. It has no public report-reading endpoint. Terraform under
+`infra/feedback/` manages the service, storage retention, and observability.
