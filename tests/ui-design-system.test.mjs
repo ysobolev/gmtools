@@ -134,8 +134,14 @@ test("single memory deletion uses a compact modal rather than replacing row acti
   assert.match(source, /useModalEscape\(Boolean\(deleteMemory\), busy/);
   assert.match(source, /deleteMemory.content.slice\(0, 240\)/);
   assert.match(source, /removeMemory\(deleteMemory.id\)/);
+  assert.match(source, /className="danger-button button-small" disabled=\{busy\} onClick=\{\(\) => \{\s*setFeedback\(null\);\s*setDeletePromptId\(memory.id\)/);
   assert.doesNotMatch(source, /Confirm delete|deletePromptId === memory.id/);
   assert.doesNotMatch(source, /updateCampaignMemory|campaign-memory-editor|setEditingContent/);
+});
+
+test("memory dates align with the bottom of the compact action row", async () => {
+  const css = await readFile("src/extension/static/options.css", "utf8");
+  assert.match(css, /\.campaign-memory-meta\s*\{[^}]*align-items: flex-end;/);
 });
 
 test("profile deletion describes the current fallback profile name", async () => {

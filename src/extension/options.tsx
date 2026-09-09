@@ -807,7 +807,7 @@ function CampaignMemorySettings({
                 Updated {new Date(memory.updatedAt).toLocaleString()}
               </time>
               <div className="campaign-memory-actions">
-                <button className="danger-button" disabled={busy} onClick={() => {
+                <button className="danger-button button-small" disabled={busy} onClick={() => {
                   setFeedback(null);
                   setDeletePromptId(memory.id);
                 }} type="button">Delete</button>
