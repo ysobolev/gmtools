@@ -35,3 +35,17 @@ run "reject_invalid_retention" {
   }
   expect_failures = [var.retention_days]
 }
+
+run "disable_uploads" {
+  command = plan
+  variables {
+    uploads_enabled = false
+  }
+  assert {
+    condition = one([
+      for binding in cloudflare_workers_script.feedback.bindings : binding.text
+      if binding.name == "FEEDBACK_UPLOADS_ENABLED"
+    ]) == "false"
+    error_message = "Disabling uploads must reach the Worker kill switch."
+  }
+}

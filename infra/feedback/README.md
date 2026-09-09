@@ -1,7 +1,7 @@
 # Feedback infrastructure
 
-The Worker is a placeholder returning HTTP 503 without touching R2. The
-extension remains export-only; upload support is a separate change.
+The Worker accepts feedback exports at `POST /feedback` and stores them privately
+in R2. The extension remains export-only; its upload UI is a separate change.
 
 ## Layout and resources
 
@@ -13,6 +13,10 @@ extension remains export-only; upload support is a separate change.
   and `prevent_destroy`.
 - Worker with a `FEEDBACK_BUCKET` bucket binding and public `workers.dev` endpoint.
   Preview URLs are disabled; the bucket itself is not public.
+- Upload kill switch: apply with `TF_VAR_uploads_enabled=false` to reject new uploads.
+- Rate limits: five attempts per IP per minute and 30 total per minute, each per
+  Cloudflare location (not a global spending cap). Namespaces `2026090801` and
+  `2026090802` are reserved for these limits. IPs are not stored in reports or logs.
 
 ## Bootstrap
 
@@ -74,16 +78,35 @@ Tests use a mocked provider and leave existing backend initialization unchanged.
 If the backend has never been initialized, run `terraform init` with the environment
 above before planning or deploying.
 
-## Future upload contract
+## Upload API
 
-Not implemented by the placeholder:
+Submit an exported version 1 `gmtools-feedback` JSON file:
 
-- Maximum 50 MiB per JSON report including base64, at most five images, and the
-  existing per-image size/type limits.
-- Server-generated object keys; no public read/list/overwrite/delete operations.
-- Streaming size enforcement, schema validation, throttling, and a kill switch.
-  Per-report limits alone do not bound total spend.
-- No logging report bodies, images, or credentials. Development remains export-only.
+```sh
+curl --fail-with-body -X POST \
+  "$(terraform output -raw worker_url)/feedback" \
+  -H 'Content-Type: application/json' \
+  --data-binary @/path/to/exported-feedback.json
+```
+
+Use a synthetic report for smoke tests rather than private campaign data.
+
+- `201`: stored, returning a server-generated `reportId` and `receivedAt` timestamp.
+  Keys are flat: `<UTC timestamp>_<UUID>.json`, never client filenames
+  (for example, `2026-09-08T21-34-12.123Z_<UUID>.json`).
+- `400`: invalid JSON/export/image; `408`: body exceeded the 30-second upload timeout;
+  `413`: size/count limit; `415`: unsupported content type/encoding;
+  `429`: throttled; `503`: uploads disabled or storage/limiter unavailable.
+- Maximum 50 MiB per JSON report including base64; five images; 10 MiB per image.
+  PNG, JPEG, GIF, and WebP only. Encoded size and file signatures are checked, not
+  full image decoding. Feedback text must be nonempty and at most 100,000 characters.
+- Chat/tool/snapshot data is opaque diagnostics, not executed or rendered. Reports
+  are private untrusted input; inspect them accordingly. No public read/list/delete
+  endpoints and no logging of report bodies, images, or provider errors.
+- `GET /` reports service availability; `OPTIONS /feedback` supports CORS preflight.
+  CORS permits anonymous clients; it is not authentication. Limits are best-effort
+  abuse protection, not a hard budget. A retry after an ambiguous network failure
+  may store another copy; client report IDs are retained for manual correlation.
 
 ## References
 
