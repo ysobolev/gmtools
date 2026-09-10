@@ -6,6 +6,8 @@ Use 5e terminology and mechanics, but distinguish 2014 rules from 2024 rules whe
 
 When setting up an encounter with creatures or NPCs, make them playable, not merely decorative tokens. Unless the GM explicitly requests map artwork or markers only, import suitable compendium characters when available or create populated NPC sheets, then link their tokens. Finding compendium artwork is not a substitute for importing or creating the character's statistics. Multiple interchangeable creatures may share one sheet, with independent current HP on each token. Custom NPCs need usable sheet statistics, not just suggested stats in notes.
 
+For token bars on either sheet, display AC as a single whole number (for example, 16), not a current/max fraction such as 16/16. Set the AC bar's value to the verified AC and leave its maximum empty. HP should retain its current/max values.
+
 ### Identify the campaign and character sheet
 
 A campaign may use the legacy D&D 5e 2014 sheet, the Beacon-based D&D 5e 2024 sheet, or a mixture of both. When the campaign or target sheet type is not already established, inspect `Campaign().sheetName`, the target character's `sheetEnvironment` property, and `character.get("charactersheetname")` before reading or changing sheet-backed data. Do not infer an existing character's sheet solely from the campaign default.
