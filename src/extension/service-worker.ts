@@ -92,7 +92,7 @@ import {
   type GeneratedImageToStore,
 } from "./chat-image-normalization";
 import { KeyedExecutionQueue } from "./keyed-execution-queue";
-import { ROLL20_LAYERS, roll20ActionInput, sendRoll20UiEvent, type Roll20Layer, type Roll20UiAction } from "./roll20-ui-events";
+import { ROLL20_LAYERS, readRoll20CurrentLayer, roll20ActionInput, sendRoll20UiEvent, type Roll20Layer, type Roll20UiAction } from "./roll20-ui-events";
 import { createModelInactivityMonitor } from "./model-inactivity";
 import {
   AUTH_CONNECT_REQUEST,
@@ -2332,8 +2332,10 @@ async function resolveChatProfile(
 async function executeRoll20UiAction(job: ConversationJob, action: Roll20UiAction, toolCallId: string, signal: AbortSignal) {
   const campaignId = job.campaignId;
   if (!campaignId) throw new Error("Attach a Roll20 campaign before using UI tools.");
-  const input = roll20ActionInput(`tool-${action.tool}`, action)!;
-  const claimed = await claimRoll20Approval(job.chatId, campaignId, toolCallId, input, job.requireRoll20Approval);
+  const claimed = action.tool === "get_current_layer" ? false : await claimRoll20Approval(
+    job.chatId, campaignId, toolCallId,
+    roll20ActionInput(`tool-${action.tool}`, action)!, job.requireRoll20Approval,
+  );
   let dispatched = false;
   let outcome: "completed" | "failed" | "unknown" = "failed";
   try {
@@ -2356,6 +2358,18 @@ async function executeRoll20UiAction(job: ConversationJob, action: Roll20UiActio
       if (!identity.isGM || identity.campaignId !== campaignId) {
         await removeCampaignRoute(campaignId);
         throw new Error("The Roll20 tab is not a GM tab for this chat's campaign.");
+      }
+      if (action.tool === "get_current_layer") {
+        signal.throwIfAborted();
+        if ((await getCampaignBinding(job.chatId))?.campaignId !== campaignId || !(await getGlobalPreferences()).experimentalRoll20Events) {
+          throw new Error("The campaign attachment or experimental UI setting changed.");
+        }
+        signal.throwIfAborted();
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: target.tabId }, world: "ISOLATED",
+          func: readRoll20CurrentLayer, args: [documentToken],
+        });
+        return results[0]?.result ?? { ok: false, layer: "unknown", error: "The content script did not return the selected layer." };
       }
       let payload: { base64: string; filename: string; mediaType: string } | undefined;
       if (action.tool === "drop_image") {
@@ -2433,6 +2447,11 @@ async function streamChat(
     apiKey: stored.openRouterApiKey,
   });
   const tools = {
+    get_current_layer: tool({
+      description: "Experimental, read-only: read the selected layer from the attached Roll20 tab's toolbar. Returns token, gm, map, foreground, lighting, or unknown when it cannot be determined. Does not switch layers and requires no execution approval. Use to check the layer before dropping an image or verify a layer switch.",
+      inputSchema: jsonSchema<Record<string, never>>({ type: "object", properties: {}, additionalProperties: false }),
+      execute: (_input, { toolCallId, abortSignal }) => executeRoll20UiAction(job, { tool: "get_current_layer" }, toolCallId, abortSignal ?? abortController.signal),
+    }),
     switch_layer: tool({
       description: "Experimental: send a keyboard shortcut to switch the attached Roll20 tab's layer. Changes the GM's UI, not token properties. Event delivery does not confirm the layer changed. Do not repeat denied actions without explicit user permission.",
       inputSchema: jsonSchema<{ layer: Roll20Layer }>({
@@ -2843,7 +2862,7 @@ async function streamChat(
   ];
   if (job.campaignId) activeTools.push("execute_roll20");
   if (job.campaignId && (await getGlobalPreferences()).experimentalRoll20Events) {
-    activeTools.push("switch_layer", "drop_image");
+    activeTools.push("get_current_layer", "switch_layer", "drop_image");
   }
   if (job.memoryEnabled) {
     activeTools.push(
@@ -2860,7 +2879,7 @@ async function streamChat(
       memoryAvailable: job.memoryEnabled,
     }),
     activeTools.includes("drop_image")
-      ? "Experimental Roll20 UI tools are available: switch_layer sends a layer shortcut, and drop_image drops an existing imageId from this chat onto the canvas. These are your only browser interactions; they do not let you inspect the UI or operate character-sheet controls. Drops use the current layer and may upload images and create tokens. Unless the GM specifies coordinates, use the center default. Do not claim success beyond the event receipt, automatically repeat a drop, or retry a denied action without the GM's explicit permission."
+      ? "Experimental Roll20 UI tools are available: get_current_layer reads the selected toolbar layer without approval, switch_layer sends a layer shortcut, and drop_image drops an existing imageId from this chat onto the canvas. These are your only browser interactions; they do not allow general UI inspection or operating character-sheet controls. Use get_current_layer to check or verify the selected layer; if it returns unknown, do not guess. Drops use the current layer and may upload images and create tokens. Unless the GM specifies coordinates, use the center default. Do not claim upload or token creation beyond the event receipt, automatically repeat a drop, or retry a denied action without the GM's explicit permission."
       : "",
     job.continuation?.reason === "stream-error"
       ? "The previous response stream failed after one or more Roll20 actions returned. Generate a fresh answer from the recorded results and do not repeat completed actions."

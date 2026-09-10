@@ -1,6 +1,7 @@
 export const ROLL20_LAYERS = ["token", "gm", "map", "foreground", "lighting"] as const;
 export type Roll20Layer = typeof ROLL20_LAYERS[number];
 export type Roll20UiAction =
+  | { readonly tool: "get_current_layer" }
   | { readonly tool: "switch_layer"; readonly layer: Roll20Layer }
   | { readonly tool: "drop_image"; readonly imageId: string; readonly x?: number | null; readonly y?: number | null };
 
@@ -25,11 +26,31 @@ export function roll20ActionInput(type: string, input: unknown): { summary: stri
   return undefined;
 }
 
+// Serialized into the isolated content-script world; no page API or mutations.
+export function readRoll20CurrentLayer(documentToken: string): { ok: boolean; layer: Roll20Layer | "unknown"; error?: string } {
+  const scope = window as unknown as { __gmToolsUiDocument?: string };
+  if (scope.__gmToolsUiDocument !== documentToken) {
+    return { ok: false, layer: "unknown", error: "The Roll20 page changed before the layer could be read." };
+  }
+  const buttons = [
+    ["token", "tokens-layer-button"],
+    ["gm", "gm-layer-button"],
+    ["map", "map-layer-button"],
+    ["foreground", "foreground-layer-button"],
+    ["lighting", "lighting-layer-button"],
+  ] as const;
+  const selected = buttons.filter(([, id]) => document.querySelector(`#${id} .icon-selected`));
+  if (selected.length !== 1) {
+    return { ok: false, layer: "unknown", error: "The Roll20 toolbar does not identify exactly one selected layer." };
+  }
+  return { ok: true, layer: selected[0]![0] };
+}
+
 // Serialized into MAIN for drops, ISOLATED for shortcuts: keep self-contained.
 // The document token prevents sending to a replacement document after a handshake.
 export function sendRoll20UiEvent(
   documentToken: string,
-  action?: Roll20UiAction,
+  action?: Exclude<Roll20UiAction, { tool: "get_current_layer" }>,
   image?: { base64: string; filename: string; mediaType: string } | null,
 ): { ok: boolean; eventSent?: boolean; error?: string } {
   const scope = window as unknown as { __gmToolsUiDocument?: string };

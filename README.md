@@ -90,9 +90,10 @@ Open the chat drawer and use **Settings** in its footer.
   The experimental **Silence GM Tools chat notifications** option suppresses
   sounds and indicators for internal Roll20 replies, leaving normal chat and rolls
   unchanged. It is off by default and applies from the next Roll20 command.
-  **Enable experimental Roll20 UI events** lets the assistant switch layers and
+  **Enable experimental Roll20 UI events** lets the assistant read or switch layers and
   drop images already stored in the chat onto the canvas. It is off by default;
-  campaign execution approvals apply. Image drops may upload to your Art Library
+  campaign execution approvals apply to switches and drops, but not layer reads.
+  Image drops may upload to your Art Library
   and create tokens. Browser and Roll20 support may vary.
 - **Display:** use your system theme or select light or dark mode.
 

@@ -28,6 +28,31 @@ test("experimental events require an explicit true preference", () => {
   assert.equal(preferences.normalizeGlobalPreferences({ experimentalRoll20Events: true }).experimentalRoll20Events, true);
 });
 
+test("reads each toolbar layer without emitting events, and reports unknown safely", () => {
+  const { context, sent } = page();
+  const read = vm.runInContext(`(${events.readRoll20CurrentLayer.toString()})`, context);
+  for (const [layer, id] of [["token", "tokens"], ["gm", "gm"], ["map", "map"], ["foreground", "foreground"], ["lighting", "lighting"]]) {
+    context.document.querySelector = selector => selector === `#${id}-layer-button .icon-selected` ? {} : null;
+    const result = read("document-1");
+    assert.equal(result.ok, true);
+    assert.equal(result.layer, layer);
+  }
+  context.document.querySelector = () => null;
+  assert.equal(read("document-1").layer, "unknown");
+  assert.equal(read("document-1").ok, false);
+  context.document.querySelector = () => ({});
+  assert.equal(read("document-1").layer, "unknown");
+  assert.equal(read("stale-document").ok, false);
+  assert.equal(sent.length, 0);
+});
+
+test("layer reads are not mutation receipts or approval requests", () => {
+  assert.equal(events.isRoll20ActionPart("tool-get_current_layer"), false);
+  const message = { id: "assistant", role: "assistant", parts: [{ type: "tool-get_current_layer", toolCallId: "read-1", input: {}, state: "output-available", output: { ok: true, layer: "gm" } }] };
+  assert.equal(activity.countPendingRoll20Approvals([message]), 0);
+  assert.equal(persistence.hasDurableRoll20Result(message), false);
+});
+
 test("sends all five Ctrl layer shortcuts from a self-contained content script", () => {
   for (const [layer, key, keyCode] of [["token", "o", 79], ["gm", "k", 75], ["map", "m", 77], ["foreground", ".", 190], ["lighting", ",", 188]]) {
     const { send, sent } = page();
