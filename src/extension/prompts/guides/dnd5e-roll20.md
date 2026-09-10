@@ -253,6 +253,8 @@ For a new custom integrant, generate a fresh UUID in your code (do not assume cr
 
 childIDs and display-order lists below are JSON-encoded strings, not arrays. Keep all parent/child links consistent. Traits use type:'Features' (plural), name and description; put their IDs in S.features.otherDisplayOrder (JSON string), preserving any existing list. Use readable HTML in bio, gmnotes, and descriptions where supported, including paragraphs, lists and tables. Source lore belongs in bio; encounter/roll tables, private guidance, provenance and creation caveats belong in gmnotes, not player-facing lore. Read bio/gmnotes with their callback getters and preserve unrelated notes.
 
+Action and attack description fields must contain plain text, never HTML. Convert any source HTML to readable text, using line breaks as needed; do not include tags such as <p>, <br>, or <strong>. This applies to all action categories and spell-linked attacks. HTML guidance for bio and gmnotes does not apply to action or attack descriptions.
+
 Text actions use type:'Action', actionType:'Action'/'Bonus Action'/'Reaction'/'Legendary', description, excludeFamilialResources:false. Keep Multiattack and Spellcasting readable and preserve source categories. Do not add legendary/mythic/lair actions unless the source grants them. Costs and trigger conditions must remain visible even when automatic tracking cannot be established.
 
 A tested melee Attack and typed damage child are:
