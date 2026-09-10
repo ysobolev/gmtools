@@ -5,13 +5,17 @@ export const MODEL_IDS = [
   "anthropic/claude-fable-5.1",
   "anthropic/claude-opus-5",
   "anthropic/claude-sonnet-5",
+  "google/gemma-4-31b-it:free",
+  "openrouter/free",
 ] as const;
 export type ModelId = (typeof MODEL_IDS)[number];
 
 export const RECOMMENDED_MODEL_ID: ModelId = "openai/gpt-5.6-sol";
+export const FREE_MODEL_ID: ModelId = "openrouter/free";
 
 export type ModelSelection =
   | { readonly kind: "recommended" }
+  | { readonly kind: "free" }
   | { readonly kind: "fixed"; readonly modelId: string };
 
 export const RULESET_IDS = ["dnd5e", "vtm5", "custom"] as const;
@@ -37,6 +41,16 @@ export interface RulesetDefinition {
 }
 
 export const MODELS: readonly ModelDefinition[] = [
+  {
+    id: FREE_MODEL_ID,
+    label: "OpenRouter Free",
+    description: "Automatically selects a compatible free model through OpenRouter.",
+  },
+  {
+    id: "google/gemma-4-31b-it:free",
+    label: "Gemma 4 31B IT",
+    description: "Google's Gemma model, available through OpenRouter's free tier.",
+  },
   {
     id: "openai/gpt-5.6-sol",
     label: "GPT-5.6 Sol",
@@ -108,6 +122,7 @@ function isModelSelection(value: unknown): value is ModelSelection {
   return (
     isRecord(value) &&
     (value.kind === "recommended" ||
+      value.kind === "free" ||
       (value.kind === "fixed" && isModelIdentifier(value.modelId)))
   );
 }
@@ -169,14 +184,18 @@ export function getModelDefinition(modelId: string): ModelDefinition {
 export function resolveModelId(selection: ModelSelection): string {
   return selection.kind === "recommended"
     ? RECOMMENDED_MODEL_ID
-    : selection.modelId;
+    : selection.kind === "free"
+      ? FREE_MODEL_ID
+      : selection.modelId;
 }
 
 export function getModelSelectionLabel(selection: ModelSelection): string {
   const definition = getModelDefinition(resolveModelId(selection));
   return selection.kind === "recommended"
     ? `Recommended (${definition.label})`
-    : definition.label;
+    : selection.kind === "free"
+      ? `Free (${definition.label})`
+      : definition.label;
 }
 
 export function getRulesetDefinition(

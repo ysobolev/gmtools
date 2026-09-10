@@ -66,7 +66,9 @@ import {
   isAssistantProfile,
   isCuratedModelId,
   MODELS,
+  FREE_MODEL_ID,
   RECOMMENDED_MODEL_ID,
+  resolveModelId,
   RULESETS,
   type AssistantProfile,
   type RulesetId,
@@ -170,15 +172,12 @@ function ProfilesSettings(): React.JSX.Element {
   }, []);
 
   const selectedModelChoice =
-    draft.modelSelection.kind === "recommended"
-      ? "recommended"
+    draft.modelSelection.kind !== "fixed"
+      ? draft.modelSelection.kind
       : isCuratedModelId(draft.modelSelection.modelId)
         ? draft.modelSelection.modelId
         : "custom";
-  const resolvedDraftModelId =
-    draft.modelSelection.kind === "recommended"
-      ? RECOMMENDED_MODEL_ID
-      : draft.modelSelection.modelId;
+  const resolvedDraftModelId = resolveModelId(draft.modelSelection);
 
   if (!profiles) {
     return (
@@ -449,9 +448,9 @@ function ProfilesSettings(): React.JSX.Element {
               <select
                 onChange={(event) => {
                   const value = event.target.value;
-                  if (value === "recommended") {
+                  if (value === "recommended" || value === "free") {
                     updateDraft(
-                      { modelSelection: { kind: "recommended" } },
+                      { modelSelection: { kind: value } },
                       true,
                     );
                   } else if (value === "custom") {
@@ -476,6 +475,9 @@ function ProfilesSettings(): React.JSX.Element {
                 <option value="recommended">
                   Recommended ({getModelDefinition(RECOMMENDED_MODEL_ID).label})
                 </option>
+                <option value="free">
+                  Free ({getModelDefinition(FREE_MODEL_ID).label})
+                </option>
                 <optgroup label="OpenAI">
                   {MODELS.filter((model) => model.id.startsWith("openai/")).map(
                     (model) => (
@@ -493,6 +495,15 @@ function ProfilesSettings(): React.JSX.Element {
                       {model.label}
                     </option>
                   ))}
+                </optgroup>
+                <optgroup label="Google">
+                  {MODELS.filter((model) => model.id.startsWith("google/")).map(
+                    (model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label}
+                      </option>
+                    ),
+                  )}
                 </optgroup>
                 <option value="custom">Custom…</option>
               </select>

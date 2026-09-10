@@ -79,7 +79,7 @@ test("accepts custom models and rejects unknown rulesets", () => {
   );
 });
 
-test("offers the curated OpenAI and Anthropic model classes", () => {
+test("offers the curated OpenAI, Anthropic, and Google models", () => {
   assert.deepEqual(profiles.MODEL_IDS, [
     "openai/gpt-5.6-sol",
     "openai/gpt-5.6-terra",
@@ -87,6 +87,8 @@ test("offers the curated OpenAI and Anthropic model classes", () => {
     "anthropic/claude-fable-5.1",
     "anthropic/claude-opus-5",
     "anthropic/claude-sonnet-5",
+    "google/gemma-4-31b-it:free",
+    "openrouter/free",
   ]);
   assert.deepEqual(
     profiles.getModelDefinition("openai/gpt-5.6-sol"),
@@ -99,10 +101,17 @@ test("offers the curated OpenAI and Anthropic model classes", () => {
   );
 });
 
-test("resolves recommended and fixed model selections", () => {
+test("resolves recommended, free, and fixed model selections", () => {
   assert.equal(
     profiles.resolveModelId({ kind: "recommended" }),
     profiles.RECOMMENDED_MODEL_ID,
+  );
+  assert.equal(profiles.FREE_MODEL_ID, "openrouter/free");
+  assert.equal(profiles.resolveModelId({ kind: "free" }), profiles.FREE_MODEL_ID);
+  assert.equal(profiles.getModelSelectionLabel({ kind: "free" }), "Free (OpenRouter Free)");
+  assert.equal(
+    profiles.getModelSelectionLabel({ kind: "fixed", modelId: profiles.FREE_MODEL_ID }),
+    "OpenRouter Free",
   );
   assert.equal(
     profiles.resolveModelId({ kind: "fixed", modelId: "vendor/legacy" }),
@@ -126,4 +135,17 @@ test("preserves a stored custom model selection", () => {
   };
   const normalized = profiles.normalizeProfiles([custom]);
   assert.deepEqual(normalized[1], custom);
+});
+
+test("preserves the Free pointer rather than pinning its resolved model", () => {
+  const free = {
+    ...profiles.DEFAULT_PROFILE,
+    id: "free-profile",
+    modelSelection: { kind: "free" },
+  };
+  assert.equal(profiles.isAssistantProfile(free), true);
+  assert.deepEqual(profiles.normalizeProfiles([free])[1], free);
+  assert.equal(profiles.isAssistantProfile({
+    ...free, modelSelection: { kind: "unknown" },
+  }), false);
 });

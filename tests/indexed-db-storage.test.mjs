@@ -160,10 +160,14 @@ test("profile deletion reassigns chats to General atomically", async () => {
     id: "custom-profile",
     name: "Custom",
     rulesetId: "custom",
-    modelSelection: { kind: "recommended" },
+    modelSelection: { kind: "free" },
     additionalInstructions: "",
   };
   await profiles.saveProfile(custom, { create: true });
+  assert.deepEqual(
+    (await profiles.listProfiles()).find(profile => profile.id === custom.id).modelSelection,
+    { kind: "free" },
+  );
   const created = await chats.createChat(custom.id);
   await chats.saveChatMessages(created.chat.id, [
     { id: "message-1", role: "user", parts: [{ type: "text", text: "hello" }] },
