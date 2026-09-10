@@ -1,5 +1,6 @@
 import { asSchema, type ToolSet } from "@ai-sdk/provider-utils";
 import type { UIMessage } from "ai";
+import type { RequestDiagnostic } from "./request-diagnostics";
 import { isCampaignAttachmentNotice } from "./campaign-attachment-notice";
 import { openDatabase, requestResult, transactionComplete } from "./database";
 import {
@@ -99,6 +100,7 @@ export async function recordRunSubmission(
   continuation?: {
     readonly reason: "step-limit" | "stream-error";
     readonly afterMessageId: string;
+    readonly discardReasoning?: boolean;
   },
 ): Promise<UIMessage[]> {
   // Freeze the JSON representation before any asynchronous work so the hash
@@ -142,6 +144,7 @@ export async function recordRunSubmission(
     kind: continuation ? (continuation.reason === "stream-error" ? "retry" : "resume")
       : approval ? "approval" : previous.length ? "retry" : "message",
     ...(continuation ? { afterMessageId: continuation.afterMessageId } : {}),
+    ...(continuation?.discardReasoning ? { reasoningDiscarded: true } : {}),
   };
   messages[index] = {
     ...message,
@@ -182,4 +185,32 @@ export async function getRunSnapshot(hash: string): Promise<RunSnapshot | undefi
   const value: StoredRunSnapshot | undefined = await requestResult(tx.objectStore(RUN_SNAPSHOTS_STORE).get(hash));
   await transactionComplete(tx);
   return value?.snapshot;
+}
+
+/** Patch only the stored submission metadata; never overwrite streamed history
+ * or recreate a chat deleted while a request was in flight. */
+export async function recordRunRequest(chatId: string, runId: string, diagnostic: RequestDiagnostic): Promise<void> {
+  const db = await openDatabase();
+  const tx = db.transaction([CHATS_STORE, MESSAGES_STORE], "readwrite");
+  const done = transactionComplete(tx);
+  void done.catch(() => undefined);
+  const chat = await requestResult(tx.objectStore(CHATS_STORE).get(chatId));
+  const store = tx.objectStore(MESSAGES_STORE);
+  const stored = await requestResult(store.get(chatId));
+  if (chat && stored) {
+    const messages = stored.messages.map((message: UIMessage) => {
+      const markers = submissionMarkers(message);
+      if (!markers.some(marker => marker.runId === runId)) return message;
+      return { ...message, metadata: { ...(message.metadata as object | undefined), [SUBMISSIONS_METADATA_KEY]: markers.map(marker => {
+        if (marker.runId !== runId) return marker;
+        const requests = [...(marker.requests ?? [])];
+        const index = requests.findIndex(request => request.id === diagnostic.id);
+        if (index < 0) requests.push(diagnostic);
+        else requests[index] = diagnostic;
+        return { ...marker, requests };
+      }) } };
+    });
+    store.put({ ...stored, messages });
+  }
+  await done;
 }

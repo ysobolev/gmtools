@@ -51,6 +51,7 @@ export function createGenerateImageTool(options: {
   persist: (image: GeneratedImageToStore) => Promise<UploadedImageReference>;
   log: (details: Record<string, unknown>) => void;
   fetch?: typeof fetch;
+  onResponse?: (value: unknown, ok: boolean) => Promise<void>;
 }) {
   const imageParts = new Map<string, UIMessageChunk>();
   return {
@@ -96,6 +97,7 @@ export function createGenerateImageTool(options: {
             error?: { message?: string };
             usage?: unknown;
           } | null;
+          await options.onResponse?.(payload, response.ok && !payload?.error);
           if (!response.ok || payload?.error) {
             const detail = typeof payload?.error?.message === "string" ? `: ${payload.error.message.slice(0, 500)}` : "";
             throw new Error(`OpenRouter image generation failed (${response.status})${detail}`);

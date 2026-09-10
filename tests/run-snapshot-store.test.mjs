@@ -35,6 +35,31 @@ const config = {
 const user = (id = "user-1") => ({ id, role: "user", parts: [{ type: "text", text: "Build this NPC" }] });
 const markers = (message) => message.metadata.gmToolsSubmissions;
 
+test("request diagnostics survive stale panel saves, export, retries and chat deletion", async () => {
+  const { chat } = await chats.createChat("general-gm");
+  const history = await runs.recordRunSubmission(chat.id, [user()], config);
+  const run = markers(history[0])[0];
+  const initial = { id: "http-1", kind: "chat", sessionId: chat.id, requestedModel: "alias", startedAt: 1, outcome: "started" };
+  await runs.recordRunRequest(chat.id, run.runId, initial);
+  const completed = { ...initial, generationIds: ["gen-1"], requestIds: ["req-1"], model: "actual/model", provider: "Azure", finishedAt: 2, outcome: "failed" };
+  await runs.recordRunRequest(chat.id, run.runId, completed);
+  await chats.saveChatMessages(chat.id, history); // stale marker lacks requests
+  const saved = await chats.getStoredChat(chat.id);
+  assert.deepEqual(markers(saved.messages[0])[0].requests, [completed]);
+  await chats.updateChatContinuation(chat.id, { reason: "stream-error", afterMessageId: "user-1", createdAt: Date.now(), discardReasoning: true });
+  assert.equal((await chats.getStoredChat(chat.id)).chat.continuation.discardReasoning, true);
+  assert.deepEqual(await convertToModelMessages(saved.messages), await convertToModelMessages([user()]));
+  const feedback = await bundle("src/extension/feedback-report.ts");
+  const report = await feedback.createFeedbackReport({ feedback: "routing failure", includeChat: true, includeImages: false, chatId: chat.id, runningWhenOpened: false, extension: config.extension });
+  assert.deepEqual(markers(report.conversation.messages[0])[0].requests, [completed]);
+  const retry = await runs.recordRunSubmission(chat.id, saved.messages, config, { reason: "stream-error", afterMessageId: "user-1", discardReasoning: true });
+  assert.equal(markers(retry[0]).at(-1).reasoningDiscarded, true);
+  assert.deepEqual(markers(retry[0])[0].requests, [completed]);
+  await chats.deleteChat(chat.id);
+  await runs.recordRunRequest(chat.id, run.runId, initial);
+  assert.equal(await chats.getStoredChat(chat.id), undefined);
+});
+
 test("snapshots use canonical hashes and only capture declarative tool configuration", async () => {
   const reordered = Object.fromEntries(Object.entries(config).reverse());
   assert.equal(await runs.hashRunSnapshot(config), await runs.hashRunSnapshot(reordered));

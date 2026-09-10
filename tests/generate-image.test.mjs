@@ -47,6 +47,17 @@ function setup(overrides = {}) {
   return { ...createGenerateImageTool(options), stored, requests, logs, controller, options };
 }
 
+test("reports image-generation identifiers before persistence without returning them to the model", async () => {
+  const observed = [];
+  const generation = setup({
+    fetch: async () => Response.json({ id: "gen-img-test", request_id: "req-image", model: IMAGE_GENERATION_MODEL, data: [{ b64_json: "AQID" }] }),
+    onResponse: async (value, ok) => observed.push({ id: value.id, requestId: value.request_id, ok }),
+  });
+  const output = await generation.tool.execute({ prompt: "map" }, context());
+  assert.deepEqual(observed, [{ id: "gen-img-test", requestId: "req-image", ok: true }]);
+  assert.doesNotMatch(JSON.stringify(output), /gen-img-test|req-image/);
+});
+
 test("uses the fixed image endpoint, stores one image and returns only its reference", async () => {
   const generation = setup();
   const output = await generation.tool.execute({ prompt: "A square forest village map", aspectRatio: "1:1" }, context());

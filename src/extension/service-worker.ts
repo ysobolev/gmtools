@@ -1,5 +1,7 @@
 import "./configure-csp";
-import { recordRunSubmission, snapshotTools } from "./run-snapshot-store";
+import { recordRunSubmission, recordRunRequest, snapshotTools } from "./run-snapshot-store";
+import { routingDiagnosticFields, responseDiagnosticFields, errorDiagnosticFields, type RequestDiagnostic } from "./request-diagnostics";
+import { isReasoningCompatibilityError, REASONING_RECOVERY_MESSAGE, stripConversationReasoning } from "./reasoning-recovery";
 import { submissionMarkers } from "./submission-metadata";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import {
@@ -93,7 +95,7 @@ import {
   type GeneratedImageToStore,
 } from "./chat-image-normalization";
 import { KeyedExecutionQueue } from "./keyed-execution-queue";
-import { createGenerateImageTool } from "./generate-image";
+import { createGenerateImageTool, IMAGE_GENERATION_MODEL } from "./generate-image";
 import { ROLL20_LAYERS, readRoll20CurrentLayer, roll20ActionInput, sendRoll20UiEvent, type Roll20Layer, type Roll20UiAction } from "./roll20-ui-events";
 import { runCompendiumAction } from "./compendium";
 import { createModelInactivityMonitor } from "./model-inactivity";
@@ -2232,6 +2234,7 @@ function findStatusCode(error: unknown): number | undefined {
 }
 
 function userFacingModelError(error: unknown): string {
+  if (isReasoningCompatibilityError(error)) return REASONING_RECOVERY_MESSAGE;
   const status = findStatusCode(error);
   if (status === 401) {
     void clearAuth();
@@ -2442,6 +2445,40 @@ async function streamChat(
 
   const { abortController, debug } = job;
   const modelId = resolveModelId(profile.modelSelection);
+  let runId: string | undefined;
+  let callId: string | undefined;
+  let chatRequestId: string | undefined;
+  let imageRequestId: string | undefined;
+  const requests = new Map<string, RequestDiagnostic>();
+  const updateRequest = async (id: string | undefined, patch: Partial<RequestDiagnostic>): Promise<void> => {
+    if (!id || !runId) return;
+    const previous = requests.get(id);
+    if (!previous) return;
+    const next = { ...previous, ...patch };
+    for (const key of ["generationIds", "requestIds"] as const) {
+      if (patch[key]) next[key] = [...new Set([...(previous[key] ?? []), ...patch[key]])];
+    }
+    if (JSON.stringify(next) === JSON.stringify(previous)) return;
+    requests.set(id, next);
+    debug.group("OpenRouter request", next);
+    await recordRunRequest(job.chatId, runId, next).catch(error => debug.group("Request diagnostics save failed", { Error: error }));
+  };
+  const trackedFetch = (kind: "chat" | "image"): typeof fetch => async (input, init) => {
+    const id = crypto.randomUUID();
+    if (kind === "chat") chatRequestId = id;
+    else imageRequestId = id;
+    const diagnostic: RequestDiagnostic = { id, kind, callId, sessionId: job.chatId, requestedModel: kind === "chat" ? modelId : IMAGE_GENERATION_MODEL, startedAt: Date.now(), outcome: "started" };
+    requests.set(id, diagnostic);
+    if (runId) await recordRunRequest(job.chatId, runId, diagnostic).catch(error => debug.group("Request diagnostics save failed", { Error: error }));
+    try {
+      const response = await fetch(input, init);
+      await updateRequest(id, { ...responseDiagnosticFields(response), outcome: response.ok ? "streaming" : "failed", ...(!response.ok ? { finishedAt: Date.now() } : {}) });
+      return response;
+    } catch (error) {
+      await updateRequest(id, { outcome: abortController.signal.aborted ? "aborted" : "failed", finishedAt: Date.now() });
+      throw error;
+    }
+  };
   debug.group("Conversation started", {
     Profile: { id: profile.id, name: profile.name, modelId },
   });
@@ -2454,10 +2491,14 @@ async function streamChat(
   };
   const openrouter = createOpenRouter({
     ...providerConfig,
+    headers: { ...providerConfig.headers, "X-OpenRouter-Metadata": "enabled" },
+    fetch: trackedFetch("chat"),
     apiKey: stored.openRouterApiKey,
   });
   const generatedImageBudget = createGeneratedImageBudget();
   const imageGeneration = createGenerateImageTool({
+    fetch: trackedFetch("image"),
+    onResponse: async (value, ok) => updateRequest(imageRequestId, { ...routingDiagnosticFields(value), outcome: ok ? "completed" : "failed", finishedAt: Date.now() }),
     apiKey: stored.openRouterApiKey,
     headers: { ...providerConfig.headers, "HTTP-Referer": providerConfig.appUrl, "X-Title": providerConfig.appName },
     signal: abortController.signal,
@@ -2955,6 +2996,7 @@ async function streamChat(
   }, job.continuation);
   job.inputMessages = conversationMessages;
   const submission = conversationMessages.flatMap(submissionMarkers).at(-1);
+  runId = submission?.runId;
   debug.group("Conversation submission recorded", {
     "Run ID": submission?.runId,
     "Snapshot hash": submission?.snapshotHash,
@@ -2966,6 +3008,7 @@ async function streamChat(
     setJobActivity(job, job.activity.state, job.activity.summary, inactive);
   }, abortController.signal);
   const result = streamText({
+    includeRawChunks: true,
     model: openrouter(modelId, modelOptions),
     system,
     messages: await convertToModelMessages(conversationMessages, {
@@ -2979,6 +3022,7 @@ async function streamChat(
     stopWhen: isStepCount(job.maxSteps),
     abortSignal: abortController.signal,
     onLanguageModelCallStart: (event) => {
+      callId = event.callId;
       inactivity.start();
       setJobActivity(job, "thinking");
       debug.group("→ Model", {
@@ -2989,7 +3033,8 @@ async function streamChat(
         Messages: event.messages,
       });
     },
-    onLanguageModelCallEnd: (event) => {
+    onLanguageModelCallEnd: async (event) => {
+      await updateRequest(chatRequestId, { ...routingDiagnosticFields({ id: event.responseId, provider: event.providerMetadata?.openrouter?.provider }), outcome: event.finishReason === "error" ? "failed" : "completed", finishReason: event.finishReason, finishedAt: Date.now() });
       inactivity.pause();
       debug.group("← Model", {
         "Call ID": event.callId,
@@ -3018,7 +3063,10 @@ async function streamChat(
         Arguments: event.toolCall.input,
       });
     },
-    onToolExecutionEnd: (event) => {
+    onToolExecutionEnd: async (event) => {
+      if (event.toolCall.toolName === "generate_image" && imageRequestId && requests.get(imageRequestId)?.outcome === "streaming") {
+        await updateRequest(imageRequestId, { outcome: abortController.signal.aborted ? "aborted" : "failed", finishedAt: Date.now() });
+      }
       setJobActivity(job, "thinking");
       debug.group(`Tool response · ${event.toolCall.toolName}`, {
         "Call ID": event.callId,
@@ -3031,12 +3079,19 @@ async function streamChat(
         Status: event.toolOutput.type,
       });
     },
-    onChunk: () => inactivity.progress(),
-    onError: ({ error }) => {
+    onChunk: async ({ chunk }) => {
+      inactivity.progress();
+      if (chunk.type === "raw") await updateRequest(chatRequestId, routingDiagnosticFields(chunk.rawValue));
+    },
+    onError: async ({ error }) => {
+      await updateRequest(chatRequestId, { ...errorDiagnosticFields(error), outcome: "failed", finishedAt: Date.now() });
       inactivity.pause();
       debug.group("Model stream error", modelErrorDebugDetails(error));
     },
-    onAbort: (event) => {
+    onAbort: async (event) => {
+      for (const request of requests.values()) {
+        if (request.outcome === "started" || request.outcome === "streaming") await updateRequest(request.id, { outcome: "aborted", finishedAt: Date.now() });
+      }
       debug.group("Conversation aborted", {
         "Completed steps": event.steps.length,
       });
@@ -3236,6 +3291,7 @@ async function notifyChatMessagesChanged(chatId: string): Promise<void> {
 async function persistInterruptedConversation(
   job: ConversationJob,
   inputMessages: readonly UIMessage[],
+  error: unknown = getChatStreamError(job.chunks),
 ): Promise<ChatContinuation | undefined> {
   try {
     const messages = await reconstructInterruptedConversation(
@@ -3243,13 +3299,15 @@ async function persistInterruptedConversation(
       job.chunks,
     );
     const finalMessage = messages.at(-1);
-    if (!finalMessage || !hasDurableRoll20Result(finalMessage)) {
+    const discardReasoning = isReasoningCompatibilityError(error);
+    if (!finalMessage || (!discardReasoning && !hasDurableRoll20Result(finalMessage))) {
       return undefined;
     }
     if (conversationJobs.get(job.chatId) !== job) return undefined;
     await saveChatMessages(job.chatId, messages);
     const continuation: ChatContinuation = {
       reason: "stream-error",
+      ...(discardReasoning ? { discardReasoning: true } : {}),
       afterMessageId: finalMessage.id,
       createdAt: Date.now(),
     };
@@ -3565,7 +3623,9 @@ chrome.runtime.onConnect.addListener((port) => {
           throw new Error("The chat history is invalid.");
         }
         const resumedMessages = prepareConversationForResume(
-          storedMessages.data,
+          continuation.reason === "stream-error" && continuation.discardReasoning
+            ? stripConversationReasoning(storedMessages.data)
+            : storedMessages.data,
         );
         await saveChatMessages(message.chatId, resumedMessages);
         inputMessages = resumedMessages;
@@ -3651,7 +3711,10 @@ chrome.runtime.onConnect.addListener((port) => {
             if (error instanceof StaleRoll20ApprovalError) {
               await notifyChatMessagesChanged(job.chatId);
             }
-            await restoreContinuationAfterFailure(job);
+            const recovered = isReasoningCompatibilityError(error)
+              ? await persistInterruptedConversation(job, job.inputMessages ?? [], error)
+              : undefined;
+            if (!recovered) await restoreContinuationAfterFailure(job);
             finishJob(job, {
               type: "error",
               error: userFacingModelError(error),

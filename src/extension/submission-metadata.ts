@@ -1,3 +1,5 @@
+import type { RequestDiagnostic } from "./request-diagnostics";
+
 /** Diagnostic-only metadata: never converted to model content or rendered as prose. */
 export const SUBMISSIONS_METADATA_KEY = "gmToolsSubmissions";
 
@@ -8,6 +10,8 @@ export interface SubmissionMarker {
   readonly kind: "message" | "resume" | "retry" | "approval";
   /** The response boundary at which a continuation was requested. */
   readonly afterMessageId?: string;
+  readonly reasoningDiscarded?: boolean;
+  readonly requests?: readonly RequestDiagnostic[];
 }
 
 function record(value: unknown): value is Record<string, unknown> {

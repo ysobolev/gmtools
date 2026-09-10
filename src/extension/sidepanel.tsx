@@ -3,6 +3,7 @@ import { useModalEscape } from "./use-modal-escape";
 import { FeedbackDialog, type FeedbackTarget } from "./feedback-dialog";
 import { isCampaignAttachmentNotice, isVisibleCampaignAttachmentNotice } from "./campaign-attachment-notice";
 import { useChat } from "@ai-sdk/react";
+import { stripConversationReasoning } from "./reasoning-recovery";
 import {
   lastAssistantMessageIsCompleteWithApprovalResponses,
   safeValidateUIMessages,
@@ -1089,7 +1090,9 @@ const ConversationPane = memo(function ConversationPane({
                 <p>
                   {continuation.reason === "step-limit"
                     ? "The model completed its last tool call but requested another step."
-                    : "Roll20 results were preserved. Retry without repeating completed actions."}
+                    : continuation.discardReasoning
+                      ? "Resume will discard the previous reasoning and continue using the conversation and recorded tool results."
+                      : "Roll20 results were preserved. Retry without repeating completed actions."}
                 </p>
               </div>
               <button onClick={onContinue} type="button">
@@ -2025,7 +2028,10 @@ function ChatScreen({
 
   const continueTask = (): void => {
     if (chat.continuation) {
-      setMessages((current) => prepareConversationForResume(current));
+      setMessages((current) => prepareConversationForResume(
+        chat.continuation?.reason === "stream-error" && chat.continuation.discardReasoning
+          ? stripConversationReasoning(current) : current,
+      ));
     }
     transport.continueConversation();
     void resumeStream();

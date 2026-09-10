@@ -45,6 +45,7 @@ export type ChatContinuation =
     })
   | (ChatContinuationBase & {
       readonly reason: "stream-error";
+      readonly discardReasoning?: boolean;
     });
 
 export interface ChatRecord {
@@ -94,6 +95,7 @@ function isChatContinuation(value: unknown): value is ChatContinuation {
   return (
     isRecord(value) &&
     (value.reason === "step-limit" || value.reason === "stream-error") &&
+    (value.discardReasoning === undefined || typeof value.discardReasoning === "boolean") &&
     typeof value.afterMessageId === "string" &&
     value.afterMessageId.length > 0 &&
     (value.reason === "stream-error" ||
