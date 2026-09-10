@@ -1,18 +1,21 @@
 export const ROLL20_LAYERS = ["token", "gm", "map", "foreground", "lighting"] as const;
 export type Roll20Layer = typeof ROLL20_LAYERS[number];
-export type Roll20UiAction =
-  | { readonly tool: "get_current_layer" }
+export type Roll20UiAction = import("./compendium").CompendiumAction |
+    { readonly tool: "get_current_layer" }
   | { readonly tool: "switch_layer"; readonly layer: Roll20Layer }
   | { readonly tool: "drop_image"; readonly imageId: string; readonly x?: number | null; readonly y?: number | null };
 
 export function isRoll20ActionPart(type: string): boolean {
-  return ["tool-execute_roll20", "tool-switch_layer", "tool-drop_image"].includes(type);
+  return ["tool-execute_roll20", "tool-switch_layer", "tool-drop_image", "tool-compendium_import"].includes(type);
 }
 
 // A stable representation shared by approval registration, display, and claiming.
 export function roll20ActionInput(type: string, input: unknown): { summary: string; code: string } | undefined {
   if (!input || typeof input !== "object") return undefined;
   const value = input as Record<string, unknown>;
+  if (type === "tool-compendium_import" && typeof value.pageName === "string" && typeof value.category === "string" && typeof value.expansionId === "number") {
+    return { summary: `importing ${value.pageName} from the compendium`, code: JSON.stringify({ tool: "compendium_import", pageName: value.pageName, category: value.category, expansionId: value.expansionId }) };
+  }
   if (type === "tool-execute_roll20") {
     return typeof value.summary === "string" && typeof value.code === "string"
       ? { summary: value.summary, code: value.code } : undefined;
@@ -50,7 +53,7 @@ export function readRoll20CurrentLayer(documentToken: string): { ok: boolean; la
 // The document token prevents sending to a replacement document after a handshake.
 export function sendRoll20UiEvent(
   documentToken: string,
-  action?: Exclude<Roll20UiAction, { tool: "get_current_layer" }>,
+  action?: Exclude<Roll20UiAction, { tool: "get_current_layer" | "compendium_search" | "compendium_import" }>,
   image?: { base64: string; filename: string; mediaType: string } | null,
 ): { ok: boolean; eventSent?: boolean; error?: string } {
   const scope = window as unknown as { __gmToolsUiDocument?: string };

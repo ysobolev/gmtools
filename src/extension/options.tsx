@@ -1470,7 +1470,7 @@ function BehaviorSettings({
           <input type="checkbox" checked={experimentalRoll20Events} onChange={event => onExperimentalRoll20EventsChange(event.target.checked)} />
           <span>
             <strong>Enable experimental Roll20 UI events</strong>
-            <small>Let the model read or switch layers and drop stored images onto the canvas. Drops can upload images to your Art Library and change the tabletop. These simulated interactions may not work in every browser or Roll20 version. Campaign execution approvals apply to switches and drops; reading the layer needs no approval. Available from the next message.</small>
+            <small>Let the model read or switch layers, drop stored images onto the canvas, and search or import compendium entries. Drops can upload images to your Art Library and change the tabletop. These interactions may not work in every browser or Roll20 version. Campaign execution approvals apply to switches, image drops, and compendium imports. Imports open a sheet that must stay open until loading completes. Reading the layer and searching need no approval. Available from the next message.</small>
           </span>
         </label>
         <label className="behavior-number-card">

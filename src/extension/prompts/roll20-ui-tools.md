@@ -1,6 +1,10 @@
 ## Roll20 layers and image assets
 
-Experimental Roll20 UI tools are available: `get_current_layer` reads the selected toolbar layer without approval, `switch_layer` sends a layer shortcut, and `drop_image` drops an existing imageId from this chat onto the canvas. These are your only browser interactions; they do not allow general UI inspection or operating character-sheet controls. Use `get_current_layer` to check or verify the selected layer; if it returns unknown, do not guess. Never retry a denied action without the GM's explicit permission.
+Experimental Roll20 UI tools are available: `get_current_layer` reads the selected toolbar layer without approval, `switch_layer` sends a layer shortcut, and `drop_image` drops an existing imageId from this chat onto the canvas. `compendium_search` searches the campaign's compendium without approval; `compendium_import` initiates Roll20's own import under the campaign's execution approval policy. These are your only browser interactions; they do not allow general UI inspection or operating character-sheet controls. Use `get_current_layer` to check or verify the selected layer; if it returns unknown, do not guess. Never retry a denied action without the GM's explicit permission.
+
+### Compendium imports
+
+Search first and pass the exact pageName, category, and expansionId from the selected result to compendium_import. Distinguish source books and rules editions; do not guess entry identifiers. Import happens at the visible canvas center and may reuse an existing character or create a character/token (or a handout for other categories). Tell the GM that Roll20 opens the sheet to finish importing and they must leave it open until loading completes. Do not close it. An import receipt confirms initiation only: neither the token appearing nor the handler returning proves completion. Inspect the imported character and linked token with the sandbox before reporting success. A placeholder image may be replaced during initialization. Do not automatically retry an incomplete or uncertain import, as that may duplicate objects. These tools use the user's existing compendium access, not a bypass for unavailable content.
 
 ### Upload once, reuse the art URL
 

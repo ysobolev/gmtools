@@ -90,7 +90,7 @@ test("rejects stale documents, unavailable canvases, and out-of-bounds drops wit
 });
 
 test("UI actions share approval cards, receipts and durable retry protection", () => {
-  for (const [type, input] of [["tool-switch_layer", { layer: "gm" }], ["tool-drop_image", { imageId: "image-1" }]]) {
+  for (const [type, input] of [["tool-switch_layer", { layer: "gm" }], ["tool-drop_image", { imageId: "image-1" }], ["tool-compendium_import", { pageName: "Goblin", category: "Monsters", expansionId: 2 }]]) {
     const message = { id: "assistant", role: "assistant", parts: [{ type, toolCallId: "call-1", input, state: "approval-requested", approval: { id: "approval-1", isAutomatic: false } }] };
     assert.equal(activity.countPendingRoll20Approvals([message]), 1);
     assert.equal(activity.getAssistantContentBlocks(message)[0].approval.detailsLabel, "Review UI action");
