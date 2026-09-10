@@ -50,6 +50,25 @@ test("image lookup guidance covers same-turn local IDs without repeated generati
   assert.match(prompt, /Reuse the existing image rather than generating another/);
 });
 
+test("image generation guidance limits generation per requested item across games", () => {
+  for (const rulesetId of ["custom", "dnd5e", "vtm5"]) {
+    const prompt = prompts.buildProfileInstructions({ ...dndProfile, rulesetId });
+    assert.match(prompt, /Generate one image per requested item, not one per message/);
+    assert.match(prompt, /regenerate only to correct a concrete mismatch/);
+    assert.match(prompt, /explicitly asks for a revision or alternatives/);
+  }
+});
+
+test("5e profiles and the discoverable guide require playable encounter creatures", () => {
+  for (const prompt of [prompts.buildProfileInstructions(dndProfile), dndGuide]) {
+    assert.match(prompt, /make them playable, not merely decorative tokens/);
+    assert.match(prompt, /Unless the GM explicitly requests map artwork or markers only/);
+    assert.match(prompt, /import suitable compendium characters when available or create populated NPC sheets, then link their tokens/);
+    assert.match(prompt, /independent current HP on each token/);
+    assert.match(prompt, /not just suggested stats in notes/);
+  }
+});
+
 test("Roll20 image workflows apply across games only when UI tools are available", () => {
   for (const rulesetId of ["custom", "dnd5e", "vtm5"]) {
     const profile = { ...dndProfile, rulesetId };
@@ -61,6 +80,9 @@ test("Roll20 image workflows apply across games only when UI tools are available
     assert.match(enabled, /retain the confirmed new token/);
     assert.match(enabled, /associate it.*through `represents`/);
     assert.match(enabled, /Avoid dropping onto the map layer/);
+    assert.match(enabled, /Before calling `compendium_import`, check the selected layer with `get_current_layer`/);
+    assert.match(enabled, /Do not import onto the map layer/);
+    assert.match(enabled, /Prefer the GM layer for staging so newly imported creatures are not revealed to players/);
     assert.match(enabled, /Each drop creates a separate upload and consumes Art Library storage quota/);
     assert.match(enabled, /create or update a token with that image URL instead/);
     assert.match(enabled, /do not modify or delete a guessed token/);

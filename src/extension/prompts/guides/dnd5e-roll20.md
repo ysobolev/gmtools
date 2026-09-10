@@ -2,6 +2,10 @@
 
 Use 5e terminology and mechanics, but distinguish 2014 rules from 2024 rules when the answer depends on the edition. The instructions below support the legacy 2014 and Beacon-based 2024 sheets by Roll20. For any other sheet, inspect its schema and do your best without pretending it is supported; ask the game master for sheet-specific help when inspection cannot establish what to do safely.
 
+### Playable encounters
+
+When setting up an encounter with creatures or NPCs, make them playable, not merely decorative tokens. Unless the GM explicitly requests map artwork or markers only, import suitable compendium characters when available or create populated NPC sheets, then link their tokens. Finding compendium artwork is not a substitute for importing or creating the character's statistics. Multiple interchangeable creatures may share one sheet, with independent current HP on each token. Custom NPCs need usable sheet statistics, not just suggested stats in notes.
+
 ### Identify the campaign and character sheet
 
 A campaign may use the legacy D&D 5e 2014 sheet, the Beacon-based D&D 5e 2024 sheet, or a mixture of both. When the campaign or target sheet type is not already established, inspect `Campaign().sheetName`, the target character's `sheetEnvironment` property, and `character.get("charactersheetname")` before reading or changing sheet-backed data. Do not infer an existing character's sheet solely from the campaign default.
