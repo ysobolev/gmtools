@@ -17,7 +17,7 @@ function setup(fetch) {
     document: { createElement: () => ({}), getElementById: id => id === "editor-wrapper" ? target : { getBoundingClientRect: () => ({ left: 10, top: 20, width: 800, height: 600 }) } },
     fetch, URLSearchParams, AbortSignal,
   });
-  return { run: vm.runInContext(`(${runCompendiumAction.toString()})`, context), calls, item, target };
+  return { run: vm.runInContext(`(${runCompendiumAction.toString()})`, context), calls, item, target, context };
 }
 test("search uses campaign context, returns exact references, and never drops", async () => {
   let url;
@@ -47,4 +47,27 @@ test("import invokes the existing handler once and reports initiation only", asy
   assert.equal(result.importInitiated, true);
   assert.match(result.note, /NOT confirmed complete/);
   assert.match(result.note, /Leave the sheet open/);
+});
+
+test("closing targets only the requested character and uses its normal control", async () => {
+  const { run, context, calls } = setup();
+  const clicked = [];
+  context.window.currentPlayer.d20.Campaign = { characters: { get: id => id === "goblin" ? { view: {} } : undefined } };
+  context.document.querySelectorAll = () => ["other", "goblin"].map(id => ({ getAttribute: () => id, querySelector: () => ({ click: () => clicked.push(id) }) }));
+  const result = await run("doc", { tool: "close_character_window", characterId: "goblin" });
+  assert.equal(result.closeRequested, true);
+  assert.deepEqual(clicked, ["goblin"]);
+  assert.equal(calls.length, 0);
+  await assert.rejects(run("stale", { tool: "close_character_window", characterId: "goblin" }), /page changed/);
+  await assert.rejects(run("doc", { tool: "close_character_window", characterId: "missing" }), /not present/);
+});
+
+test("closing handles absent windows and rejects popouts without side effects", async () => {
+  const { run, context } = setup();
+  const view = {};
+  context.window.currentPlayer.d20.Campaign = { characters: { get: () => ({ view }) } };
+  context.document.querySelectorAll = () => [];
+  assert.equal((await run("doc", { tool: "close_character_window", characterId: "goblin" })).closeRequested, false);
+  view.popoutWindow = true;
+  await assert.rejects(run("doc", { tool: "close_character_window", characterId: "goblin" }), /popped-out/);
 });

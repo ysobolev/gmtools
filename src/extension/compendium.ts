@@ -1,4 +1,5 @@
 export type CompendiumAction =
+  | { tool: "close_character_window"; characterId: string }
   | { tool: "compendium_search"; query: string }
   | { tool: "compendium_import"; pageName: string; category: string; expansionId: number };
 
@@ -8,10 +9,26 @@ export async function runCompendiumAction(documentToken: string, action: Compend
   const page = window as unknown as {
     __gmToolsUiDocument?: string;
     campaign_id: string;
-    currentPlayer: { d20: { compendium: { shortName: string } } };
+    currentPlayer: { d20: { compendium: { shortName: string }; Campaign: { characters: { get(id: string): any } } } };
     jQuery: any;
   };
   if (page.__gmToolsUiDocument !== documentToken) throw new Error("The Roll20 page changed.");
+  if (action.tool === "close_character_window") {
+    const character = page.currentPlayer?.d20?.Campaign?.characters?.get(action.characterId);
+    if (!character) throw new Error("The character is not present in this campaign.");
+    if (character.view?.popoutWindow || character.view?.popoutWindowElement) {
+      throw new Error("Closing popped-out character windows is not supported. Ask the GM to close it after import verification.");
+    }
+    const container = Array.from(document.querySelectorAll<HTMLElement>(".asv[data-characterid]")).find(element => element.getAttribute("data-characterid") === action.characterId);
+    const button = container?.querySelector<HTMLButtonElement>(".asv__close")
+      ?? character.view?.$el?.closest(".ui-dialog")?.find(".ui-dialog-titlebar-close")?.[0];
+    if (!button) {
+      if (container) throw new Error("The character window's close control is unavailable.");
+      return { ok: true, characterId: action.characterId, closeRequested: false, note: "No supported in-page character window was found open; nothing was closed." };
+    }
+    button.click();
+    return { ok: true, characterId: action.characterId, closeRequested: true, note: "Requested closing this character window through its normal close control. This does not verify import completion." };
+  }
   const book = page.currentPlayer?.d20?.compendium?.shortName;
   if (!book) throw new Error("This campaign has no available compendium.");
   if (action.tool === "compendium_search") {

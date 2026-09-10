@@ -102,7 +102,7 @@ function getRoll20ApprovalRequest(
 function getToolSummary(part: unknown): string | undefined {
   if (typeof part !== "object" || part === null) return undefined;
   const value = part as { type?: unknown; input?: unknown };
-  if (value.type === "tool-switch_layer" || value.type === "tool-drop_image" || value.type === "tool-compendium_import") {
+  if (value.type === "tool-switch_layer" || value.type === "tool-drop_image" || value.type === "tool-compendium_import" || value.type === "tool-close_character_window") {
     return roll20ActionInput(value.type, value.input)?.summary;
   }
   const input = (part as { readonly input?: unknown }).input;
