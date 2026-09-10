@@ -28,6 +28,16 @@ test("shows Thinking before the response starts", () => {
   assert.deepEqual(getChatActivity("submitted", []), { kind: "Thinking" });
 });
 
+test("shows image generation while executing, not while arguments stream or after completion", () => {
+  for (const state of ["input-streaming", "input-available", "output-available", "output-error"]) {
+    const part = { type: "tool-generate_image", toolCallId: "image-1", state, input: { prompt: "map" } };
+    assert.deepEqual(getChatActivity("streaming", [assistant([part])]), {
+      kind: state === "input-available" ? "Generating image" : "Thinking",
+    });
+    assert.equal(getChatActivity("ready", [assistant([part])]), null);
+  }
+});
+
 test("shows the active sandbox call summary while it is executing", () => {
   assert.deepEqual(
     getChatActivity("streaming", [

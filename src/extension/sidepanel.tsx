@@ -1059,9 +1059,9 @@ const ConversationPane = memo(function ConversationPane({
               </article>
             );
           })}
-          {activity && !inlineRoll20Working ? (
+          {activity && (!inlineRoll20Working || activity.kind === "Generating image") ? (
             <div
-              className={`activity-indicator ${activity.kind.toLowerCase()}`}
+              className={`activity-indicator ${activity.kind === "Generating image" ? "working" : activity.kind.toLowerCase()}`}
               role="status"
             >
               <span>

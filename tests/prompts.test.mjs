@@ -43,11 +43,13 @@ test("5e map guidance consults page dimensions and scale even without experiment
   assert.match(prompt, /Honor explicit GM instructions over page-derived defaults/);
 });
 
-test("image lookup guidance covers same-turn local IDs without repeated generation", () => {
+test("image guidance uses generation results directly without a discovery tool", () => {
   const prompt = prompts.buildProfileInstructions({ ...dndProfile, rulesetId: "custom" });
-  assert.match(prompt, /After generating an image, use list_images/);
-  assert.match(prompt, /The generation service does not know these local IDs/);
-  assert.match(prompt, /Reuse the existing image rather than generating another/);
+  assert.match(prompt, /Use generate_image to create images/);
+  assert.match(prompt, /the image generator does not receive this conversation/);
+  assert.match(prompt, /returns its exact imageId/);
+  assert.match(prompt, /reuse IDs recorded in earlier tool results or attachment notices/);
+  assert.doesNotMatch(prompt, /list_images/);
 });
 
 test("image generation guidance limits generation per requested item across games", () => {

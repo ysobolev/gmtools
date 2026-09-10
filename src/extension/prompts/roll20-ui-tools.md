@@ -16,7 +16,7 @@ Unless the GM explicitly asks for another upload, do not drop the same image mul
 
 To add a stored image to the Art Library:
 
-For a newly generated image, first call `list_images` to obtain its exact locally assigned imageId. Do not invent an ID, reuse an older image accidentally, or regenerate solely because the generation response lacked a local ID.
+For a newly generated image, use the exact imageId returned by `generate_image`. For older images, use IDs from earlier generation results or attachment notices. Do not invent an ID, reuse an older image accidentally, or regenerate an image merely to obtain its ID.
 
 1. Identify the page open in the routed GM tab; do not assume it is the player-ribbon page. Use `execute_roll20` to record the token/graphic IDs already on that page before the drop.
 2. Check the selected layer. Prefer the GM layer for staging an upload so it is not revealed to players; switch and verify as needed. Avoid dropping onto the map layer: it opens a prompt asking the GM whether to scale the image or keep its size. For map art, drop onto another layer first, then use the sandbox to resize it appropriately and move it to the map layer.

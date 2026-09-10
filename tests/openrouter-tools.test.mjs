@@ -124,13 +124,3 @@ test("serializes enabled web search in OpenRouter's current wire format", async 
     },
   ]);
 });
-
-test("serializes image generation in OpenRouter's server-tool wire format", async () => {
-  const tools = {
-    image_generation: openrouterTools.createOpenRouterImageGenerationTool(),
-  };
-
-  assert.deepEqual(await serializeTools(tools, ["image_generation"]), [
-    { type: "openrouter:image_generation" },
-  ]);
-});

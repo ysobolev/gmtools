@@ -2,7 +2,7 @@ import { isToolUIPart, type ChatStatus, type UIMessage } from "ai";
 import { isRoll20ActionPart, roll20ActionInput } from "./roll20-ui-events";
 
 export interface ChatActivity {
-  readonly kind: "Thinking" | "Working";
+  readonly kind: "Thinking" | "Working" | "Generating image";
   readonly summary?: string;
 }
 
@@ -269,6 +269,10 @@ export function getChatActivity(
     }
   }
   if (!assistantMessage) return { kind: "Thinking" };
+
+  if (assistantMessage.parts.some(part =>
+    isToolUIPart(part) && part.type === "tool-generate_image" && part.state === "input-available"
+  )) return { kind: "Generating image" };
 
   let lastTextIndex = -1;
   let lastToolIndex = -1;

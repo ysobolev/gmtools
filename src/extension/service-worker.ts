@@ -70,6 +70,7 @@ import {
 import { buildProfileInstructions } from "./prompts/build-profile-instructions";
 import {
   getChat,
+  deleteChatImage,
   getChatImage,
   getStoredChat,
   listChats,
@@ -92,7 +93,7 @@ import {
   type GeneratedImageToStore,
 } from "./chat-image-normalization";
 import { KeyedExecutionQueue } from "./keyed-execution-queue";
-import { createListImagesTool, ImageStorageBarrier } from "./list-images";
+import { createGenerateImageTool } from "./generate-image";
 import { ROLL20_LAYERS, readRoll20CurrentLayer, roll20ActionInput, sendRoll20UiEvent, type Roll20Layer, type Roll20UiAction } from "./roll20-ui-events";
 import { runCompendiumAction } from "./compendium";
 import { createModelInactivityMonitor } from "./model-inactivity";
@@ -165,7 +166,6 @@ import {
 import { restrictExtensionStorage } from "./browser-storage";
 import { createDebugLogger, type DebugLogger } from "./debug-logger";
 import {
-  createOpenRouterImageGenerationTool,
   createOpenRouterWebFetchTool,
   createOpenRouterWebSearchTool,
 } from "./openrouter-tools";
@@ -2456,7 +2456,22 @@ async function streamChat(
     ...providerConfig,
     apiKey: stored.openRouterApiKey,
   });
-  const imageStorage = new ImageStorageBarrier();
+  const generatedImageBudget = createGeneratedImageBudget();
+  const imageGeneration = createGenerateImageTool({
+    apiKey: stored.openRouterApiKey,
+    headers: { ...providerConfig.headers, "HTTP-Referer": providerConfig.appUrl, "X-Title": providerConfig.appName },
+    signal: abortController.signal,
+    budget: generatedImageBudget,
+    persist: async generated => {
+      const reference = await persistGeneratedImage(job, generated);
+      if (abortController.signal.aborted) {
+        await deleteChatImage(job.chatId, reference.imageId);
+        abortController.signal.throwIfAborted();
+      }
+      return reference;
+    },
+    log: details => debug.group("Image generated", details),
+  });
   const tools = {
     close_character_window: tool({
       description: "Experimental: close one in-page character window by exact characterId, through Roll20's normal close control. Follows campaign execution approval policy. After compendium_import, use this ONLY AFTER sandbox verification establishes the intended character's import completed: expected stats, traits/actions/spells and token artwork/link are populated. Character/token existence, an import receipt, or a fixed delay is insufficient. Closing early interrupts import. If incomplete or uncertain, leave open. Does not support popped-out windows. Respect a GM request to leave the sheet open.",
@@ -2472,12 +2487,6 @@ async function streamChat(
       description: "Experimental: initiate Roll20's compendium import at the visible canvas center, using the exact pageName, category, and expansionId from compendium_search. Follows the campaign's execution approval policy. Select the requested source/edition. May create a character and token, reuse an existing character, or create a handout for non-character entries. Opens the sheet: tell the GM to leave it open until loading completes. A receipt means initiated, NOT complete. Verify the completed character and token through the sandbox, then use close_character_window unless the GM wants it left open. Never automatically retry an import or close an incomplete/uncertain sheet.",
       inputSchema: jsonSchema<{ pageName: string; category: string; expansionId: number }>({ type: "object", properties: { pageName: { type: "string", minLength: 1, maxLength: 500 }, category: { type: "string", minLength: 1, maxLength: 100 }, expansionId: { type: "integer", minimum: 0 } }, required: ["pageName", "category", "expansionId"], additionalProperties: false }),
       execute: (input, { toolCallId, abortSignal }) => executeRoll20UiAction(job, { tool: "compendium_import", ...input }, toolCallId, abortSignal ?? abortController.signal),
-    }),
-    list_images: createListImagesTool({
-      chatId: job.chatId,
-      historyParts: () => conversationMessages.flatMap(message => message.parts),
-      currentTurnParts: () => job.chunks,
-      waitForImages: signal => imageStorage.wait(signal ?? abortController.signal),
     }),
     get_current_layer: tool({
       description: "Experimental, read-only: read the selected layer from the attached Roll20 tab's toolbar. Returns token, gm, map, foreground, lighting, or unknown when it cannot be determined. Does not switch layers and requires no execution approval. Use to check the layer before dropping an image or verify a layer switch.",
@@ -2503,17 +2512,17 @@ async function streamChat(
       execute: ({ imageId, x, y }, { toolCallId, abortSignal }) => executeRoll20UiAction(job, { tool: "drop_image", imageId, ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }) }, toolCallId, abortSignal ?? abortController.signal),
     }),
     read_guide: createReadGuideTool(),
-    image_generation: createOpenRouterImageGenerationTool(),
+    generate_image: imageGeneration.tool,
     view_image: tool({
       description:
-        "Load a locally stored user-attached or generated image for visual inspection. Call this only when seeing the image would help answer the request. Use an imageId supplied in an image notice; never invent an ID.",
+        "Load a locally stored user-attached or generated image for visual inspection. Call this only when seeing the image would help answer the request. Use an imageId returned by generate_image or supplied in an attachment notice; never invent an ID.",
       inputSchema: jsonSchema<{ readonly imageId: string }>({
         type: "object",
         properties: {
           imageId: {
             type: "string",
             minLength: 1,
-            description: "The exact imageId from an image notice.",
+            description: "The exact imageId from a generate_image result or attachment notice.",
           },
         },
         required: ["imageId"],
@@ -2887,9 +2896,8 @@ async function streamChat(
   };
   const activeTools: Array<keyof typeof tools> = [
     "read_guide",
-    "image_generation",
+    "generate_image",
     "view_image",
-    "list_images",
     "web_fetch",
     "view_remote_image",
   ];
@@ -2917,7 +2925,7 @@ async function streamChat(
       : "",
     generatedImageSystemContext(conversationMessages),
   ].filter(Boolean).join("\n\n");
-  const modelOptions = createOpenRouterModelSettings(modelId);
+  const modelOptions = { ...createOpenRouterModelSettings(modelId), extraBody: { modalities: ["text"] } };
   if (abortController.signal.aborted) return;
   conversationMessages = await recordRunSubmission(job.chatId, conversationMessages, {
     formatVersion: 1,
@@ -2982,8 +2990,6 @@ async function streamChat(
       });
     },
     onLanguageModelCallEnd: (event) => {
-      // AI SDK invokes this before executing client tools, including list_images.
-      imageStorage.expect(event.content.filter(part => part.type === "file").length);
       inactivity.pause();
       debug.group("← Model", {
         "Call ID": event.callId,
@@ -3005,7 +3011,7 @@ async function streamChat(
         typeof input.summary === "string"
           ? input.summary.trim().slice(0, 120)
           : undefined;
-      setJobActivity(job, "working", summary || undefined);
+      setJobActivity(job, "working", event.toolCall.toolName === "generate_image" ? "Generating image...." : summary || undefined);
       debug.group(`Tool call · ${event.toolCall.toolName}`, {
         "Call ID": event.callId,
         "Tool call ID": event.toolCall.toolCallId,
@@ -3027,7 +3033,6 @@ async function streamChat(
     },
     onChunk: () => inactivity.progress(),
     onError: ({ error }) => {
-      imageStorage.fail(error);
       inactivity.pause();
       debug.group("Model stream error", modelErrorDebugDetails(error));
     },
@@ -3052,7 +3057,10 @@ async function streamChat(
     onError: userFacingModelError,
   });
 
-  const generatedImageBudget = createGeneratedImageBudget();
+  const publishChunk = (chunk: UIMessageChunk): void => {
+    job.chunks.push(chunk);
+    broadcastJob(job, (requestId) => ({ type: CHAT_CHUNK, requestId, chunk }));
+  };
   try {
     for await (const rawChunk of stream as ReadableStream<UIMessageChunk>) {
       const chunk = await normalizeGeneratedImageChunk(
@@ -3060,16 +3068,13 @@ async function streamChat(
         generatedImageBudget,
         (generated) => persistGeneratedImage(job, generated),
       );
-      job.chunks.push(chunk);
-      if (rawChunk.type === "file") imageStorage.complete();
-      broadcastJob(job, (requestId) => ({
-        type: CHAT_CHUNK,
-        requestId,
-        chunk,
-      }));
+      publishChunk(chunk);
+      if (rawChunk.type === "tool-output-available") {
+        const imagePart = imageGeneration.takeImagePart(rawChunk.toolCallId);
+        if (imagePart) publishChunk(imagePart);
+      }
     }
   } catch (error) {
-    imageStorage.fail(error);
     if (!abortController.signal.aborted) throw error;
   } finally {
     inactivity.dispose();
