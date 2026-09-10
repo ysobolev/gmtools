@@ -79,7 +79,7 @@ test("accepts custom models and rejects unknown rulesets", () => {
   );
 });
 
-test("offers the curated OpenAI, Anthropic, and Google models", () => {
+test("offers the curated OpenAI and Anthropic models and the free router", () => {
   assert.deepEqual(profiles.MODEL_IDS, [
     "openai/gpt-5.6-sol",
     "openai/gpt-5.6-terra",
@@ -87,7 +87,6 @@ test("offers the curated OpenAI, Anthropic, and Google models", () => {
     "anthropic/claude-fable-5.1",
     "anthropic/claude-opus-5",
     "anthropic/claude-sonnet-5",
-    "google/gemma-4-31b-it:free",
     "openrouter/free",
   ]);
   assert.deepEqual(

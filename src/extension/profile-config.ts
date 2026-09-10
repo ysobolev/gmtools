@@ -5,7 +5,6 @@ export const MODEL_IDS = [
   "anthropic/claude-fable-5.1",
   "anthropic/claude-opus-5",
   "anthropic/claude-sonnet-5",
-  "google/gemma-4-31b-it:free",
   "openrouter/free",
 ] as const;
 export type ModelId = (typeof MODEL_IDS)[number];
@@ -45,11 +44,6 @@ export const MODELS: readonly ModelDefinition[] = [
     id: FREE_MODEL_ID,
     label: "OpenRouter Free",
     description: "Automatically selects a compatible free model through OpenRouter.",
-  },
-  {
-    id: "google/gemma-4-31b-it:free",
-    label: "Gemma 4 31B IT",
-    description: "Google's Gemma model, available through OpenRouter's free tier.",
   },
   {
     id: "openai/gpt-5.6-sol",

@@ -496,15 +496,6 @@ function ProfilesSettings(): React.JSX.Element {
                     </option>
                   ))}
                 </optgroup>
-                <optgroup label="Google">
-                  {MODELS.filter((model) => model.id.startsWith("google/")).map(
-                    (model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.label}
-                      </option>
-                    ),
-                  )}
-                </optgroup>
                 <option value="custom">Custom…</option>
               </select>
               <small>
