@@ -92,6 +92,7 @@ import {
   type GeneratedImageToStore,
 } from "./chat-image-normalization";
 import { KeyedExecutionQueue } from "./keyed-execution-queue";
+import { createListImagesTool, ImageStorageBarrier } from "./list-images";
 import { ROLL20_LAYERS, readRoll20CurrentLayer, roll20ActionInput, sendRoll20UiEvent, type Roll20Layer, type Roll20UiAction } from "./roll20-ui-events";
 import { createModelInactivityMonitor } from "./model-inactivity";
 import {
@@ -2446,7 +2447,14 @@ async function streamChat(
     ...providerConfig,
     apiKey: stored.openRouterApiKey,
   });
+  const imageStorage = new ImageStorageBarrier();
   const tools = {
+    list_images: createListImagesTool({
+      chatId: job.chatId,
+      historyParts: () => conversationMessages.flatMap(message => message.parts),
+      currentTurnParts: () => job.chunks,
+      waitForImages: signal => imageStorage.wait(signal ?? abortController.signal),
+    }),
     get_current_layer: tool({
       description: "Experimental, read-only: read the selected layer from the attached Roll20 tab's toolbar. Returns token, gm, map, foreground, lighting, or unknown when it cannot be determined. Does not switch layers and requires no execution approval. Use to check the layer before dropping an image or verify a layer switch.",
       inputSchema: jsonSchema<Record<string, never>>({ type: "object", properties: {}, additionalProperties: false }),
@@ -2857,6 +2865,7 @@ async function streamChat(
     "read_guide",
     "image_generation",
     "view_image",
+    "list_images",
     "web_fetch",
     "view_remote_image",
   ];
@@ -2877,10 +2886,8 @@ async function streamChat(
     buildProfileInstructions(profile, {
       roll20Available: Boolean(job.campaignId),
       memoryAvailable: job.memoryEnabled,
+      roll20UiToolsAvailable: activeTools.includes("drop_image"),
     }),
-    activeTools.includes("drop_image")
-      ? "Experimental Roll20 UI tools are available: get_current_layer reads the selected toolbar layer without approval, switch_layer sends a layer shortcut, and drop_image drops an existing imageId from this chat onto the canvas. These are your only browser interactions; they do not allow general UI inspection or operating character-sheet controls. Use get_current_layer to check or verify the selected layer; if it returns unknown, do not guess. Drops use the current layer and may upload images and create tokens. Unless the GM specifies coordinates, use the center default. Do not claim upload or token creation beyond the event receipt, automatically repeat a drop, or retry a denied action without the GM's explicit permission."
-      : "",
     job.continuation?.reason === "stream-error"
       ? "The previous response stream failed after one or more Roll20 actions returned. Generate a fresh answer from the recorded results and do not repeat completed actions."
       : "",
@@ -2951,6 +2958,8 @@ async function streamChat(
       });
     },
     onLanguageModelCallEnd: (event) => {
+      // AI SDK invokes this before executing client tools, including list_images.
+      imageStorage.expect(event.content.filter(part => part.type === "file").length);
       inactivity.pause();
       debug.group("← Model", {
         "Call ID": event.callId,
@@ -2994,6 +3003,7 @@ async function streamChat(
     },
     onChunk: () => inactivity.progress(),
     onError: ({ error }) => {
+      imageStorage.fail(error);
       inactivity.pause();
       debug.group("Model stream error", modelErrorDebugDetails(error));
     },
@@ -3027,6 +3037,7 @@ async function streamChat(
         (generated) => persistGeneratedImage(job, generated),
       );
       job.chunks.push(chunk);
+      if (rawChunk.type === "file") imageStorage.complete();
       broadcastJob(job, (requestId) => ({
         type: CHAT_CHUNK,
         requestId,
@@ -3034,6 +3045,7 @@ async function streamChat(
       }));
     }
   } catch (error) {
+    imageStorage.fail(error);
     if (!abortController.signal.aborted) throw error;
   } finally {
     inactivity.dispose();

@@ -9,12 +9,14 @@ import {
 } from "./core";
 import { RULESET_INSTRUCTIONS } from "./rulesets";
 import { GUIDE_INSTRUCTIONS } from "./guides";
+import roll20UiTools from "./roll20-ui-tools.md";
 
 export function buildProfileInstructions(
   profile: AssistantProfile,
   options: {
     readonly roll20Available?: boolean;
     readonly memoryAvailable?: boolean;
+    readonly roll20UiToolsAvailable?: boolean;
   } = {},
 ): string {
   if (!isAssistantProfile(profile)) {
@@ -26,6 +28,9 @@ export function buildProfileInstructions(
       ? UNBOUND_ROLL20_INSTRUCTIONS
       : ROLL20_INSTRUCTIONS,
     GENERAL_CAPABILITY_INSTRUCTIONS,
+    options.roll20Available !== false && options.roll20UiToolsAvailable
+      ? roll20UiTools.trim()
+      : "",
     GUIDE_INSTRUCTIONS,
     options.memoryAvailable
       ? MEMORY_INSTRUCTIONS

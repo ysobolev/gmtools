@@ -34,6 +34,41 @@ const dndProfile = {
   additionalInstructions: "Call the players heroes.",
 };
 
+test("5e map guidance consults page dimensions and scale even without experimental tools", () => {
+  const prompt = prompts.buildProfileInstructions(dndProfile);
+  assert.match(prompt, /consult the target page's grid dimensions and grid scale before generating the image/);
+  assert.match(prompt, /width and height in grid cells to choose the map's aspect ratio/);
+  assert.match(prompt, /distance represented by one square/);
+  assert.match(prompt, /Fantasy maps are not always strictly to scale/);
+  assert.match(prompt, /Honor explicit GM instructions over page-derived defaults/);
+});
+
+test("image lookup guidance covers same-turn local IDs without repeated generation", () => {
+  const prompt = prompts.buildProfileInstructions({ ...dndProfile, rulesetId: "custom" });
+  assert.match(prompt, /After generating an image, use list_images/);
+  assert.match(prompt, /The generation service does not know these local IDs/);
+  assert.match(prompt, /Reuse the existing image rather than generating another/);
+});
+
+test("Roll20 image workflows apply across games only when UI tools are available", () => {
+  for (const rulesetId of ["custom", "dnd5e", "vtm5"]) {
+    const profile = { ...dndProfile, rulesetId };
+    const enabled = prompts.buildProfileInstructions(profile, { roll20Available: true, roll20UiToolsAvailable: true });
+    assert.match(enabled, /## Roll20 layers and image assets/);
+    assert.match(enabled, /record the token\/graphic IDs.*before the drop/);
+    assert.match(enabled, /List the page's tokens\/graphics again and compare IDs/);
+    assert.match(enabled, /delete only that temporary token after capturing the URL/);
+    assert.match(enabled, /retain the confirmed new token/);
+    assert.match(enabled, /associate it.*through `represents`/);
+    assert.match(enabled, /Avoid dropping onto the map layer/);
+    assert.match(enabled, /Each drop creates a separate upload and consumes Art Library storage quota/);
+    assert.match(enabled, /create or update a token with that image URL instead/);
+    assert.match(enabled, /do not modify or delete a guessed token/);
+    assert.doesNotMatch(prompts.buildProfileInstructions(profile), /## Roll20 layers and image assets/);
+    assert.doesNotMatch(prompts.buildProfileInstructions(profile, { roll20Available: false, roll20UiToolsAvailable: true }), /## Roll20 layers and image assets/);
+  }
+});
+
 test("base prompt and on-demand guide preserve sheet and user guidance", () => {
   const prompt = prompts.buildProfileInstructions(dndProfile).replace(
     "Additional instructions from the game master:",
