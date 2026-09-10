@@ -22,6 +22,7 @@ export interface GlobalPreferences {
   readonly unrestrictedWebFetchEnabled: boolean;
   readonly webSearchEnabled: boolean;
   readonly requireRoll20Approval: boolean;
+  readonly silenceRoll20ChatNotifications: boolean;
 }
 
 export const DEFAULT_GLOBAL_PREFERENCES: GlobalPreferences = {
@@ -32,6 +33,7 @@ export const DEFAULT_GLOBAL_PREFERENCES: GlobalPreferences = {
   unrestrictedWebFetchEnabled: false,
   webSearchEnabled: false,
   requireRoll20Approval: false,
+  silenceRoll20ChatNotifications: false,
 };
 
 export function normalizeGlobalPreferences(value: unknown): GlobalPreferences {
@@ -52,5 +54,6 @@ export function normalizeGlobalPreferences(value: unknown): GlobalPreferences {
     requireRoll20Approval: isRoll20ApprovalRequired(
       record.requireRoll20Approval,
     ),
+    silenceRoll20ChatNotifications: record.silenceRoll20ChatNotifications === true,
   };
 }

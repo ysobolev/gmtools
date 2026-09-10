@@ -82,7 +82,7 @@
     return isRecord(value) && (value.ok === true && "result" in value || value.ok === false && isExecutionError(value.error));
   }
   function isRoll20ExecuteRequestMessage(value) {
-    return isRecord(value) && value.type === ROLL20_EXECUTE_REQUEST_TYPE && isValidRequestId(value.requestId) && (value.kind === "identify" || value.kind === "execute") && typeof value.extensionVersion === "string" && typeof value.buildId === "string" && typeof value.protocolVersion === "number" && typeof value.code === "string" && typeof value.issuedAt === "number" && typeof value.expiresAt === "number" && (value.expectedCampaignId === void 0 || typeof value.expectedCampaignId === "string") && (value.kind === "identify" || value.code.length > 0 && typeof value.expectedCampaignId === "string" && value.expectedCampaignId.length > 0);
+    return isRecord(value) && value.type === ROLL20_EXECUTE_REQUEST_TYPE && isValidRequestId(value.requestId) && (value.kind === "identify" || value.kind === "execute") && typeof value.extensionVersion === "string" && typeof value.buildId === "string" && typeof value.protocolVersion === "number" && typeof value.code === "string" && typeof value.issuedAt === "number" && typeof value.expiresAt === "number" && (value.silenceChatNotifications === void 0 || typeof value.silenceChatNotifications === "boolean") && (value.expectedCampaignId === void 0 || typeof value.expectedCampaignId === "string") && (value.kind === "identify" || value.code.length > 0 && typeof value.expectedCampaignId === "string" && value.expectedCampaignId.length > 0);
   }
   function isRoll20AcknowledgementMessage(value) {
     return isRecord(value) && value.type === ROLL20_ACKNOWLEDGEMENT_TYPE && isValidRequestId(value.requestId) && typeof value.protocolVersion === "number" && typeof value.modVersion === "string" && typeof value.campaignId === "string" && typeof value.isGM === "boolean" && typeof value.accepted === "boolean" && (value.error === void 0 || isExecutionError(value.error)) && (value.pageTitle === void 0 || typeof value.pageTitle === "string") && (value.sandboxVersion === void 0 || isRoll20SandboxVersion(value.sandboxVersion));
@@ -156,7 +156,7 @@
   }
 
   // src/build-info.ts
-  var EXTENSION_BUILD_ID = "936fcf8882d1";
+  var EXTENSION_BUILD_ID = "521df2459ea8";
   var EXTENSION_VERSION = "0.1.0";
 
   // src/extension/roll20-response-tracker.ts
@@ -212,8 +212,12 @@
     }
   };
 
+  // src/extension/roll20-chat-hook.ts
+  var ROLL20_CHAT_HOOK_EVENT = "gmtools:roll20-chat-response";
+
   // src/extension/content-script.ts
   var pendingRoll20Responses = new Roll20ResponseTracker();
+  var silenceChatNotifications = false;
   function acknowledgement(ok, error) {
     return {
       ok,
@@ -250,6 +254,7 @@
       );
     }
     const { input, button } = findChatControls();
+    silenceChatNotifications = request.silenceChatNotifications === true;
     if (!input || !button) {
       return acknowledgement(false, "Open Roll20's Chat tab and try again.");
     }
@@ -312,6 +317,23 @@
     chatObserver.observe(document.documentElement, {
       childList: true,
       subtree: true
+    });
+    document.addEventListener(ROLL20_CHAT_HOOK_EVENT, (event) => {
+      try {
+        if (!silenceChatNotifications || !chrome.runtime.id) return;
+        const content = event.detail;
+        if (typeof content !== "string") return;
+        const response = parseRoll20AcknowledgementText(content) ?? parseRoll20ExecuteResponseText(content);
+        if (!response || !pendingRoll20Responses.has(response.requestId)) return;
+        if (pendingRoll20Responses.consume(response)) {
+          void chrome.runtime.sendMessage({
+            ...response,
+            ...response.type === ROLL20_ACKNOWLEDGEMENT_TYPE ? { pageTitle: document.title } : {}
+          }).catch(() => void 0);
+        }
+        event.preventDefault();
+      } catch {
+      }
     });
     chrome.runtime.onMessage.addListener(
       (message, _sender, sendResponse) => {

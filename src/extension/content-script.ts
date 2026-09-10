@@ -10,8 +10,10 @@ import {
 } from "../protocol";
 import { EXTENSION_BUILD_ID, EXTENSION_VERSION } from "../build-info";
 import { Roll20ResponseTracker } from "./roll20-response-tracker";
+import { ROLL20_CHAT_HOOK_EVENT } from "./roll20-chat-hook";
 
 const pendingRoll20Responses = new Roll20ResponseTracker();
+let silenceChatNotifications = false;
 
 function acknowledgement(
   ok: boolean,
@@ -70,6 +72,7 @@ function sendApiCommand(
     );
   }
   const { input, button } = findChatControls();
+  silenceChatNotifications = request.silenceChatNotifications === true;
   if (!input || !button) {
     return acknowledgement(false, "Open Roll20's Chat tab and try again.");
   }
@@ -166,6 +169,28 @@ if (contentScriptScope.__gmToolsContentScriptBuildId !== EXTENSION_BUILD_ID) {
   chatObserver.observe(document.documentElement, {
     childList: true,
     subtree: true,
+  });
+
+  document.addEventListener(ROLL20_CHAT_HOOK_EVENT, (event: Event) => {
+    try {
+      if (!silenceChatNotifications || !chrome.runtime.id) return;
+      const content: unknown = (event as CustomEvent).detail;
+      if (typeof content !== "string") return;
+      const response = parseRoll20AcknowledgementText(content) ??
+        parseRoll20ExecuteResponseText(content);
+      if (!response || !pendingRoll20Responses.has(response.requestId)) return;
+      if (pendingRoll20Responses.consume(response)) {
+        void chrome.runtime.sendMessage({
+          ...response,
+          ...(response.type === ROLL20_ACKNOWLEDGEMENT_TYPE
+            ? { pageTitle: document.title }
+            : {}),
+        }).catch(() => undefined);
+      }
+      event.preventDefault();
+    } catch {
+      // Stale extension contexts do not acknowledge or suppress page messages.
+    }
   });
 
   chrome.runtime.onMessage.addListener(

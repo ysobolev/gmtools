@@ -1417,6 +1417,8 @@ function AuthenticationSettings({
 
 function BehaviorSettings({
   debugLoggingEnabled,
+  silenceRoll20ChatNotifications,
+  onSilenceRoll20ChatNotificationsChange,
   maxSteps,
   requireRoll20Approval,
   unrestrictedWebFetchEnabled,
@@ -1428,6 +1430,8 @@ function BehaviorSettings({
   onWebSearchChange,
 }: {
   readonly debugLoggingEnabled: boolean;
+  readonly silenceRoll20ChatNotifications: boolean;
+  readonly onSilenceRoll20ChatNotificationsChange: (enabled: boolean) => void;
   readonly maxSteps: number;
   readonly requireRoll20Approval: boolean;
   readonly unrestrictedWebFetchEnabled: boolean;
@@ -1483,6 +1487,22 @@ function BehaviorSettings({
               Writes diagnostic information to the extension service-worker
               console. Debug output may contain conversation and tool-call
               details.
+            </small>
+          </span>
+        </label>
+
+        <label className="toggle-card behavior-card">
+          <input
+            checked={silenceRoll20ChatNotifications}
+            onChange={(event) => onSilenceRoll20ChatNotificationsChange(event.target.checked)}
+            type="checkbox"
+          />
+          <span>
+            <strong>Silence GM Tools chat notifications</strong>
+            <small>
+              Experimental. Suppress sounds and notification indicators for GM
+              Tools’ internal Roll20 messages. Normal chat and rolls are unaffected.
+              Applies from the next Roll20 command; no page reload is needed.
             </small>
           </span>
         </label>
@@ -1551,6 +1571,7 @@ function OptionsApp(): React.JSX.Element {
   const [campaignNavigationVersion, setCampaignNavigationVersion] = useState(0);
   const [theme, setTheme] = useState<DisplayTheme>(DEFAULT_DISPLAY_THEME);
   const [debugLoggingEnabled, setDebugLoggingEnabled] = useState(false);
+  const [silenceRoll20ChatNotifications, setSilenceRoll20ChatNotifications] = useState(false);
   const [unrestrictedWebFetchEnabled, setUnrestrictedWebFetchEnabled] =
     useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
@@ -1567,6 +1588,7 @@ function OptionsApp(): React.JSX.Element {
         if (cancelled) return;
         setTheme(preferences.displayTheme);
         setDebugLoggingEnabled(preferences.debugLoggingEnabled);
+        setSilenceRoll20ChatNotifications(preferences.silenceRoll20ChatNotifications);
         setMaxSteps(preferences.maximumSteps);
         setUnrestrictedWebFetchEnabled(
           preferences.unrestrictedWebFetchEnabled,
@@ -1644,6 +1666,11 @@ function OptionsApp(): React.JSX.Element {
   const changeRequireRoll20Approval = (enabled: boolean): void => {
     setRequireRoll20Approval(enabled);
     void updateGlobalPreferences({ requireRoll20Approval: enabled });
+  };
+
+  const changeSilenceRoll20ChatNotifications = (enabled: boolean): void => {
+    setSilenceRoll20ChatNotifications(enabled);
+    void updateGlobalPreferences({ silenceRoll20ChatNotifications: enabled });
   };
 
   const changePersistence = (enabled: boolean): void => {
@@ -1760,6 +1787,8 @@ function OptionsApp(): React.JSX.Element {
           <div hidden={activeTab !== "behavior"}>
             <BehaviorSettings
               debugLoggingEnabled={debugLoggingEnabled}
+              silenceRoll20ChatNotifications={silenceRoll20ChatNotifications}
+              onSilenceRoll20ChatNotificationsChange={changeSilenceRoll20ChatNotifications}
               maxSteps={maxSteps}
               onDebugLoggingChange={changeDebugLogging}
               onMaxStepsChange={changeMaxSteps}

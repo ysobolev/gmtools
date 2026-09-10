@@ -24,6 +24,8 @@ export interface Roll20ExecuteRequestMessage {
   readonly extensionVersion: string;
   readonly buildId: string;
   readonly protocolVersion: number;
+  // Extension-only preference; never included in the sandbox command envelope.
+  readonly silenceChatNotifications?: boolean;
 }
 
 export interface Roll20ExecutionError {
@@ -194,6 +196,8 @@ export function isRoll20ExecuteRequestMessage(
     typeof value.code === "string" &&
     typeof value.issuedAt === "number" &&
     typeof value.expiresAt === "number" &&
+    (value.silenceChatNotifications === undefined ||
+      typeof value.silenceChatNotifications === "boolean") &&
     (value.expectedCampaignId === undefined ||
       typeof value.expectedCampaignId === "string") &&
     (value.kind === "identify" ||

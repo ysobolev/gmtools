@@ -172,6 +172,7 @@ import {
 } from "./openrouter-cache";
 import { createViewRemoteImageTool } from "./remote-image-view";
 import { createReadGuideTool } from "./read-guide-tool";
+import { installRoll20ChatHook, ROLL20_CHAT_HOOK_EVENT } from "./roll20-chat-hook";
 
 const API_KEY_STORAGE_KEY = "openRouterApiKey";
 const USER_ID_STORAGE_KEY = "openRouterUserId";
@@ -1637,8 +1638,27 @@ async function sendToRoll20ContentScript(
   debug: DebugLogger,
   toolCallId: string,
 ): Promise<unknown> {
+  let silenceChatNotifications = false;
   try {
-    return await chrome.tabs.sendMessage(tabId, message);
+    const preferences = await getGlobalPreferences();
+    if (preferences.silenceRoll20ChatNotifications) {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        world: "MAIN",
+        func: installRoll20ChatHook,
+        args: [ROLL20_CHAT_HOOK_EVENT, EXTENSION_BUILD_ID],
+      });
+      silenceChatNotifications = results.some((result) => result.result === true);
+      if (!silenceChatNotifications) {
+        debug.group("Roll20 chat notification hook unavailable; using DOM fallback", { "Tab ID": tabId });
+      }
+    }
+  } catch (error) {
+    debug.group("Roll20 chat notification hook failed; using DOM fallback", { "Tab ID": tabId, Error: error });
+  }
+  const pageMessage = { ...message, silenceChatNotifications };
+  try {
+    return await chrome.tabs.sendMessage(tabId, pageMessage);
   } catch (error) {
     if (!errorMessage(error).includes("Receiving end does not exist")) throw error;
 
@@ -1651,7 +1671,7 @@ async function sendToRoll20ContentScript(
       target: { tabId },
       files: ["content-script.js"],
     });
-    return chrome.tabs.sendMessage(tabId, message);
+    return chrome.tabs.sendMessage(tabId, pageMessage);
   }
 }
 

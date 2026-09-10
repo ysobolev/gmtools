@@ -87,6 +87,9 @@ Open the chat drawer and use **Settings** in its footer.
   enable shared campaign memory. Stored memories can be viewed and deleted here.
 - **Behavior:** configure web searching, unrestricted web fetching, execution
   approval, and the model step limit. Review the warnings before enabling web tools.
+  The experimental **Silence GM Tools chat notifications** option suppresses
+  sounds and indicators for internal Roll20 replies, leaving normal chat and rolls
+  unchanged. It is off by default and applies from the next Roll20 command.
 - **Display:** use your system theme or select light or dark mode.
 
 Paste or drag images into the composer to attach them. Some webpage image drops,
