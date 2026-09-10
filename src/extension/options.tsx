@@ -509,6 +509,9 @@ function ProfilesSettings(): React.JSX.Element {
               </select>
               <small>
                 {getModelDefinition(resolvedDraftModelId).description}
+                {selectedModelChoice === "free" || selectedModelChoice === "custom" ? (
+                  <> <span className="warning-note">Your data may be used for training by the model provider.</span></>
+                ) : null}
               </small>
             </label>
 
