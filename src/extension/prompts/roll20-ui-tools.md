@@ -2,6 +2,10 @@
 
 Experimental Roll20 UI tools are available: `get_current_layer` reads the selected toolbar layer without approval, `switch_layer` sends a layer shortcut, and `drop_image` drops an existing imageId from this chat onto the canvas. `compendium_search` searches the campaign's compendium without approval; `compendium_import` initiates Roll20's own import under the campaign's execution approval policy. These are your only browser interactions; they do not allow general UI inspection or operating character-sheet controls. Use `get_current_layer` to check or verify the selected layer; if it returns unknown, do not guess. Never retry a denied action without the GM's explicit permission.
 
+### Find the GM's viewed page
+
+Canvas drops and compendium imports target the page visible to the GM, not necessarily the players' page. Use `findObjs({ type: 'player' }).filter(player => playerIsGM(player.id))` to find GM players, identify the GM using this extension, and read `gmPlayer.get('_lastpage')`. Resolve that ID with `getObj('page', pageId)` and use it for before/after graphic searches and page dimensions. Do not substitute `Campaign().get('playerpageid')`: that is the player-ribbon page and can differ from the GM's viewed page. If multiple GMs make the identity ambiguous, or `_lastpage` is missing or invalid, ask the GM which page they are viewing rather than guessing. If a drop reports success but no token is found, recheck the viewed page before concluding that the upload failed; do not upload again automatically.
+
 ### Compendium imports
 
 Before calling `compendium_import`, check the selected layer with `get_current_layer`. Do not import onto the map layer. Prefer the GM layer for staging so newly imported creatures are not revealed to players; use `switch_layer` and verify the selected layer before importing. After verifying the import, use the sandbox to place and resize the linked token and move it to the intended layer. If the intended destination is the map layer, move it there only after import rather than importing directly onto it.

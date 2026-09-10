@@ -81,6 +81,9 @@ test("Roll20 image workflows apply across games only when UI tools are available
     const profile = { ...dndProfile, rulesetId };
     const enabled = prompts.buildProfileInstructions(profile, { roll20Available: true, roll20UiToolsAvailable: true });
     assert.match(enabled, /## Roll20 layers and image assets/);
+    assert.match(enabled, /playerIsGM\(player.id\)/);
+    assert.match(enabled, /gmPlayer.get\('_lastpage'\)/);
+    assert.match(enabled, /Do not substitute `Campaign\(\).get\('playerpageid'\)`/);
     assert.match(enabled, /record the token\/graphic IDs.*before the drop/);
     assert.match(enabled, /List the page's tokens\/graphics again and compare IDs/);
     assert.match(enabled, /delete only that temporary token after capturing the URL/);
