@@ -210,6 +210,7 @@ test("global preference updates preserve defaults and other fields", async () =>
     webSearchEnabled: false,
     requireRoll20Approval: false,
     silenceRoll20ChatNotifications: false,
+    experimentalRoll20Events: false,
   });
 
   const updated = await preferences.updateGlobalPreferences({
@@ -224,6 +225,8 @@ test("global preference updates preserve defaults and other fields", async () =>
   await preferences.updateGlobalPreferences({ maximumSteps: 25 });
   const saved = await preferences.getGlobalPreferences();
   assert.equal(saved.silenceRoll20ChatNotifications, true);
+  await preferences.updateGlobalPreferences({ experimentalRoll20Events: true });
+  assert.equal((await preferences.getGlobalPreferences()).experimentalRoll20Events, true);
   assert.equal(saved.displayTheme, "dark");
   await preferences.updateGlobalPreferences({ silenceRoll20ChatNotifications: false });
   assert.equal((await preferences.getGlobalPreferences()).silenceRoll20ChatNotifications, false);

@@ -1427,6 +1427,8 @@ function AuthenticationSettings({
 }
 
 function BehaviorSettings({
+  experimentalRoll20Events,
+  onExperimentalRoll20EventsChange,
   debugLoggingEnabled,
   silenceRoll20ChatNotifications,
   onSilenceRoll20ChatNotificationsChange,
@@ -1441,6 +1443,8 @@ function BehaviorSettings({
   onWebSearchChange,
 }: {
   readonly debugLoggingEnabled: boolean;
+  readonly experimentalRoll20Events: boolean;
+  readonly onExperimentalRoll20EventsChange: (enabled: boolean) => void;
   readonly silenceRoll20ChatNotifications: boolean;
   readonly onSilenceRoll20ChatNotificationsChange: (enabled: boolean) => void;
   readonly maxSteps: number;
@@ -1462,6 +1466,13 @@ function BehaviorSettings({
       </div>
 
       <div className="behavior-options">
+        <label className="toggle-card behavior-card">
+          <input type="checkbox" checked={experimentalRoll20Events} onChange={event => onExperimentalRoll20EventsChange(event.target.checked)} />
+          <span>
+            <strong>Enable experimental Roll20 UI events</strong>
+            <small>Let the model switch layers and drop stored images onto the canvas. Drops can upload images to your Art Library and change the tabletop. These simulated interactions may not work in every browser or Roll20 version. Campaign execution approvals apply. Available from the next message.</small>
+          </span>
+        </label>
         <label className="behavior-number-card">
           <span>
             <strong>Maximum steps per request</strong>
@@ -1583,6 +1594,7 @@ function OptionsApp(): React.JSX.Element {
   const [theme, setTheme] = useState<DisplayTheme>(DEFAULT_DISPLAY_THEME);
   const [debugLoggingEnabled, setDebugLoggingEnabled] = useState(false);
   const [silenceRoll20ChatNotifications, setSilenceRoll20ChatNotifications] = useState(false);
+  const [experimentalRoll20Events, setExperimentalRoll20Events] = useState(false);
   const [unrestrictedWebFetchEnabled, setUnrestrictedWebFetchEnabled] =
     useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
@@ -1600,6 +1612,7 @@ function OptionsApp(): React.JSX.Element {
         setTheme(preferences.displayTheme);
         setDebugLoggingEnabled(preferences.debugLoggingEnabled);
         setSilenceRoll20ChatNotifications(preferences.silenceRoll20ChatNotifications);
+        setExperimentalRoll20Events(preferences.experimentalRoll20Events);
         setMaxSteps(preferences.maximumSteps);
         setUnrestrictedWebFetchEnabled(
           preferences.unrestrictedWebFetchEnabled,
@@ -1797,6 +1810,11 @@ function OptionsApp(): React.JSX.Element {
           </div>
           <div hidden={activeTab !== "behavior"}>
             <BehaviorSettings
+              experimentalRoll20Events={experimentalRoll20Events}
+              onExperimentalRoll20EventsChange={enabled => {
+                setExperimentalRoll20Events(enabled);
+                void updateGlobalPreferences({ experimentalRoll20Events: enabled });
+              }}
               debugLoggingEnabled={debugLoggingEnabled}
               silenceRoll20ChatNotifications={silenceRoll20ChatNotifications}
               onSilenceRoll20ChatNotificationsChange={changeSilenceRoll20ChatNotifications}

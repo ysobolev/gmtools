@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { isRoll20ActionPart, roll20ActionInput } from "./roll20-ui-events";
 import { sanitizeStoppedConversation } from "./chat-persistence";
 import { preserveSubmissionMetadata } from "./submission-metadata";
 import {
@@ -64,11 +65,11 @@ function approvalPart(
   part: unknown,
   state: "approval-requested" | "approval-responded",
 ): ApprovalPart | undefined {
-  if (!isRecord(part) || part.type !== "tool-execute_roll20") return undefined;
+  if (!isRecord(part) || typeof part.type !== "string" || !isRoll20ActionPart(part.type)) return undefined;
   if (part.state !== state || typeof part.toolCallId !== "string") {
     return undefined;
   }
-  const input = part.input;
+  const input = roll20ActionInput(part.type, part.input);
   const approval = part.approval;
   if (
     !isRecord(input) ||

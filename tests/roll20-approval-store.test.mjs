@@ -22,6 +22,34 @@ async function bundle(entryPoint) {
 
 const approvals = await bundle("src/extension/roll20-approval-store.ts");
 const chats = await bundle("src/extension/chat-store.ts");
+const uiActions = await bundle("src/extension/roll20-ui-events.ts");
+
+test("UI event approvals bind exact arguments, reject denial, and cannot replay", async () => {
+  for (const [type, input] of [["tool-switch_layer", { layer: "gm" }], ["tool-drop_image", { imageId: "image-1", x: 5, y: 10 }], ["tool-drop_image", { imageId: "image-1", x: null, y: null }]]) {
+    for (const approved of [true, false]) {
+      const campaignId = `campaign-${type}-${approved}`;
+      const chatId = await createAttachedChat(campaignId);
+      const requested = {
+        id: "assistant", role: "assistant", parts: [{ type, input, toolCallId: "call-1", state: "approval-requested", approval: { id: "approval-1", isAutomatic: false } }],
+      };
+      await approvals.saveMessagesAndRegisterRoll20Approvals(chatId, campaignId, [requested]);
+      const changed = structuredClone(requested);
+      changed.parts[0].state = "approval-responded";
+      changed.parts[0].approval.approved = approved;
+      changed.parts[0].input = type === "tool-switch_layer" ? { layer: "map" } : { imageId: "another-image" };
+      await assert.rejects(approvals.saveConversationInputWithApprovals(chatId, campaignId, [changed]), /already resolved/);
+      const responded = structuredClone(requested);
+      responded.parts[0].state = "approval-responded";
+      responded.parts[0].approval.approved = approved;
+      await approvals.saveConversationInputWithApprovals(chatId, campaignId, [responded]);
+      const canonical = uiActions.roll20ActionInput(type, input);
+      if (approved) {
+        assert.equal(await approvals.claimRoll20Approval(chatId, campaignId, "call-1", canonical, true), true);
+      }
+      await assert.rejects(approvals.claimRoll20Approval(chatId, campaignId, "call-1", canonical, true), /already resolved/);
+    }
+  }
+});
 
 function approvalMessage({
   approvalId,

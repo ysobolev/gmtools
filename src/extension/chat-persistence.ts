@@ -4,6 +4,7 @@ import {
   type UIMessage,
   type UIMessageChunk,
 } from "ai";
+import { isRoll20ActionPart } from "./roll20-ui-events";
 
 const STOPPED_METADATA_KEY = "gmToolsStopped";
 const INTERRUPTED_METADATA_KEY = "gmToolsInterrupted";
@@ -93,7 +94,7 @@ export function isInterruptedAssistantMessage(message: UIMessage): boolean {
 
 export function hasDurableRoll20Result(message: UIMessage): boolean {
   return message.role === "assistant" && message.parts.some((part) =>
-    isCompletedToolPart(part) && part.type === "tool-execute_roll20"
+    isCompletedToolPart(part) && isRoll20ActionPart(part.type)
   );
 }
 

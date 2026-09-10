@@ -1,4 +1,5 @@
 import { isToolUIPart, type ChatStatus, type UIMessage } from "ai";
+import { isRoll20ActionPart, roll20ActionInput } from "./roll20-ui-events";
 
 export interface ChatActivity {
   readonly kind: "Thinking" | "Working";
@@ -18,6 +19,7 @@ export interface Roll20Receipt {
 }
 
 export interface Roll20ApprovalRequest {
+  readonly detailsLabel?: string;
   readonly approvalId: string;
   readonly toolCallId: string;
   readonly summary: string;
@@ -78,26 +80,31 @@ function getRoll20ApprovalRequest(
 ): Roll20ApprovalRequest | undefined {
   if (
     !isToolUIPart(part) ||
-    part.type !== "tool-execute_roll20" ||
+    !isRoll20ActionPart(part.type) ||
     part.state !== "approval-requested" ||
     part.approval.isAutomatic
   ) {
     return undefined;
   }
-  const input = part.input as { readonly summary?: unknown; readonly code?: unknown };
+  const input = roll20ActionInput(part.type, part.input);
   const summary = getToolSummary(part) ?? "run a command in Roll20";
-  return typeof input.code === "string"
+  return input
     ? {
         approvalId: part.approval.id,
         toolCallId: part.toolCallId,
         summary,
         code: input.code,
+        ...(part.type !== "tool-execute_roll20" ? { detailsLabel: "Review UI action" } : {}),
       }
     : undefined;
 }
 
 function getToolSummary(part: unknown): string | undefined {
   if (typeof part !== "object" || part === null) return undefined;
+  const value = part as { type?: unknown; input?: unknown };
+  if (value.type === "tool-switch_layer" || value.type === "tool-drop_image") {
+    return roll20ActionInput(value.type, value.input)?.summary;
+  }
   const input = (part as { readonly input?: unknown }).input;
   if (typeof input !== "object" || input === null) return undefined;
   const summary = (input as { readonly summary?: unknown }).summary;
@@ -131,7 +138,7 @@ function reportsUnknownExecutionState(value: unknown): boolean {
 function getRoll20Status(
   part: UIMessage["parts"][number],
 ): Roll20Receipt | undefined {
-  if (!isToolUIPart(part) || part.type !== "tool-execute_roll20") {
+  if (!isToolUIPart(part) || !isRoll20ActionPart(part.type)) {
     return undefined;
   }
   const summary = getToolSummary(part);
@@ -240,7 +247,7 @@ export function countPendingRoll20Approvals(
 export function getRoll20Receipts(message: UIMessage): Roll20Receipt[] {
   const receipts: Roll20Receipt[] = [];
   for (const part of message.parts) {
-    if (!isToolUIPart(part) || part.type !== "tool-execute_roll20") continue;
+    if (!isToolUIPart(part) || !isRoll20ActionPart(part.type)) continue;
     const receipt = getRoll20Status(part);
     if (receipt && receipt.status !== "working") receipts.push(receipt);
   }
@@ -271,7 +278,7 @@ export function getChatActivity(
     if (!isToolUIPart(part)) continue;
     lastToolIndex = index;
     if (
-      part.type !== "tool-execute_roll20" ||
+      !isRoll20ActionPart(part.type) ||
       (part.state !== "input-streaming" && part.state !== "input-available")
     ) continue;
     const summary = getToolSummary(part);

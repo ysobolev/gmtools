@@ -92,6 +92,7 @@ import {
   type GeneratedImageToStore,
 } from "./chat-image-normalization";
 import { KeyedExecutionQueue } from "./keyed-execution-queue";
+import { ROLL20_LAYERS, roll20ActionInput, sendRoll20UiEvent, type Roll20Layer, type Roll20UiAction } from "./roll20-ui-events";
 import { createModelInactivityMonitor } from "./model-inactivity";
 import {
   AUTH_CONNECT_REQUEST,
@@ -2328,6 +2329,71 @@ async function resolveChatProfile(
   return general;
 }
 
+async function executeRoll20UiAction(job: ConversationJob, action: Roll20UiAction, toolCallId: string, signal: AbortSignal) {
+  const campaignId = job.campaignId;
+  if (!campaignId) throw new Error("Attach a Roll20 campaign before using UI tools.");
+  const input = roll20ActionInput(`tool-${action.tool}`, action)!;
+  const claimed = await claimRoll20Approval(job.chatId, campaignId, toolCallId, input, job.requireRoll20Approval);
+  let dispatched = false;
+  let outcome: "completed" | "failed" | "unknown" = "failed";
+  try {
+    return await roll20ExecutionQueues.run(campaignId, async () => {
+      signal.throwIfAborted();
+      if (!(await getGlobalPreferences()).experimentalRoll20Events) {
+        throw new Error("Experimental Roll20 UI events are disabled in Behavior settings.");
+      }
+      const binding = await getCampaignBinding(job.chatId);
+      if (binding?.campaignId !== campaignId) throw new Error("The chat's campaign attachment changed.");
+      const target = await ensureJobCampaignBinding(job);
+      const documentToken = crypto.randomUUID();
+      // Firefox hides content-script-created files from page drop handlers.
+      // Construct the File, DataTransfer, and DragEvent in the page world.
+      const world = action.tool === "drop_image" ? "MAIN" as const : "ISOLATED" as const;
+      await chrome.scripting.executeScript({ target: { tabId: target.tabId }, world, func: sendRoll20UiEvent, args: [documentToken] });
+      // UI actions do not carry the sandbox's campaign guard: verify the live GM
+      // and campaign before sending any event. Never retry a dispatched event.
+      const identity = await discoverCampaignInTab(await getBoundRoll20Tab(target.tabId), job.debug);
+      if (!identity.isGM || identity.campaignId !== campaignId) {
+        await removeCampaignRoute(campaignId);
+        throw new Error("The Roll20 tab is not a GM tab for this chat's campaign.");
+      }
+      let payload: { base64: string; filename: string; mediaType: string } | undefined;
+      if (action.tool === "drop_image") {
+        const image = await getChatImage(job.chatId, action.imageId);
+        if (!image) throw new Error("The image is not available in this chat.");
+        const bytes = new Uint8Array(await image.blob.arrayBuffer());
+        let binary = "";
+        for (let offset = 0; offset < bytes.length; offset += 8192) {
+          binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+        }
+        payload = { base64: btoa(binary), filename: image.filename, mediaType: image.mediaType };
+      }
+      signal.throwIfAborted();
+      if ((await getCampaignBinding(job.chatId))?.campaignId !== campaignId || !(await getGlobalPreferences()).experimentalRoll20Events) {
+        throw new Error("The campaign attachment or experimental UI setting changed.");
+      }
+      signal.throwIfAborted();
+      job.debug.group("Roll20 UI event dispatch", { "Tool call ID": toolCallId, "Campaign ID": campaignId, Action: action });
+      dispatched = true;
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: target.tabId }, world, func: sendRoll20UiEvent,
+        args: [documentToken, action, payload ?? null],
+      });
+      const result = results[0]?.result;
+      if (!result) throw new Error("The content script did not return an event receipt.");
+      outcome = result.ok ? "completed" : "failed";
+      return { ...result, retryable: false, ...(result.eventSent ? { note: "Synthetic events were sent. This does not confirm a layer change, upload, or token creation. Do not automatically repeat the action." } : {}) };
+    });
+  } catch (error) {
+    outcome = dispatched ? "unknown" : "failed";
+    return { ok: false, error: { message: error instanceof Error ? error.message : "Roll20 UI event failed.", retryable: false, ...(dispatched ? { executionState: "unknown" } : {}) } };
+  } finally {
+    if (claimed) await resolveRoll20ApprovalExecution(job.chatId, toolCallId, outcome).catch(error => {
+      job.debug.group("Roll20 UI approval resolution failed", { Error: error });
+    });
+  }
+}
+
 async function streamChat(
   job: ConversationJob,
   untrustedMessages: unknown,
@@ -2367,6 +2433,24 @@ async function streamChat(
     apiKey: stored.openRouterApiKey,
   });
   const tools = {
+    switch_layer: tool({
+      description: "Experimental: send a keyboard shortcut to switch the attached Roll20 tab's layer. Changes the GM's UI, not token properties. Event delivery does not confirm the layer changed. Do not repeat denied actions without explicit user permission.",
+      inputSchema: jsonSchema<{ layer: Roll20Layer }>({
+        type: "object", properties: { layer: { type: "string", enum: [...ROLL20_LAYERS] } }, required: ["layer"], additionalProperties: false,
+      }),
+      execute: ({ layer }, { toolCallId, abortSignal }) => executeRoll20UiAction(job, { tool: "switch_layer", layer }, toolCallId, abortSignal ?? abortController.signal),
+    }),
+    drop_image: tool({
+      description: "Experimental: drop a locally stored image onto the attached Roll20 canvas, uploading it to the Art Library and potentially creating a token on the current layer. Use an exact imageId from this chat, never a URL. Defaults to the center of the visible canvas. Events sent does not confirm upload or token creation; do not automatically repeat a drop. Do not repeat denied actions without explicit user permission.",
+      inputSchema: jsonSchema<{ imageId: string; x?: number | null; y?: number | null }>({
+        type: "object", properties: {
+          imageId: { type: "string", minLength: 1 },
+          x: { type: ["number", "null"], minimum: 0, description: "Horizontal CSS pixels from the visible canvas's left edge, not map units. Omit or pass null to use the horizontal center." },
+          y: { type: ["number", "null"], minimum: 0, description: "Vertical CSS pixels from the visible canvas's top edge, not map units. Omit or pass null to use the vertical center." },
+        }, required: ["imageId"], additionalProperties: false,
+      }),
+      execute: ({ imageId, x, y }, { toolCallId, abortSignal }) => executeRoll20UiAction(job, { tool: "drop_image", imageId, ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }) }, toolCallId, abortSignal ?? abortController.signal),
+    }),
     read_guide: createReadGuideTool(),
     image_generation: createOpenRouterImageGenerationTool(),
     view_image: tool({
@@ -2758,6 +2842,9 @@ async function streamChat(
     "view_remote_image",
   ];
   if (job.campaignId) activeTools.push("execute_roll20");
+  if (job.campaignId && (await getGlobalPreferences()).experimentalRoll20Events) {
+    activeTools.push("switch_layer", "drop_image");
+  }
   if (job.memoryEnabled) {
     activeTools.push(
       "memory_search",
@@ -2772,6 +2859,9 @@ async function streamChat(
       roll20Available: Boolean(job.campaignId),
       memoryAvailable: job.memoryEnabled,
     }),
+    activeTools.includes("drop_image")
+      ? "Experimental Roll20 UI tools are available: switch_layer sends a layer shortcut, and drop_image drops an existing imageId from this chat onto the canvas. These are your only browser interactions; they do not let you inspect the UI or operate character-sheet controls. Drops use the current layer and may upload images and create tokens. Unless the GM specifies coordinates, use the center default. Do not claim success beyond the event receipt, automatically repeat a drop, or retry a denied action without the GM's explicit permission."
+      : "",
     job.continuation?.reason === "stream-error"
       ? "The previous response stream failed after one or more Roll20 actions returned. Generate a fresh answer from the recorded results and do not repeat completed actions."
       : "",
@@ -2825,7 +2915,7 @@ async function streamChat(
     }),
     tools,
     ...(job.requireRoll20Approval
-      ? { toolApproval: { execute_roll20: "user-approval" as const } }
+      ? { toolApproval: { execute_roll20: "user-approval" as const, switch_layer: "user-approval" as const, drop_image: "user-approval" as const } }
       : {}),
     activeTools,
     stopWhen: isStepCount(job.maxSteps),

@@ -399,7 +399,7 @@ function Roll20Approval({
       </div>
       <p>{approval.summary}</p>
       <details>
-        <summary>Review generated JavaScript</summary>
+        <summary>{approval.detailsLabel ?? "Review generated JavaScript"}</summary>
         <pre><code>{approval.code}</code></pre>
       </details>
       <div className="roll20-approval-actions">
