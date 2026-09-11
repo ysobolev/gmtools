@@ -1,10 +1,11 @@
 export const ROLL20_CHAT_HOOK_EVENT = "gmtools:roll20-chat-response";
+export const ROLL20_CHAT_SEND_EVENT = "gmtools:roll20-chat-send";
 
 // Serialized by scripting.executeScript into MAIN world. Keep this function
 // self-contained: no imports, module constants, or extension APIs inside it.
 export function installRoll20ChatHook(eventName: string, buildId: string): boolean {
   type Incoming = (this: unknown, ...args: unknown[]) => unknown;
-  type Chat = { incoming: Incoming };
+  type Chat = { incoming: Incoming; rawChatInput?: (message: { type: string; content: string; actionId: string }) => unknown; talktomyself?: boolean };
   const scope = window as typeof window & {
     currentPlayer?: { d20?: { textchat?: Chat } };
     __gmToolsChatHook?: {
@@ -13,9 +14,30 @@ export function installRoll20ChatHook(eventName: string, buildId: string): boole
       wrapper: Incoming;
       buildId: string;
     };
+    __gmToolsChatSender?: EventListener;
   };
   const chat = scope.currentPlayer?.d20?.textchat;
   if (!chat || typeof chat.incoming !== "function") return false;
+  // Install only an explicit send listener; ordinary Roll20 input is untouched.
+  const sendEvent = "gmtools:roll20-chat-send";
+  if (scope.__gmToolsChatSender) document.removeEventListener(sendEvent, scope.__gmToolsChatSender);
+  const sender: EventListener = (event) => {
+    const command: unknown = (event as CustomEvent).detail;
+    const current = scope.currentPlayer?.d20?.textchat;
+    if (typeof command !== "string" || !command.startsWith("!gmtools-exec ") ||
+        typeof current?.rawChatInput !== "function") return;
+    // Claim BEFORE invoking: a thrown error may happen after submission. Never
+    // fall back to the composer after an ambiguous send (no Mod deduplication).
+    event.preventDefault();
+    try {
+      if (current.talktomyself) throw new Error("Turn off Roll20's Talk to Myself mode to send GM Tools commands.");
+      current.rawChatInput({ type: "api", content: command, actionId: "no-store" });
+    } catch (error) {
+      console.warn("[GM Tools] Direct chat send failed; not resending", error);
+    }
+  };
+  document.addEventListener(sendEvent, sender);
+  scope.__gmToolsChatSender = sender;
   const previous = scope.__gmToolsChatHook;
   if (previous?.chat === chat && chat.incoming === previous.wrapper) {
     if (previous.buildId === buildId) return true;

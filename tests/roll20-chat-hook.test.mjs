@@ -34,7 +34,7 @@ function setup({ enabled = true, missingHandler = false } = {}) {
   const chat = { incoming: original };
   const page = vm.createContext({
     window: missingHandler ? {} : { currentPlayer: { d20: { textchat: chat } } },
-    document, CustomEvent,
+    document, CustomEvent, console: { warn() {} },
   });
   // executeScript serializes the function; test it with no module closure.
   const install = (buildId = "test-build") => vm.runInContext(
@@ -86,8 +86,45 @@ function setup({ enabled = true, missingHandler = false } = {}) {
     observer([{ addedNodes: [node] }]);
     return removed;
   };
-  return { install, chat, original, originals, sent, runtime, send, message, document, observe, requestId };
+  return { install, chat, original, originals, sent, runtime, send, message, document, observe, requestId, input };
 }
+
+test("direct sending preserves drafts, skips history, and registers replies before sending", () => {
+  const h = setup(); h.install(); h.install();
+  h.input.value = "GM draft";
+  let calls = 0;
+  h.chat.rawChatInput = (message) => {
+    calls++;
+    assert.equal(message.type, "api");
+    assert.equal(message.actionId, "no-store");
+    assert.equal(protocol.parseRoll20ExecuteCommand(message.content).code, "return 5;");
+    h.chat.incoming(true, h.message);
+  };
+  h.document.querySelector = () => { throw new Error("Composer must not be accessed"); };
+  h.send();
+  assert.equal(calls, 1);
+  assert.equal(h.input.value, "GM draft");
+  assert.equal(h.sent.length, 1);
+});
+
+test("disabled direct sending uses composer even with installed hook", () => {
+  const h = setup(); h.install();
+  h.chat.rawChatInput = () => assert.fail("Direct sending is disabled");
+  h.send(false);
+  assert.match(h.input.value, /^!gmtools-exec /);
+});
+
+test("missing sender falls back, but an invoked sender throwing never resends", () => {
+  const h = setup(); h.install();
+  h.send();
+  assert.match(h.input.value, /^!gmtools-exec /);
+  h.input.value = "untouched";
+  let calls = 0;
+  h.chat.rawChatInput = () => { calls++; throw new Error("Possibly sent"); };
+  h.send();
+  assert.equal(calls, 1);
+  assert.equal(h.input.value, "untouched");
+});
 
 test("silencing is opt-in and normalized strictly", () => {
   for (const value of [undefined, null, false, "true", 1]) {

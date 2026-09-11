@@ -156,7 +156,7 @@
   }
 
   // src/build-info.ts
-  var EXTENSION_BUILD_ID = "02eb4d871004";
+  var EXTENSION_BUILD_ID = "a4932f03adc3";
   var EXTENSION_VERSION = "0.1.0";
 
   // src/extension/roll20-response-tracker.ts
@@ -214,6 +214,7 @@
 
   // src/extension/roll20-chat-hook.ts
   var ROLL20_CHAT_HOOK_EVENT = "gmtools:roll20-chat-response";
+  var ROLL20_CHAT_SEND_EVENT = "gmtools:roll20-chat-send";
 
   // src/extension/content-script.ts
   var pendingRoll20Responses = new Roll20ResponseTracker();
@@ -253,20 +254,22 @@
         "The Roll20 page is running a different GM Tools build. Reload the page."
       );
     }
-    const { input, button } = findChatControls();
     silenceChatNotifications = request.silenceChatNotifications === true;
-    if (!input || !button) {
-      return acknowledgement(false, "Open Roll20's Chat tab and try again.");
-    }
     const command = formatRoll20ExecuteCommand(request.requestId, request.code, {
       kind: request.kind,
       ...request.expectedCampaignId ? { expectedCampaignId: request.expectedCampaignId } : {},
       issuedAt: request.issuedAt,
       expiresAt: request.expiresAt
     });
-    const previousValue = input.value;
     try {
       pendingRoll20Responses.register(request);
+      if (silenceChatNotifications) {
+        const event = new CustomEvent(ROLL20_CHAT_SEND_EVENT, { detail: command, cancelable: true });
+        if (!document.dispatchEvent(event)) return acknowledgement(true);
+      }
+      const { input, button } = findChatControls();
+      if (!input || !button) throw new Error("Open Roll20's Chat tab and try again.");
+      const previousValue = input.value;
       setNativeValue(input, command);
       button.click();
       setTimeout(() => setNativeValue(input, previousValue), 0);

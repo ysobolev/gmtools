@@ -10,7 +10,7 @@ import {
 } from "../protocol";
 import { EXTENSION_BUILD_ID, EXTENSION_VERSION } from "../build-info";
 import { Roll20ResponseTracker } from "./roll20-response-tracker";
-import { ROLL20_CHAT_HOOK_EVENT } from "./roll20-chat-hook";
+import { ROLL20_CHAT_HOOK_EVENT, ROLL20_CHAT_SEND_EVENT } from "./roll20-chat-hook";
 
 const pendingRoll20Responses = new Roll20ResponseTracker();
 let silenceChatNotifications = false;
@@ -71,11 +71,7 @@ function sendApiCommand(
       "The Roll20 page is running a different GM Tools build. Reload the page.",
     );
   }
-  const { input, button } = findChatControls();
   silenceChatNotifications = request.silenceChatNotifications === true;
-  if (!input || !button) {
-    return acknowledgement(false, "Open Roll20's Chat tab and try again.");
-  }
 
   const command = formatRoll20ExecuteCommand(request.requestId, request.code, {
     kind: request.kind,
@@ -85,9 +81,15 @@ function sendApiCommand(
     issuedAt: request.issuedAt,
     expiresAt: request.expiresAt,
   });
-  const previousValue = input.value;
   try {
     pendingRoll20Responses.register(request);
+    if (silenceChatNotifications) {
+      const event = new CustomEvent(ROLL20_CHAT_SEND_EVENT, { detail: command, cancelable: true });
+      if (!document.dispatchEvent(event)) return acknowledgement(true);
+    }
+    const { input, button } = findChatControls();
+    if (!input || !button) throw new Error("Open Roll20's Chat tab and try again.");
+    const previousValue = input.value;
     setNativeValue(input, command);
     button.click();
 

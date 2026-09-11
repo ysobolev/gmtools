@@ -1518,6 +1518,7 @@ function BehaviorSettings({
             <small>
               Experimental. Suppress sounds and notification indicators for GM
               Tools’ internal Roll20 messages. Normal chat and rolls are unaffected.
+              Send internal commands without using your chat input when supported.
               Applies from the next Roll20 command; no page reload is needed.
             </small>
           </span>
