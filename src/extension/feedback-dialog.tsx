@@ -106,8 +106,9 @@ export function FeedbackDialog({ target, onClose, onExported, onSubmitted }: {
         <label className="feedback-checkbox">
           <input checked={includeChat && includeImages} disabled={busy || !includeChat} name="include-images" type="checkbox"
             onChange={(event) => setIncludeImages(event.target.checked)} />
-          <span>Include stored images</span>
+          <span>Include up to 5 recent images</span>
         </label>
+        <p className="feedback-description">Oldest images are omitted if the report is too large.</p>
         {includeChat && target.runningWhenOpened ? (
           <p className="feedback-description">The chat was still running when this screen opened. Only saved history is included; the in-progress response may be missing.</p>
         ) : null}

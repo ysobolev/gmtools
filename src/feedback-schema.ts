@@ -32,6 +32,7 @@ export const feedbackReportSchema = z.object({
     messages: z.array(z.unknown()),
     snapshots: z.array(z.unknown()),
     images: z.array(feedbackImageSchema),
+    omittedImageCount: z.number().int().nonnegative().optional(),
     missingSnapshotHashes: z.array(z.string()).optional(),
     missingImageIds: z.array(z.string()).optional(),
     savedAt: z.number().nullable().optional(),

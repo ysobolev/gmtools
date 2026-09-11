@@ -10,6 +10,7 @@ import type { RunSnapshot } from "./run-snapshot-store";
 import type { ChatRecord, StoredChatImage } from "./chat-store";
 import type { FeedbackImage, FeedbackReport } from "../feedback-schema";
 import { feedbackEmailSchema } from "../feedback-schema";
+import { MAX_FEEDBACK_REPORT_BYTES, MAX_FEEDBACK_IMAGES } from "../feedback-limits";
 
 export interface FeedbackReportOptions {
   readonly feedback: string;
@@ -60,6 +61,11 @@ export function omitInlineImageBytes(value: unknown): unknown {
   return result;
 }
 
+function imageMetadata(image: StoredChatImage): FeedbackImage {
+  return { imageId: image.id, filename: image.filename, mediaType: image.mediaType,
+    size: image.blob.size, encoding: "base64", data: "" };
+}
+
 async function encodeImage(image: StoredChatImage): Promise<FeedbackImage> {
   const bytes = new Uint8Array(await image.blob.arrayBuffer());
   const chunks: string[] = [];
@@ -69,11 +75,7 @@ async function encodeImage(image: StoredChatImage): Promise<FeedbackImage> {
     chunks.push(btoa(String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))));
   }
   return {
-    imageId: image.id,
-    filename: image.filename,
-    mediaType: image.mediaType,
-    size: image.size,
-    encoding: "base64" as const,
+    ...imageMetadata(image),
     data: chunks.join(""),
   };
 }
@@ -123,11 +125,18 @@ export async function createFeedbackReport(options: FeedbackReportOptions): Prom
     else missingSnapshotHashes.push(hash);
   }
   const images: StoredChatImage[] = [];
+  let omittedImageCount = 0;
   const missingImageIds: string[] = [];
   if (options.includeImages) {
     for (const id of referencedImageIds(messages)) {
       const image: StoredChatImage | undefined = await requestResult(transaction.objectStore(IMAGES_STORE).get(id));
-      if (image?.chatId === options.chatId) images.push(image);
+      if (image?.chatId === options.chatId) {
+        images.push(image);
+        if (images.length > MAX_FEEDBACK_IMAGES) {
+          images.shift();
+          omittedImageCount++;
+        }
+      }
       else missingImageIds.push(id);
     }
   }
@@ -136,9 +145,10 @@ export async function createFeedbackReport(options: FeedbackReportOptions): Prom
     ...base,
     conversation: {
       chat,
-      messages,
+      messages: omitInlineImageBytes(messages) as unknown[],
       snapshots,
-      images: await Promise.all(images.map(encodeImage)),
+      images: [],
+      ...(options.includeImages ? { omittedImageCount } : {}),
       missingSnapshotHashes,
       missingImageIds,
       savedAt: stored?.updatedAt ?? null,
@@ -147,6 +157,20 @@ export async function createFeedbackReport(options: FeedbackReportOptions): Prom
       ...(options.visibleError ? { visibleError: options.visibleError } : {}),
     },
   };
+  const conversation = report.conversation!;
+  // Base64 is ASCII without JSON escapes. Calculate its exact serialized cost
+  // from Blob sizes BEFORE reading bytes. Include pretty-printing used by export.
+  while (true) {
+    conversation.images = images.map(imageMetadata);
+    const bytes = new TextEncoder().encode(JSON.stringify(report, null, 2)).byteLength +
+      images.reduce((total, image) => total + 4 * Math.ceil(image.blob.size / 3), 0);
+    if (bytes <= MAX_FEEDBACK_REPORT_BYTES) break;
+    if (!images.length) throw new Error("This conversation exceeds the 50 MiB report limit even without images. Uncheck Include this conversation to send feedback only.");
+    images.shift();
+    conversation.omittedImageCount = ++omittedImageCount;
+  }
+  conversation.images = [];
+  for (const image of images) conversation.images.push(await encodeImage(image));
   // Redaction replaces only diagnostic image bytes, preserving the envelope.
   return options.includeImages ? report : omitInlineImageBytes(report) as FeedbackReport;
 }

@@ -24,6 +24,42 @@ const options = {
   extension,
 };
 
+test("includes only the five newest images without treating older ones as missing", async () => {
+  const { chat } = await chats.createChat("general-gm");
+  const parts = [];
+  for (let i = 0; i < 7; i++) {
+    const id = `recent-${i}`;
+    await chats.saveChatImageBlob(chat.id, { id, filename: `${i}.png`, mediaType: "image/png", blob: new Blob([String(i)]) });
+    parts.push({ type: "data-generated-image", data: { imageId: id } });
+  }
+  await chats.saveChatMessages(chat.id, [{ id: "recent-message", role: "assistant", parts }]);
+  const result = await reports.createFeedbackReport({ ...options, chatId: chat.id, includeImages: true });
+  assert.deepEqual(result.conversation.images.map(image => image.imageId), [2, 3, 4, 5, 6].map(i => `recent-${i}`));
+  assert.equal(result.conversation.omittedImageCount, 2);
+  assert.deepEqual(result.conversation.missingImageIds, []);
+  assert.equal(result.conversation.messages[0].parts.length, 7);
+});
+
+test("drops oldest images before encoding when base64 would exceed the report budget", async (t) => {
+  const { chat } = await chats.createChat("general-gm");
+  const parts = [];
+  for (let i = 0; i < 5; i++) {
+    const id = `large-${i}`;
+    await chats.saveChatImageBlob(chat.id, { id, filename: `${i}.png`, mediaType: "image/png",
+      blob: new Blob([new Uint8Array(10 * 1024 * 1024)]) });
+    parts.push({ type: "data-generated-image", data: { imageId: id } });
+  }
+  await chats.saveChatMessages(chat.id, [{ id: "large-message", role: "assistant", parts }]);
+  const original = Blob.prototype.arrayBuffer;
+  let reads = 0;
+  t.mock.method(Blob.prototype, "arrayBuffer", function () { reads++; return original.call(this); });
+  const result = await reports.createFeedbackReport({ ...options, chatId: chat.id, includeImages: true });
+  assert.deepEqual(result.conversation.images.map(image => image.imageId), ["large-2", "large-3", "large-4"]);
+  assert.equal(result.conversation.omittedImageCount, 2);
+  assert.equal(reads, 3);
+  assert.ok(Buffer.byteLength(JSON.stringify(result, null, 2)) <= 50 * 1024 * 1024);
+});
+
 test("optional reply email is trimmed, validated and omitted when blank", async () => {
   const opts = { ...options, includeChat: false };
   const report = await reports.createFeedbackReport({ ...opts, email: " gm@example.com " });

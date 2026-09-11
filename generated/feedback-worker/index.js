@@ -18909,6 +18909,7 @@ var feedbackReportSchema = external_exports.object({
     messages: external_exports.array(external_exports.unknown()),
     snapshots: external_exports.array(external_exports.unknown()),
     images: external_exports.array(feedbackImageSchema),
+    omittedImageCount: external_exports.number().int().nonnegative().optional(),
     missingSnapshotHashes: external_exports.array(external_exports.string()).optional(),
     missingImageIds: external_exports.array(external_exports.string()).optional(),
     savedAt: external_exports.number().nullable().optional(),
@@ -18928,9 +18929,13 @@ var feedbackReportSchema = external_exports.object({
   }
 });
 
+// src/feedback-limits.ts
+var MAX_FEEDBACK_REPORT_BYTES = 50 * 1024 * 1024;
+var MAX_FEEDBACK_IMAGES = 5;
+
 // src/feedback-worker/index.ts
-var MAX_REPORT_BYTES = 50 * 1024 * 1024;
-var MAX_IMAGES = 5;
+var MAX_REPORT_BYTES = MAX_FEEDBACK_REPORT_BYTES;
+var MAX_IMAGES = MAX_FEEDBACK_IMAGES;
 var MAX_MISSING_REFERENCES = 20;
 var BODY_TIMEOUT_MS = 3e4;
 var RequestError = class extends Error {

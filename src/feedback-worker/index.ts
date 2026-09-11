@@ -1,8 +1,9 @@
 import { MAX_UPLOADED_IMAGE_BYTES } from "../extension/chat-images";
 import { feedbackReportSchema, type FeedbackImage } from "../feedback-schema";
+import { MAX_FEEDBACK_REPORT_BYTES, MAX_FEEDBACK_IMAGES } from "../feedback-limits";
 
-export const MAX_REPORT_BYTES = 50 * 1024 * 1024;
-const MAX_IMAGES = 5;
+export const MAX_REPORT_BYTES = MAX_FEEDBACK_REPORT_BYTES;
+const MAX_IMAGES = MAX_FEEDBACK_IMAGES;
 const MAX_MISSING_REFERENCES = 20;
 const BODY_TIMEOUT_MS = 30_000;
 
