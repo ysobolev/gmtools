@@ -18931,6 +18931,7 @@ var feedbackReportSchema = external_exports.object({
 // src/feedback-worker/index.ts
 var MAX_REPORT_BYTES = 50 * 1024 * 1024;
 var MAX_IMAGES = 5;
+var MAX_MISSING_REFERENCES = 20;
 var BODY_TIMEOUT_MS = 3e4;
 var RequestError = class extends Error {
   constructor(status, message, category) {
@@ -19013,6 +19014,21 @@ function validateImage(image) {
   if (!matches) invalid("Image contents do not match the declared MIME type.");
 }
 function validateReport(value, metrics) {
+  if (value !== null && typeof value === "object" && "conversation" in value) {
+    const chat2 = value.conversation;
+    if (chat2 !== null && typeof chat2 === "object") {
+      if ("images" in chat2 && Array.isArray(chat2.images) && chat2.images.length > MAX_IMAGES) {
+        metrics.imageCount = chat2.images.length;
+        throw new RequestError(413, "Reports may contain at most five images.", "image_count_limit");
+      }
+      for (const field of ["missingImageIds", "missingSnapshotHashes"]) {
+        const entries = chat2[field];
+        if (Array.isArray(entries) && entries.length > MAX_MISSING_REFERENCES) {
+          throw new RequestError(413, `Reports may contain at most 20 ${field} entries.`, "missing_reference_count_limit");
+        }
+      }
+    }
+  }
   const parsed = feedbackReportSchema.safeParse(value);
   if (!parsed.success) {
     invalid("Expected a version 1 GM Tools feedback export with nonempty feedback (at most 100,000 characters).", "invalid_schema");
@@ -19021,7 +19037,6 @@ function validateReport(value, metrics) {
   metrics.imageCount = chat?.images.length ?? 0;
   metrics.hasEmail = parsed.data.email !== void 0;
   if (!chat) return;
-  if (chat.images.length > MAX_IMAGES) throw new RequestError(413, "Reports may contain at most five images.", "image_count_limit");
   const ids = /* @__PURE__ */ new Set();
   for (const image of chat.images) {
     validateImage(image);

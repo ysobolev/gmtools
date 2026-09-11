@@ -3,6 +3,7 @@ import { feedbackReportSchema, type FeedbackImage } from "../feedback-schema";
 
 export const MAX_REPORT_BYTES = 50 * 1024 * 1024;
 const MAX_IMAGES = 5;
+const MAX_MISSING_REFERENCES = 20;
 const BODY_TIMEOUT_MS = 30_000;
 
 interface RateLimiter {
@@ -120,6 +121,23 @@ function validateImage(image: FeedbackImage): void {
 /** Validate the export envelope and attachments. Chat/tool/snapshot contents are
  * opaque diagnostics: stored, never executed, fetched, or rendered by this Worker. */
 function validateReport(value: unknown, metrics: ReportMetrics): void {
+  // Reject oversized arrays before Zod allocates an issue for each bad entry.
+  // Keep these upload limits out of the shared local-export schema.
+  if (value !== null && typeof value === "object" && "conversation" in value) {
+    const chat = value.conversation;
+    if (chat !== null && typeof chat === "object") {
+      if ("images" in chat && Array.isArray(chat.images) && chat.images.length > MAX_IMAGES) {
+        metrics.imageCount = chat.images.length;
+        throw new RequestError(413, "Reports may contain at most five images.", "image_count_limit");
+      }
+      for (const field of ["missingImageIds", "missingSnapshotHashes"] as const) {
+        const entries = (chat as Record<string, unknown>)[field];
+        if (Array.isArray(entries) && entries.length > MAX_MISSING_REFERENCES) {
+          throw new RequestError(413, `Reports may contain at most 20 ${field} entries.`, "missing_reference_count_limit");
+        }
+      }
+    }
+  }
   const parsed = feedbackReportSchema.safeParse(value);
   if (!parsed.success) {
     invalid("Expected a version 1 GM Tools feedback export with nonempty feedback (at most 100,000 characters).", "invalid_schema");
@@ -128,7 +146,6 @@ function validateReport(value: unknown, metrics: ReportMetrics): void {
   metrics.imageCount = chat?.images.length ?? 0;
   metrics.hasEmail = parsed.data.email !== undefined;
   if (!chat) return;
-  if (chat.images.length > MAX_IMAGES) throw new RequestError(413, "Reports may contain at most five images.", "image_count_limit");
   const ids = new Set<string>();
   for (const image of chat.images) {
     validateImage(image);

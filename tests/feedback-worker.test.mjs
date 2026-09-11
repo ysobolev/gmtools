@@ -115,10 +115,41 @@ test("logs actual UTF-8 payload size and attached image count", async (t) => {
   value.conversation.images = Array(6).fill(value.conversation.images[0]);
   await worker.fetch(post(value), env);
   assert.deepEqual(log.mock.calls[2].arguments, [{
-    event: "feedback_validation_failed", status: 413, imageCount: 6, hasEmail: false,
+    event: "feedback_validation_failed", status: 413, imageCount: 6,
     failureCategory: "image_count_limit",
     payloadBytes: Buffer.byteLength(JSON.stringify(value)),
   }]);
+});
+
+test("rejects oversized image and missing-reference arrays before element validation", async (t) => {
+  t.mock.method(console, "info", () => {});
+  for (const [field, limit] of [["images", 5], ["missingImageIds", 20], ["missingSnapshotHashes", 20]]) {
+    for (const count of [limit + 1, 100_000]) {
+      const { env, writes } = setup();
+      const value = withImage();
+      value.conversation[field] = Array(count).fill(null);
+      // Oversized malformed entries must hit the count guard, not Zod's 400.
+      assert.equal((await worker.fetch(post(value), env)).status, 413);
+      assert.equal(writes.length, 0);
+    }
+  }
+});
+
+test("accepts 20 missing references each and still validates their types", async (t) => {
+  t.mock.method(console, "info", () => {});
+  const value = withImage();
+  value.conversation.missingImageIds = Array.from({ length: 20 }, (_, i) => `image-${i}`);
+  value.conversation.missingSnapshotHashes = Array.from({ length: 20 }, (_, i) => `snapshot-${i}`);
+  const { env } = setup();
+  assert.equal((await worker.fetch(post(value), env)).status, 201);
+  for (const field of ["missingImageIds", "missingSnapshotHashes"]) {
+    const malformed = structuredClone(value);
+    malformed.conversation[field][0] = null;
+    assert.equal((await worker.fetch(post(malformed), env)).status, 400);
+    value.conversation[field].push("one-too-many");
+    assert.equal((await worker.fetch(post(value), env)).status, 413);
+    value.conversation[field].pop();
+  }
 });
 
 test("disabled uploads fail closed without reading the body or accessing storage", async () => {
