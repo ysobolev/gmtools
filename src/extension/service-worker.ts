@@ -2347,7 +2347,7 @@ async function executeRoll20UiAction(job: ConversationJob, action: Roll20UiActio
     return await roll20ExecutionQueues.run(campaignId, async () => {
       signal.throwIfAborted();
       if (!(await getGlobalPreferences()).experimentalRoll20Events) {
-        throw new Error("Experimental Roll20 UI events are disabled in Behavior settings.");
+        throw new Error("Experimental Roll20 UI tools are disabled in Behavior settings.");
       }
       const binding = await getCampaignBinding(job.chatId);
       if (binding?.campaignId !== campaignId) throw new Error("The chat's campaign attachment changed.");

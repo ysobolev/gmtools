@@ -209,8 +209,8 @@ test("global preference updates preserve defaults and other fields", async () =>
     unrestrictedWebFetchEnabled: false,
     webSearchEnabled: false,
     requireRoll20Approval: false,
-    silenceRoll20ChatNotifications: false,
-    experimentalRoll20Events: false,
+    silenceRoll20ChatNotifications: true,
+    experimentalRoll20Events: true,
   });
 
   const updated = await preferences.updateGlobalPreferences({

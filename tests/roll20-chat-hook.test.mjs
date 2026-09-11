@@ -126,10 +126,11 @@ test("missing sender falls back, but an invoked sender throwing never resends", 
   assert.equal(h.input.value, "untouched");
 });
 
-test("silencing is opt-in and normalized strictly", () => {
-  for (const value of [undefined, null, false, "true", 1]) {
-    assert.equal(normalizeGlobalPreferences({ silenceRoll20ChatNotifications: value }).silenceRoll20ChatNotifications, false);
+test("chat integration defaults on and preserves explicit opt-out", () => {
+  for (const value of [undefined, null, "true", 1]) {
+    assert.equal(normalizeGlobalPreferences({ silenceRoll20ChatNotifications: value }).silenceRoll20ChatNotifications, true);
   }
+  assert.equal(normalizeGlobalPreferences({ silenceRoll20ChatNotifications: false }).silenceRoll20ChatNotifications, false);
   assert.equal(normalizeGlobalPreferences({ silenceRoll20ChatNotifications: true }).silenceRoll20ChatNotifications, true);
 });
 

@@ -1463,7 +1463,7 @@ function BehaviorSettings({
         <label className="toggle-card behavior-card">
           <input type="checkbox" checked={experimentalRoll20Events} onChange={event => onExperimentalRoll20EventsChange(event.target.checked)} />
           <span>
-            <strong>Enable experimental Roll20 UI events</strong>
+            <strong>Enable experimental Roll20 UI tools</strong>
             <small>Let the model read or switch layers, drop stored images onto the canvas, and search or import compendium entries. Drops can upload images to your Art Library and change the tabletop. These interactions may not work in every browser or Roll20 version. Campaign execution approvals apply to switches, image drops, and compendium imports. Imports open a sheet that must stay open until loading completes. Reading the layer and searching need no approval. Available from the next message.</small>
           </span>
         </label>
@@ -1514,7 +1514,7 @@ function BehaviorSettings({
             type="checkbox"
           />
           <span>
-            <strong>Silence GM Tools chat notifications</strong>
+            <strong>Use experimental Roll20 chat integration</strong>
             <small>
               Experimental. Suppress sounds and notification indicators for GM
               Tools’ internal Roll20 messages. Normal chat and rolls are unaffected.

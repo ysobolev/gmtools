@@ -34,8 +34,8 @@ export const DEFAULT_GLOBAL_PREFERENCES: GlobalPreferences = {
   unrestrictedWebFetchEnabled: false,
   webSearchEnabled: false,
   requireRoll20Approval: false,
-  silenceRoll20ChatNotifications: false,
-  experimentalRoll20Events: false,
+  silenceRoll20ChatNotifications: true,
+  experimentalRoll20Events: true,
 };
 
 export function normalizeGlobalPreferences(value: unknown): GlobalPreferences {
@@ -56,7 +56,9 @@ export function normalizeGlobalPreferences(value: unknown): GlobalPreferences {
     requireRoll20Approval: isRoll20ApprovalRequired(
       record.requireRoll20Approval,
     ),
-    silenceRoll20ChatNotifications: record.silenceRoll20ChatNotifications === true,
-    experimentalRoll20Events: record.experimentalRoll20Events === true,
+    silenceRoll20ChatNotifications: typeof record.silenceRoll20ChatNotifications === "boolean"
+      ? record.silenceRoll20ChatNotifications : DEFAULT_GLOBAL_PREFERENCES.silenceRoll20ChatNotifications,
+    experimentalRoll20Events: typeof record.experimentalRoll20Events === "boolean"
+      ? record.experimentalRoll20Events : DEFAULT_GLOBAL_PREFERENCES.experimentalRoll20Events,
   };
 }

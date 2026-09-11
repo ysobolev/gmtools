@@ -23,8 +23,9 @@ function page() {
   return { sent, send, context };
 }
 
-test("experimental events require an explicit true preference", () => {
-  for (const value of [undefined, false, "true", 1]) assert.equal(preferences.normalizeGlobalPreferences({ experimentalRoll20Events: value }).experimentalRoll20Events, false);
+test("experimental UI tools default on and preserve explicit opt-out", () => {
+  for (const value of [undefined, null, "true", 1]) assert.equal(preferences.normalizeGlobalPreferences({ experimentalRoll20Events: value }).experimentalRoll20Events, true);
+  assert.equal(preferences.normalizeGlobalPreferences({ experimentalRoll20Events: false }).experimentalRoll20Events, false);
   assert.equal(preferences.normalizeGlobalPreferences({ experimentalRoll20Events: true }).experimentalRoll20Events, true);
 });
 
