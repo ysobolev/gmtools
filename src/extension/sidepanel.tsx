@@ -697,6 +697,7 @@ function ChatNameEditor({
 }
 
 const ConversationPane = memo(function ConversationPane({
+  connectButton,
   modelInactive,
   campaignName,
   chatId,
@@ -709,6 +710,7 @@ const ConversationPane = memo(function ConversationPane({
   onScrollPositionChange,
   status,
 }: {
+  readonly connectButton?: React.ReactNode;
   readonly campaignName: string;
   readonly chatId: string;
   readonly modelInactive: boolean;
@@ -887,6 +889,7 @@ const ConversationPane = memo(function ConversationPane({
             Sketch a scene, improvise an NPC, untangle a plot, or ask for a
             second opinion.
           </p>
+          {connectButton}
         </div>
       ) : (
         <div className="message-list">
@@ -2047,6 +2050,22 @@ function ChatScreen({
     onSelectProfile(profileId);
   };
 
+  const emptyChat = messages.every((message) => isCampaignAttachmentNotice(message) && !isVisibleCampaignAttachmentNotice(message));
+  const connectButton = (
+    <button
+      className="primary-button campaign-connect-button"
+      disabled={busy || awaitingApproval || campaignActionPending !== null}
+      onClick={() => void beginAttach()}
+      type="button"
+    >
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M10 13a5 5 0 0 0 7.1 0l3-3a5 5 0 0 0-7.1-7.1l-1.7 1.7" />
+        <path d="M14 11a5 5 0 0 0-7.1 0l-3 3a5 5 0 0 0 7.1 7.1l1.7-1.7" />
+      </svg>
+      {campaignActionPending === "attach" ? "Attaching…" : "Attach to a Campaign"}
+    </button>
+  );
+
   return (
     <main className="chat-shell">
       <header className="chat-header chat-first-header">
@@ -2096,7 +2115,7 @@ function ChatScreen({
               {campaignActionPending === "detach" ? "Detaching…" : "Detach"}
             </button>
           </div>
-        ) : (
+        ) : !emptyChat ? (
           <button
             className="campaign-banner campaign-banner-attach"
             data-discovering={campaignActionPending === "discover" || undefined}
@@ -2106,7 +2125,7 @@ function ChatScreen({
           >
             {campaignActionPending === "attach" ? "Attaching…" : "Attach a Roll20 campaign…"}
           </button>
-        )}
+        ) : null}
         {campaignActionFeedback ? (
           <p className="campaign-action-feedback" role="status">
             {campaignActionFeedback}
@@ -2161,6 +2180,7 @@ function ChatScreen({
       ) : null}
 
       <ConversationPane
+        connectButton={!campaignBound && emptyChat ? connectButton : undefined}
         modelInactive={modelInactive}
         campaignName={campaignLabel}
         chatId={chatId}
