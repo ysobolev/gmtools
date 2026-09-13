@@ -72,6 +72,7 @@ export function FeedbackDialog({ target, onClose, onExported, onSubmitted }: {
       ref={dialogRef}
     >
       <form onSubmit={(event) => { event.preventDefault(); void finishReport(true); }}>
+        <div className="feedback-body">
         <h2 id="feedback-heading">Feedback</h2>
         <p className="feedback-description">Submit feedback and the selected attachments to the developer, or export a JSON report to share yourself.</p>
         <label className="feedback-text-label" htmlFor="feedback-text">What would you like to share?</label>
@@ -83,7 +84,7 @@ export function FeedbackDialog({ target, onClose, onExported, onSubmitted }: {
           onChange={(event) => setFeedback(event.target.value)}
           placeholder="What happened? What did you expect? Suggestions are welcome too."
           required
-          rows={5}
+          rows={4}
           value={feedback}
         />
         <div className="feedback-email-field">
@@ -98,10 +99,6 @@ export function FeedbackDialog({ target, onClose, onExported, onSubmitted }: {
             onChange={(event) => setIncludeChat(event.target.checked)} />
           <span>Include this conversation</span>
         </label>
-        <div className="feedback-chat-details">
-          <strong>{target.title}</strong>
-          <span>{target.campaignName}</span>
-        </div>
         <p className="feedback-description">Includes messages, tool activity, and diagnostic settings. May contain private campaign information.</p>
         <label className="feedback-checkbox">
           <input checked={includeChat && includeImages} disabled={busy || !includeChat} name="include-images" type="checkbox"
@@ -113,6 +110,7 @@ export function FeedbackDialog({ target, onClose, onExported, onSubmitted }: {
           <p className="feedback-description">The chat was still running when this screen opened. Only saved history is included; the in-progress response may be missing.</p>
         ) : null}
         {error ? <p className="feedback-error" role="alert">{error}</p> : null}
+        </div>
         <div className="feedback-footer">
           <div className="feedback-export-link">
             <button className="link-button" disabled={busy || !feedback.trim()}
