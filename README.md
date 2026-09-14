@@ -1,8 +1,15 @@
 # GM Tools for VTT
 
-[![A crypt encounter in Roll20 alongside the GM Tools request and completed actions](docs/images/scene.png)](https://raw.githubusercontent.com/ysobolev/gmtools/main/docs/images/scene.png)
-
-*Turn a scene description into a battlemap with characters placed in Roll20.*
+<table>
+  <tr>
+    <td valign="top"><a href="https://raw.githubusercontent.com/ysobolev/gmtools/main/docs/images/scene.png"><img src="docs/images/scene.png" alt="A crypt encounter in Roll20 alongside the GM Tools request and completed actions" height="280"></a></td>
+    <td valign="top"><a href="https://raw.githubusercontent.com/ysobolev/gmtools/main/docs/images/character.png"><img src="docs/images/character.png" alt="Mara Vey's populated character sheet beside the request to create a warlock NPC" height="280"></a></td>
+  </tr>
+  <tr>
+    <td><em>Turn a scene description into a battlemap with characters placed in Roll20.</em></td>
+    <td><em>Create an NPC with artwork, stats, attacks, and spells on its Roll20 sheet.</em></td>
+  </tr>
+</table>
 
 <br>
 
