@@ -10,5 +10,6 @@ Read current target values before changes, and verify effective computed values 
 
 Use web_fetch for relevant Roll20 documentation when behavior is uncertain. If neither documentation nor inspection establishes a safe schema, explain the specific limitation and ask the game master for sheet-specific help rather than inventing a schema.
 
-For the supported D&D sheets, read dnd5e-roll20 for the tested initialization sequence, field mappings, and NPC recipes. Do not apply those recipes to other sheets merely because they use Beacon.
+For Beacon character Ability macros, avoid parentheses in the Ability name: Roll20's command parser interprets parentheses as arguments when the token macro bar invokes the Ability by name, preventing an exact lookup. Use a name such as "Umbral Eruption — Recharge 5–6" instead of "Umbral Eruption (Recharge 5–6)". This restriction is on the shortcut name, not the underlying sheet action name or description; preserve those and keep the verified action reference unchanged.
 
+For the supported D&D sheets, read dnd5e-roll20 for the tested initialization sequence, field mappings, and NPC recipes. Do not apply those recipes to other sheets merely because they use Beacon.

@@ -283,6 +283,8 @@ Use one Damage child for each simultaneous damage type. Do not combine alternati
 
 Native shortcuts tested include %{characterId|repeating_attack_<shortID>_attack}, %{characterId|repeating_action_<shortID>_action}, and %{characterId|initiative}. These use the actual shortID, not the integrant UUID. sendChat can submit verified actions, but submission is not proof of a successful roll. Do not depend on performAction or invented spell button suffixes. Prioritize correct human-GM sheet entries over Mod-driven spell casting. Create useful Ability shortcuts only with verified references or self-contained fully qualified roll formulas.
 
+Avoid parentheses in character Ability shortcut names: Roll20's Beacon command parser treats them as arguments, so the token macro bar cannot resolve the full Ability name. For example, name the shortcut "Umbral Eruption — Recharge 5–6", while preserving "Umbral Eruption (Recharge 5–6)" as the underlying sheet action name. Keep the verified shortID reference unchanged; this naming issue does not mean the sheet action itself is unsupported.
+
 ##### Spellbook and resources
 
 Populate real Spell records from correct-edition definitions supplied by the GM or verified rules sources; compendium access is not required. Include complete relevant effects, saves, components, range, duration, concentration, limitations and upcast text. Honor source overrides such as no Material components. Do not silently substitute 2014 spells for 2024 versions.

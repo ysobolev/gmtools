@@ -23,6 +23,14 @@ const guideBuild = await build({
 const guides = await import(`data:text/javascript;base64,${Buffer.from(guideBuild.outputFiles[0].text).toString("base64")}`);
 const dndGuide = guides.readGuide("dnd5e-roll20").content;
 
+test("Beacon guides distinguish macro naming restrictions from sheet action names", () => {
+  for (const guide of [guides.readGuide("beacon").content, dndGuide]) {
+    assert.match(guide, /avoid parentheses/i);
+    assert.match(guide, /Umbral Eruption — Recharge 5–6/);
+    assert.match(guide, /underlying sheet action name/);
+  }
+});
+
 test("5e Beacon guidance reuses a single character image for token and portrait", () => {
   assert.match(dndGuide, /use it for both the token image and the character sheet portrait \(avatar\)/);
   assert.match(dndGuide, /Reuse the same uploaded art URL/);
