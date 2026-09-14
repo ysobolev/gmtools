@@ -90,6 +90,8 @@ test("Roll20 image workflows apply across games only when UI tools are available
     assert.match(enabled, /retain the confirmed new token/);
     assert.match(enabled, /associate it.*through `represents`/);
     assert.match(enabled, /Avoid dropping onto the map layer/);
+    assert.match(enabled, /verify with `get_current_layer` that the GM layer is selected before calling `drop_image`/);
+    assert.match(enabled, /Moving a token to the GM layer after dropping it is too late/);
     assert.match(enabled, /Before calling `compendium_import`, check the selected layer with `get_current_layer`/);
     assert.match(enabled, /Do not import onto the map layer/);
     assert.match(enabled, /Prefer the GM layer for staging so newly imported creatures are not revealed to players/);
@@ -157,7 +159,10 @@ test("base prompt and on-demand guide preserve sheet and user guidance", () => {
   assert.match(prompt, /A missing or not-yet-populated marker is inconclusive/);
   assert.match(prompt, /reacquire the character with `getObj`/);
   assert.match(prompt, /presence of an `appState` attribute does not identify/);
-  assert.match(prompt, /always creates a 2024 Beacon character/);
+  assert.doesNotMatch(prompt, /always creates a 2024 Beacon character/);
+  assert.match(prompt, /campaign's original sheet configuration/);
+  assert.match(prompt, /After creating each character, reacquire it and read/);
+  assert.match(prompt, /Successful `getComputed` or `setComputed` calls alone do not establish the character's sheet type/);
   assert.match(prompt, /`createObj` ignores sheet-selection properties/);
   assert.match(prompt, /cannot change a character's sheet after creation/);
   assert.match(prompt, /cannot distinguish a 2024-only campaign/);
