@@ -130,6 +130,12 @@ test("base prompt and on-demand guide preserve sheet and user guidance", () => {
   assert.match(prompt, /setter does not invoke a completion callback/);
   assert.match(prompt, /never wrap object\.set\(property, value, resolve\) in an awaited Promise/);
   assert.match(prompt, /separate callback-based read with a bounded timeout/);
+  assert.match(prompt, /avatar, name, and token imgsrc are synchronous reads/);
+  assert.match(prompt, /bound every such wait with a timeout/);
+  assert.match(prompt, /Budget the entire execute_roll20 call/);
+  assert.match(prompt, /Sequential per-property timeouts add up/);
+  assert.match(prompt, /returning partial results and explicitly naming unverified fields/);
+  assert.match(prompt, /Promise.race timeout does not cancel the underlying operation/);
   assert.match(prompt, /Dungeons & Dragons Fifth Edition/);
   assert.match(prompt, /support the legacy 2014 and Beacon-based 2024 sheets/);
   assert.match(prompt, /custom or unsupported sheet/);
