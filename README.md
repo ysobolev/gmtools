@@ -10,7 +10,7 @@ sandbox operations.
 
 - Keep multiple chats organized by campaign.
 - Choose an OpenRouter model and customize assistant profiles for your game.
-- Paste or drag images into chat, and generate images with supported models.
+- Paste or drag images into chat, and generate images with a dedicated image model.
 - Share memories between chats in the same campaign.
 - Control web access and execution approval globally or per campaign.
 
@@ -20,12 +20,27 @@ sandbox operations.
 - **Model access:** an OpenRouter account with sufficient credit for the selected
   model, or a provided OpenRouter API key. Model and server-tool usage is billed
   by OpenRouter to the key owner's account. OpenRouter also offers some free models.
+  Image generation uses a separate paid model, even when the chat model is free.
 - **For Roll20 integration:** GM access to a campaign whose creator has a Pro
   subscription, plus the GM Tools Mod script installed in that campaign.
 - **For Beacon sheet operations:** Roll20 Mod Sandbox v1.5. Non-Beacon
   sheet operations can also work with the v1.0 sandbox.
 
 Roll20 access is not required for ordinary chat and campaign preparation.
+
+## Known limitations
+
+- AI-generated characters, rules, and image interpretations can be incorrect.
+  Review important results before using them in a game.
+- Character-sheet support varies. Built-in creation guidance focuses on Roll20's
+  D&D 5e sheets; custom sheets and other games may need additional guidance.
+- Some Roll20 interactions depend on experimental, undocumented interfaces and
+  may break when Roll20 changes.
+- Roll20 may occasionally beep during GM Tools activity even with chat
+  integration enabled. Temporary internal messages can cause Roll20 to notify
+  again for an older chat message.
+- Stopping a response cannot undo or cancel commands already sent to the Roll20
+  sandbox.
 
 ## Quick start
 
@@ -64,7 +79,8 @@ You can now send a message without connecting Roll20.
 2. Create a script named `gmtools.js`, paste the contents of
    [`generated/roll20-mod/GMToolsPoc.js`](generated/roll20-mod/GMToolsPoc.js), and save.
 3. Launch the game as GM and allow the sandbox to start.
-4. In GM Tools, create a chat and click **Attach** in the campaign banner.
+4. In GM Tools, create a chat and click **Attach to a Campaign** in the welcome
+   area. For an existing conversation, use **Attach** in the campaign banner.
    Choose the campaign if prompted.
 5. Try: “Use Roll20 to roll a d20 and tell me the result.”
 
@@ -80,21 +96,16 @@ chat cannot undo or cancel code already dispatched to the Roll20 sandbox.
 
 Open the chat drawer and use **Settings** in its footer.
 
-- **Profiles:** choose a game, model, and optional custom instructions. Use the
-  D&D 5e game setting for the built-in character-creation guidance. Switching
+- **Profiles:** choose a game, model, and optional custom instructions. Built-in
+  sheet and character-creation guides are available to every profile; the D&D 5e
+  game setting explicitly directs the assistant to the D&D guide. Switching
   profiles does not clear chat history; edits take effect on the next submission.
 - **Campaigns:** set a default profile, override behavior settings, and optionally
   enable shared campaign memory. Stored memories can be viewed and deleted here.
 - **Behavior:** configure web searching, unrestricted web fetching, execution
   approval, and the model step limit. Review the warnings before enabling web tools.
-  The experimental **Silence GM Tools chat notifications** option suppresses
-  sounds and indicators for internal Roll20 replies, leaving normal chat and rolls
-  unchanged. It is off by default and applies from the next Roll20 command.
-  **Enable experimental Roll20 UI events** lets the assistant read or switch layers and
-  drop images already stored in the chat onto the canvas. It is off by default;
-  campaign execution approvals apply to switches and drops, but not layer reads.
-  Image drops may upload to your Art Library
-  and create tokens. Browser and Roll20 support may vary.
+  **Use experimental Roll20 chat integration** and **Enable experimental Roll20
+  UI tools** are on by default; see their in-app descriptions for details.
 - **Display:** use your system theme or select light or dark mode.
 
 Paste or drag images into the composer to attach them. Some webpage image drops,
