@@ -1088,18 +1088,22 @@ const ConversationPane = memo(function ConversationPane({
                 <strong>
                   {continuation.reason === "step-limit"
                     ? "Step limit reached"
+                    : continuation.authenticationRequired
+                      ? "Sign-in interrupted this request"
                     : "Response interrupted"}
                 </strong>
                 <p>
                   {continuation.reason === "step-limit"
                     ? "The model completed its last tool call but requested another step."
+                    : continuation.authenticationRequired
+                      ? "Your message was saved. Retry sending it; any completed actions will be preserved."
                     : continuation.discardReasoning
                       ? "Resume will discard the previous reasoning and continue using the conversation and recorded tool results."
                       : "Roll20 results were preserved. Retry without repeating completed actions."}
                 </p>
               </div>
               <button onClick={onContinue} type="button">
-                Resume
+                {continuation.reason === "stream-error" && continuation.authenticationRequired ? "Retry" : "Resume"}
               </button>
             </div>
           ) : null}
@@ -1110,6 +1114,7 @@ const ConversationPane = memo(function ConversationPane({
 });
 
 function ChatComposer({
+  authenticationRequired,
   awaitingApproval,
   busy,
   canResumeAfterError,
@@ -1125,6 +1130,7 @@ function ChatComposer({
   onSend,
   onStop,
 }: {
+  readonly authenticationRequired: boolean;
   readonly awaitingApproval: boolean;
   readonly busy: boolean;
   readonly canResumeAfterError: boolean;
@@ -1422,7 +1428,7 @@ function ChatComposer({
               ? onResumeAfterError
               : onRegenerate}
           >
-            {canResumeAfterError ? "Resume" : "Retry"}
+            {canResumeAfterError && !authenticationRequired ? "Resume" : "Retry"}
           </button>
         </div>
       ) : null}
@@ -2202,6 +2208,7 @@ function ChatScreen({
         status={status}
       />
       <ChatComposer
+        authenticationRequired={chat.continuation?.reason === "stream-error" && chat.continuation.authenticationRequired === true}
         awaitingApproval={awaitingApproval}
         busy={busy}
         canResumeAfterError={chat.continuation?.reason === "stream-error"}

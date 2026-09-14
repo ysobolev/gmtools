@@ -35,6 +35,31 @@ const config = {
 const user = (id = "user-1") => ({ id, role: "user", parts: [{ type: "text", text: "Build this NPC" }] });
 const markers = (message) => message.metadata.gmToolsSubmissions;
 
+test("authentication retry survives reloading an unanswered submission without duplicating it", async () => {
+  const { chat } = await chats.createChat("general-gm");
+  const history = await runs.recordRunSubmission(chat.id, [user()], config);
+  const interrupted = await persistence.reconstructInterruptedConversation(history, [
+    { type: "error", errorText: "Your OpenRouter session is no longer valid. Connect again." },
+  ]);
+  assert.deepEqual(interrupted, history);
+  await chats.saveChatMessages(chat.id, interrupted);
+  await chats.updateChatContinuation(chat.id, {
+    reason: "stream-error", authenticationRequired: true,
+    afterMessageId: interrupted.at(-1).id, createdAt: Date.now(),
+  });
+  const reloaded = await chats.getStoredChat(chat.id);
+  assert.equal(reloaded.chat.continuation.authenticationRequired, true);
+  assert.equal(reloaded.chat.continuation.afterMessageId, reloaded.messages.at(-1).id);
+  const resumed = persistence.prepareConversationForResume(reloaded.messages);
+  assert.deepEqual(resumed, history);
+  const retried = await runs.recordRunSubmission(chat.id, resumed, config, reloaded.chat.continuation);
+  assert.equal(retried.length, 1);
+  assert.equal(markers(retried[0]).length, 2);
+  await chats.updateChatContinuation(chat.id, undefined);
+  assert.equal((await chats.getStoredChat(chat.id)).chat.continuation, undefined);
+  await chats.deleteChat(chat.id);
+});
+
 test("request diagnostics survive stale panel saves, export, retries and chat deletion", async () => {
   const { chat } = await chats.createChat("general-gm");
   const history = await runs.recordRunSubmission(chat.id, [user()], config);

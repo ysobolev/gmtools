@@ -2233,12 +2233,17 @@ function findStatusCode(error: unknown): number | undefined {
   return findStatusCode(record.cause);
 }
 
+const AUTHENTICATION_ERROR = "Your OpenRouter session is no longer valid. Connect again.";
+
+function isAuthenticationError(error: unknown): boolean {
+  return findStatusCode(error) === 401 || error === AUTHENTICATION_ERROR;
+}
+
 function userFacingModelError(error: unknown): string {
   if (isReasoningCompatibilityError(error)) return REASONING_RECOVERY_MESSAGE;
   const status = findStatusCode(error);
   if (status === 401) {
-    void clearAuth();
-    return "Your OpenRouter session is no longer valid. Connect again.";
+    return AUTHENTICATION_ERROR;
   }
   if (status === 402) return "Your OpenRouter account needs additional credit.";
   if (status === 429) return "OpenRouter is rate-limiting requests. Try again shortly.";
@@ -2962,7 +2967,7 @@ async function streamChat(
       roll20UiToolsAvailable: activeTools.includes("drop_image"),
     }),
     job.continuation?.reason === "stream-error"
-      ? "The previous response stream failed after one or more Roll20 actions returned. Generate a fresh answer from the recorded results and do not repeat completed actions."
+      ? "The previous model request failed. Answer the pending request using any recorded results and do not repeat completed actions."
       : "",
     generatedImageSystemContext(conversationMessages),
   ].filter(Boolean).join("\n\n");
@@ -3147,6 +3152,9 @@ async function streamChat(
     if (!continuation) await restoreContinuationAfterFailure(job);
     finishJob(job, { type: "error", error: streamError });
     debug.group("Conversation failed", { Error: streamError });
+    // Logging out aborts active controllers. Persist recovery first so a 401
+    // does not get finalized as a deliberate Stop and lose its Retry action.
+    if (isAuthenticationError(streamError)) await clearAuth();
     return;
   }
   const completedMessages = await persistCompletedConversation(
@@ -3300,7 +3308,8 @@ async function persistInterruptedConversation(
     );
     const finalMessage = messages.at(-1);
     const discardReasoning = isReasoningCompatibilityError(error);
-    if (!finalMessage || (!discardReasoning && !hasDurableRoll20Result(finalMessage))) {
+    const authenticationRequired = isAuthenticationError(error);
+    if (!finalMessage || (!discardReasoning && !authenticationRequired && !hasDurableRoll20Result(finalMessage))) {
       return undefined;
     }
     if (conversationJobs.get(job.chatId) !== job) return undefined;
@@ -3308,6 +3317,7 @@ async function persistInterruptedConversation(
     const continuation: ChatContinuation = {
       reason: "stream-error",
       ...(discardReasoning ? { discardReasoning: true } : {}),
+      ...(authenticationRequired ? { authenticationRequired: true } : {}),
       afterMessageId: finalMessage.id,
       createdAt: Date.now(),
     };
@@ -3711,7 +3721,7 @@ chrome.runtime.onConnect.addListener((port) => {
             if (error instanceof StaleRoll20ApprovalError) {
               await notifyChatMessagesChanged(job.chatId);
             }
-            const recovered = isReasoningCompatibilityError(error)
+            const recovered = isReasoningCompatibilityError(error) || isAuthenticationError(error)
               ? await persistInterruptedConversation(job, job.inputMessages ?? [], error)
               : undefined;
             if (!recovered) await restoreContinuationAfterFailure(job);
@@ -3719,6 +3729,7 @@ chrome.runtime.onConnect.addListener((port) => {
               type: "error",
               error: userFacingModelError(error),
             });
+            if (isAuthenticationError(error)) await clearAuth();
           }
         })
         .finally(() => {

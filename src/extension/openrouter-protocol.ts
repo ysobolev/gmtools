@@ -315,6 +315,7 @@ export function isChatContinuationChangedMessage(
     (value.continuation.reason !== "step-limit" &&
       value.continuation.reason !== "stream-error") ||
     (value.continuation.discardReasoning !== undefined && typeof value.continuation.discardReasoning !== "boolean") ||
+    (value.continuation.authenticationRequired !== undefined && typeof value.continuation.authenticationRequired !== "boolean") ||
     typeof value.continuation.afterMessageId !== "string" ||
     value.continuation.afterMessageId.length === 0 ||
     typeof value.continuation.createdAt !== "number" ||

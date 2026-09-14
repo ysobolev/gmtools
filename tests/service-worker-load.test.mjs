@@ -71,9 +71,11 @@ test("the generated Firefox worker starts without browser-global errors", async 
   database.close();
   const sandbox = {
     AbortController,
+    AbortSignal,
     Blob,
     DOMException,
     Error,
+    Promise,
     EventSource: class {},
     FormData,
     Headers,
@@ -113,6 +115,7 @@ test("the generated Firefox worker starts without browser-global errors", async 
       runtime: {
         id: "extension-id",
         getURL: (path) => `moz-extension://extension-id/${path}`,
+        getPlatformInfo: async () => ({ os: "linux" }),
         onConnect: event("connect"),
         onInstalled: event("installed"),
         onMessage: event("message"),
@@ -159,6 +162,9 @@ test("the generated Firefox worker starts without browser-global errors", async 
     indexedDB: testIndexedDB,
     setTimeout,
     clearTimeout,
+    setInterval,
+    clearInterval,
+    performance,
   };
 
   const source = await readFile("generated/firefox/service-worker.js", "utf8");
@@ -440,4 +446,56 @@ test("the generated Firefox worker starts without browser-global errors", async 
     ),
   );
   assert.deepEqual(sessionData.gmToolsRoll20TimeoutTombstones, []);
+
+  // Exercise the real worker's 401 -> clearAuth -> IndexedDB recovery path.
+  // Startup above intentionally has no Node globals. For this streamed failure,
+  // use the SDK's Node telemetry cleanup: its browser telemetry branch currently
+  // leaves a derived completion promise unhandled when no output is generated.
+  sandbox.process = process;
+  const authDb = await new Promise((resolve, reject) => {
+    const request = testIndexedDB.open(migrations.CHAT_DATABASE_NAME);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const chatId = "authentication-retry-test";
+  await new Promise((resolve, reject) => {
+    const tx = authDb.transaction("chats", "readwrite");
+    tx.objectStore("chats").put({ id: chatId, title: "New Chat", profileId: "general-gm",
+      notices: [], createdAt: Date.now(), updatedAt: Date.now() });
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+  sessionData.openRouterApiKey = "sk-or-v1-revoked-test-key";
+  let modelRequests = 0;
+  keyVerification = async () => {
+    modelRequests++;
+    return Response.json({ error: { message: "User not found", code: 401 } }, { status: 401 });
+  };
+  const responses = [];
+  const port = {
+    name: "GMTOOLS_OPENROUTER_CHAT", sender: optionsSender,
+    onMessage: event("auth-chat-message"), onDisconnect: event("auth-chat-disconnect"),
+    postMessage: (message) => responses.push(message), disconnect() {},
+  };
+  for (const listener of listeners.get("connect")) listener(port);
+  for (const listener of listeners.get("auth-chat-message")) listener({
+    type: "GMTOOLS_CHAT_START", chatId, requestId: "auth-request", profileId: "general-gm",
+    messages: [{ id: "auth-user", role: "user", parts: [{ type: "text", text: "Hello" }] }],
+  });
+  let savedChat;
+  for (let attempt = 0; attempt < 200; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    savedChat = await new Promise((resolve, reject) => {
+      const request = authDb.transaction("chats").objectStore("chats").get(chatId);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    if (!sessionData.openRouterApiKey && savedChat?.continuation) break;
+  }
+  assert.equal(modelRequests, 1, JSON.stringify(responses));
+  assert.equal(sessionData.openRouterApiKey, undefined);
+  assert.equal(savedChat.continuation?.authenticationRequired, true);
+  assert.equal(savedChat.continuation?.reason, "stream-error");
+  assert.ok(responses.some((message) => message.type === "GMTOOLS_CHAT_ERROR"));
+  authDb.close();
 });
