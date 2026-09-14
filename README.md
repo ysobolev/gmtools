@@ -1,8 +1,10 @@
 # GM Tools for VTT
 
-[![A crypt encounter in Roll20 alongside the GM Tools request and completed actions](docs/images/scene.png)](docs/images/scene.png)
+[![A crypt encounter in Roll20 alongside the GM Tools request and completed actions](docs/images/scene.png)](https://raw.githubusercontent.com/ysobolev/gmtools/main/docs/images/scene.png)
 
-*Turn a scene description into a battlemap with characters placed in Roll20. Click the image to view it at full size.*
+*Turn a scene description into a battlemap with characters placed in Roll20.*
+
+<br>
 
 GM Tools for VTT is an AI assistant for tabletop game masters, available as a
 Chrome side panel or Firefox sidebar. Use it to prepare sessions, improvise NPCs,
