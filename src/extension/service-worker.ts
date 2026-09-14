@@ -41,6 +41,7 @@ import {
 import { countPendingRoll20Approvals } from "./chat-activity";
 import {
   DEFAULT_PROFILE,
+  allowsImageGeneration,
   resolveModelId,
   type AssistantProfile,
 } from "./profile-config";
@@ -2502,6 +2503,7 @@ async function streamChat(
   });
   const generatedImageBudget = createGeneratedImageBudget();
   const imageGeneration = createGenerateImageTool({
+    enabled: allowsImageGeneration(profile.modelSelection),
     fetch: trackedFetch("image"),
     onResponse: async (value, ok) => updateRequest(imageRequestId, { ...routingDiagnosticFields(value), outcome: ok ? "completed" : "failed", finishedAt: Date.now() }),
     apiKey: stored.openRouterApiKey,
@@ -2942,11 +2944,11 @@ async function streamChat(
   };
   const activeTools: Array<keyof typeof tools> = [
     "read_guide",
-    "generate_image",
     "view_image",
     "web_fetch",
     "view_remote_image",
   ];
+  if (allowsImageGeneration(profile.modelSelection)) activeTools.push("generate_image");
   if (job.campaignId) activeTools.push("execute_roll20");
   if (job.campaignId && (await getGlobalPreferences()).experimentalRoll20Events) {
     activeTools.push("get_current_layer", "switch_layer", "drop_image", "compendium_search", "compendium_import", "close_character_window");

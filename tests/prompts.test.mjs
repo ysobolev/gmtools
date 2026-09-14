@@ -56,6 +56,15 @@ test("5e map guidance consults page dimensions and scale even without experiment
   assert.match(prompt, /Honor explicit GM instructions over page-derived defaults/);
 });
 
+test("free selections disable generation guidance but retain image viewing", () => {
+  for (const modelSelection of [{ kind: "free" }, { kind: "fixed", modelId: "openrouter/free" }, { kind: "fixed", modelId: "vendor/model:free" }]) {
+    const prompt = prompts.buildProfileInstructions({ ...dndProfile, modelSelection });
+    assert.match(prompt, /Image generation is unavailable with this free model selection/);
+    assert.doesNotMatch(prompt, /Use generate_image to create images|Generate one image per requested item/);
+    assert.match(prompt, /Use view_image with that exact ID/);
+  }
+});
+
 test("image guidance uses generation results directly without a discovery tool", () => {
   const prompt = prompts.buildProfileInstructions({ ...dndProfile, rulesetId: "custom" });
   assert.match(prompt, /Use generate_image to create images/);

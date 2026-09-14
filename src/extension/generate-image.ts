@@ -44,6 +44,7 @@ async function readResponse(response: Response, signal: AbortSignal): Promise<un
 }
 
 export function createGenerateImageTool(options: {
+  enabled?: boolean;
   apiKey: string;
   headers: Record<string, string>;
   signal: AbortSignal;
@@ -72,6 +73,9 @@ export function createGenerateImageTool(options: {
         additionalProperties: false,
       }),
       execute: async ({ prompt, aspectRatio }, { toolCallId, abortSignal }) => {
+        if (options.enabled === false) {
+          throw new Error("Image generation is unavailable with a free model selection because it uses a paid model.");
+        }
         const signal = abortSignal ? AbortSignal.any([options.signal, abortSignal]) : options.signal;
         signal.throwIfAborted();
         const operation = generationQueue.run("images", async () => {

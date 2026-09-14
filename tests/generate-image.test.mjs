@@ -47,6 +47,13 @@ function setup(overrides = {}) {
   return { ...createGenerateImageTool(options), stored, requests, logs, controller, options };
 }
 
+test("disabled image generation cannot make a paid request or persist an image", async () => {
+  const generation = setup({ enabled: false });
+  await assert.rejects(generation.tool.execute({ prompt: "A forest map" }, context()), /unavailable with a free model/);
+  assert.equal(generation.requests.length, 0);
+  assert.equal(generation.stored.length, 0);
+});
+
 test("reports image-generation identifiers before persistence without returning them to the model", async () => {
   const observed = [];
   const generation = setup({

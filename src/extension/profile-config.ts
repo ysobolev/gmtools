@@ -183,6 +183,11 @@ export function resolveModelId(selection: ModelSelection): string {
       : selection.modelId;
 }
 
+export function allowsImageGeneration(selection: ModelSelection): boolean {
+  const modelId = resolveModelId(selection);
+  return selection.kind !== "free" && modelId !== "openrouter/free" && !modelId.endsWith(":free");
+}
+
 export function getModelSelectionLabel(selection: ModelSelection): string {
   const definition = getModelDefinition(resolveModelId(selection));
   return selection.kind === "recommended"

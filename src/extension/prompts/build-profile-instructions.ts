@@ -1,7 +1,8 @@
-import { isAssistantProfile, type AssistantProfile } from "../profile-config";
+import { allowsImageGeneration, isAssistantProfile, type AssistantProfile } from "../profile-config";
 import {
   BASE_INSTRUCTIONS,
   GENERAL_CAPABILITY_INSTRUCTIONS,
+  IMAGE_GENERATION_INSTRUCTIONS,
   MEMORY_INSTRUCTIONS,
   MEMORY_UNAVAILABLE_INSTRUCTIONS,
   ROLL20_INSTRUCTIONS,
@@ -28,6 +29,9 @@ export function buildProfileInstructions(
       ? UNBOUND_ROLL20_INSTRUCTIONS
       : ROLL20_INSTRUCTIONS,
     GENERAL_CAPABILITY_INSTRUCTIONS,
+    allowsImageGeneration(profile.modelSelection)
+      ? IMAGE_GENERATION_INSTRUCTIONS
+      : "Image generation is unavailable with this free model selection because the image generator uses a paid model. Do not claim to generate images. You can still inspect existing images and use attached or previously generated images with available tools; ask the game master to attach artwork when needed.",
     options.roll20Available !== false && options.roll20UiToolsAvailable
       ? roll20UiTools.trim()
       : "",

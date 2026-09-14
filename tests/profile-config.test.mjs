@@ -100,6 +100,14 @@ test("offers the curated OpenAI and Anthropic models and the free router", () =>
   );
 });
 
+test("only paid model selections allow image generation", () => {
+  for (const selection of [{ kind: "free" }, { kind: "fixed", modelId: "openrouter/free" }, { kind: "fixed", modelId: "google/gemma-4-31b-it:free" }]) {
+    assert.equal(profiles.allowsImageGeneration(selection), false);
+  }
+  assert.equal(profiles.allowsImageGeneration({ kind: "recommended" }), true);
+  assert.equal(profiles.allowsImageGeneration({ kind: "fixed", modelId: "vendor/model" }), true);
+});
+
 test("resolves recommended, free, and fixed model selections", () => {
   assert.equal(
     profiles.resolveModelId({ kind: "recommended" }),
