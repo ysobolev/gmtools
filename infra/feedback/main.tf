@@ -46,11 +46,11 @@ resource "cloudflare_workers_script" "feedback" {
       enabled            = true
       persist            = true
       head_sampling_rate = 1
-      invocation_logs    = false # Keep request metadata out of stored invocation logs.
+      invocation_logs    = true
     }
     # Match API-populated values to avoid recurring provider diffs.
     traces = {
-      enabled            = false
+      enabled            = true
       head_sampling_rate = 1
       persist            = true
     }

@@ -19052,8 +19052,16 @@ function validateReport(value, metrics) {
 }
 var index_default = {
   async fetch(request, env) {
+    const startedAt = performance.now();
     const metrics = {};
-    const response = (status, body, extra = {}) => jsonResponse(status, body, extra, metrics);
+    const clientIp = request.headers.get("cf-connecting-ip");
+    const rayId = request.headers.get("cf-ray");
+    if (clientIp) metrics.clientIp = clientIp.slice(0, 45);
+    if (rayId) metrics.rayId = rayId.slice(0, 100);
+    const response = (status, body, extra = {}) => {
+      metrics.durationMs = Math.round(performance.now() - startedAt);
+      return jsonResponse(status, body, extra, metrics);
+    };
     const path = new URL(request.url).pathname;
     if (path === "/" && request.method === "GET") {
       return response(200, { service: "gmtools-feedback", uploadsEnabled: env.FEEDBACK_UPLOADS_ENABLED === "true" });

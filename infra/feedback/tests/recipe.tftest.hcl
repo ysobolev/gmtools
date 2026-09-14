@@ -12,9 +12,11 @@ run "private_feedback_recipe" {
       cloudflare_workers_script.feedback.observability.enabled &&
       cloudflare_workers_script.feedback.observability.logs.enabled &&
       cloudflare_workers_script.feedback.observability.logs.persist &&
-      !cloudflare_workers_script.feedback.observability.logs.invocation_logs
+      cloudflare_workers_script.feedback.observability.logs.invocation_logs &&
+      cloudflare_workers_script.feedback.observability.traces.enabled &&
+      cloudflare_workers_script.feedback.observability.traces.persist
     )
-    error_message = "Persist sanitized Worker logs without automatic request metadata."
+    error_message = "Persist Worker logs, invocation metadata, and traces."
   }
 
   assert {

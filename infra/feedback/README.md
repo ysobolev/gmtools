@@ -16,7 +16,8 @@ in R2. The extension remains export-only; its upload UI is a separate change.
 - Upload kill switch: apply with `TF_VAR_uploads_enabled=false` to reject new uploads.
 - Rate limits: five attempts per IP per minute and 30 total per minute, each per
   Cloudflare location (not a global spending cap). Namespaces `2026090801` and
-  `2026090802` are reserved for these limits. IPs are not stored in reports or logs.
+  `2026090802` are reserved for these limits. IPs are logged for abuse investigation,
+  but are not added to reports stored in R2.
 
 ## Bootstrap
 
@@ -114,9 +115,12 @@ Use a synthetic report for smoke tests rather than private campaign data.
   server-generated `reportId` for correlation with the R2 key. Failures log a
   server-defined `failureCategory` distinguishing JSON/schema/image validation,
   size/count limits, rate limits, and infrastructure failures; no raw errors.
-  Automatic invocation logs are disabled to avoid request metadata;
-  custom logs contain no email addresses or IPs. View them in Cloudflare's Worker
-  observability dashboard after deployment.
+  Custom response events also include the Cloudflare-provided `clientIp`, `rayId`,
+  and elapsed `durationMs`; absent IP/Ray headers are omitted. No email addresses
+  or report contents are logged. Automatic invocation logs and traces are enabled
+  at 100% sampling, including request metadata and platform timing/error details.
+  View them in Cloudflare's Worker observability dashboard after deployment.
+  Log/trace retention and quotas are separate from the R2 report retention policy.
 - `GET /` reports service availability; `OPTIONS /feedback` supports CORS preflight.
   CORS permits anonymous clients; it is not authentication. Limits are best-effort
   abuse protection, not a hard budget. A retry after an ambiguous network failure

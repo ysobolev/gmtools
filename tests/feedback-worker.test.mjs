@@ -2,6 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import worker, { MAX_REPORT_BYTES } from "../generated/feedback-worker/index.js";
 
+function outcomeArguments(call) {
+  return call.arguments.map(({ clientIp, rayId, durationMs, ...outcome }) => {
+    assert.equal(clientIp, "192.0.2.1");
+    assert.equal(rayId, undefined);
+    assert.ok(Number.isInteger(durationMs) && durationMs >= 0);
+    return outcome;
+  });
+}
+
 function report() {
   return {
     format: "gmtools-feedback", formatVersion: 1, reportId: "client-report-id",
@@ -79,7 +88,7 @@ test("accepts optional email without logging private report data", async (t) => 
   const receipt = await response.json();
   assert.notEqual(receipt.reportId, value.reportId);
   assert.equal(JSON.parse(writes[0][1]).email, value.email);
-  assert.deepEqual(log.mock.calls.map(call => call.arguments), [
+  assert.deepEqual(log.mock.calls.map(outcomeArguments), [
     [{ event: "feedback_response", status: 201, imageCount: 0, hasEmail: true, reportId: receipt.reportId,
       payloadBytes: Buffer.byteLength(JSON.stringify(value)) }],
   ]);
@@ -87,7 +96,7 @@ test("accepts optional email without logging private report data", async (t) => 
     assert.equal((await worker.fetch(post({ ...report(), email }), env)).status, 400);
   }
   assert.equal(writes.length, 1);
-  assert.deepEqual(log.mock.calls.slice(1).map(call => call.arguments.map(({ payloadBytes, ...entry }) => {
+  assert.deepEqual(log.mock.calls.slice(1).map(call => outcomeArguments(call).map(({ payloadBytes, ...entry }) => {
     assert.ok(payloadBytes > 0);
     return entry;
   })),
@@ -95,7 +104,28 @@ test("accepts optional email without logging private report data", async (t) => 
   const text = JSON.stringify(log.mock.calls.map(call => call.arguments));
   assert.equal(text.includes(value.email), false);
   assert.equal(text.includes(value.feedback), false);
-  assert.equal(text.includes("192.0.2.1"), false);
+  assert.equal(text.includes("192.0.2.1"), true);
+});
+
+test("logs edge IP and Ray ID without adding metadata to stored reports", async (t) => {
+  const log = t.mock.method(console, "info", () => {});
+  const { env, writes } = setup();
+  const value = report();
+  await worker.fetch(post(value, {
+    "CF-Connecting-IP": "2001:db8::1", "CF-Ray": "abc123-SJC",
+    "X-Forwarded-For": "untrusted-forwarded-value", "Authorization": "private-secret",
+  }), env);
+  const entry = log.mock.calls[0].arguments[0];
+  assert.equal(entry.clientIp, "2001:db8::1");
+  assert.equal(entry.rayId, "abc123-SJC");
+  assert.ok(entry.durationMs >= 0);
+  assert.deepEqual(JSON.parse(writes[0][1]), value);
+  assert.doesNotMatch(JSON.stringify(entry), /private-secret|untrusted-forwarded-value/);
+  await worker.fetch(new Request("https://feedback.example/unknown?secret=private"), env);
+  const missing = log.mock.calls[1].arguments[0];
+  assert.equal(missing.clientIp, undefined);
+  assert.equal(missing.rayId, undefined);
+  assert.doesNotMatch(JSON.stringify(missing), /private/);
 });
 
 test("logs actual UTF-8 payload size and attached image count", async (t) => {
@@ -105,16 +135,16 @@ test("logs actual UTF-8 payload size and attached image count", async (t) => {
   value.feedback = "A sorcerer 🧙";
   const response = await worker.fetch(post(value, { "Content-Length": "1" }), env);
   const receipt = await response.json();
-  assert.deepEqual(log.mock.calls[0].arguments, [{
+  assert.deepEqual(outcomeArguments(log.mock.calls[0]), [{
     event: "feedback_response", status: 201, imageCount: 1, hasEmail: false, reportId: receipt.reportId,
     payloadBytes: Buffer.byteLength(JSON.stringify(value)),
   }]);
   const limited = setup({ FEEDBACK_RATE_LIMITER: { async limit() { return { success: false }; } } });
   await worker.fetch(post(value), limited.env);
-  assert.deepEqual(log.mock.calls[1].arguments, [{ event: "feedback_response", status: 429, failureCategory: "ip_rate_limit" }]);
+  assert.deepEqual(outcomeArguments(log.mock.calls[1]), [{ event: "feedback_response", status: 429, failureCategory: "ip_rate_limit" }]);
   value.conversation.images = Array(6).fill(value.conversation.images[0]);
   await worker.fetch(post(value), env);
-  assert.deepEqual(log.mock.calls[2].arguments, [{
+  assert.deepEqual(outcomeArguments(log.mock.calls[2]), [{
     event: "feedback_validation_failed", status: 413, imageCount: 6,
     failureCategory: "image_count_limit",
     payloadBytes: Buffer.byteLength(JSON.stringify(value)),

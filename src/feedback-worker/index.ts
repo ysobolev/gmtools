@@ -30,6 +30,9 @@ class RequestError extends Error {
 }
 
 interface ReportMetrics {
+  clientIp?: string;
+  rayId?: string;
+  durationMs?: number;
   payloadBytes?: number;
   imageCount?: number;
   hasEmail?: boolean;
@@ -38,8 +41,8 @@ interface ReportMetrics {
 }
 
 function jsonResponse(status: number, body: unknown, extra: Record<string, string>, metrics: ReportMetrics): Response {
-  // Only server-defined outcomes: never log bodies, email, headers, URLs, IPs,
-  // validation details, or provider exceptions.
+  // Only selected request metadata and server-defined outcomes: never log bodies,
+  // email, arbitrary headers/URLs, validation details, or provider exceptions.
   const event = [400, 413, 415].includes(status) ? "feedback_validation_failed" : "feedback_response";
   console.info({ event, status, ...metrics });
   return Response.json(body, {
@@ -158,9 +161,17 @@ function validateReport(value: unknown, metrics: ReportMetrics): void {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const startedAt = performance.now();
+    // Cloudflare supplies these headers; do not use client-provided forwarded IPs.
     const metrics: ReportMetrics = {};
-    const response = (status: number, body: unknown, extra: Record<string, string> = {}) =>
-      jsonResponse(status, body, extra, metrics);
+    const clientIp = request.headers.get("cf-connecting-ip");
+    const rayId = request.headers.get("cf-ray");
+    if (clientIp) metrics.clientIp = clientIp.slice(0, 45);
+    if (rayId) metrics.rayId = rayId.slice(0, 100);
+    const response = (status: number, body: unknown, extra: Record<string, string> = {}) => {
+      metrics.durationMs = Math.round(performance.now() - startedAt);
+      return jsonResponse(status, body, extra, metrics);
+    };
     const path = new URL(request.url).pathname;
     if (path === "/" && request.method === "GET") {
       return response(200, { service: "gmtools-feedback", uploadsEnabled: env.FEEDBACK_UPLOADS_ENABLED === "true" });
